@@ -1,4 +1,4 @@
-# AZA AI Chat Archive
+# AZA Agent Chat Archive
 
 把 Web 對話匯出器與本機 Agent 對話歸檔 Skill 放在同一個發布庫，但維持各自獨立安裝。只下載自己需要的平台即可。
 
