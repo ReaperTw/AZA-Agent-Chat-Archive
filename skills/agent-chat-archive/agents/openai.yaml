@@ -1,0 +1,4 @@
+interface:
+  display_name: "Agent Chat Archive"
+  short_description: "Archive Codex, Grok, Command Code, and Hermes chats"
+  default_prompt: "Use $agent-chat-archive now to immediately archive the current agent task as Markdown."
