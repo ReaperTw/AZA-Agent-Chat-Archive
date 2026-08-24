@@ -28,15 +28,3 @@ AZA-AI-Chat-Archive/
 ├─ tests/
 └─ README.md
 ```
-
-## 命名與版本規則
-
-- Repo 內檔名保持穩定，不把版本號寫進路徑，避免更新後下載網址失效。
-- Userscript 名稱統一為 `GYC - <平台>`；版本放在 `@version`。
-- Skill 資料夾與 frontmatter `name` 都使用 `agent-chat-archive`。
-- 全部可下載項目共用同一個 SemVer 版本；這次重新以 `1.0.0` 為基線。
-- GitHub Release 資產才帶版本號：
-  - `gyc-chatgpt-v1.0.0.user.js`
-  - `gyc-gemini-v1.0.0.user.js`
-  - `gyc-grok-v1.0.0.user.js`
-  - `agent-chat-archive-v1.0.0.zip`
