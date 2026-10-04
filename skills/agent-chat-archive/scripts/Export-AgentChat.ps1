@@ -21,7 +21,7 @@ param(
     [Parameter(Mandatory, ParameterSetName = 'ShowConfig')]
     [switch]$ShowConfig,
 
-    [ValidateSet('Auto', 'Codex', 'Grok', 'CommandCode')]
+    [ValidateSet('Auto', 'Codex', 'Grok', 'CommandCode', 'Omp')]
     [string]$Harness = 'Auto',
 
     [switch]$IncludeArchived,
@@ -58,6 +58,15 @@ param(
     [AllowEmptyString()]
     [string]$CommandCodeFilePrefix = 'CommandCode_',
 
+
+    [Parameter(ParameterSetName = 'Configure')]
+    [AllowEmptyString()]
+    [string]$OmpFolderPrefix = 'Omp-',
+
+    [Parameter(ParameterSetName = 'Configure')]
+    [AllowEmptyString()]
+    [string]$OmpFilePrefix = 'OMP_',
+
     [Parameter(ParameterSetName = 'Configure')]
     [AllowEmptyString()]
     [string]$HermesFolderPrefix = 'Hermes-',
@@ -70,24 +79,29 @@ param(
         if ($env:AGENT_CHAT_ARCHIVE_CONFIG) {
             $env:AGENT_CHAT_ARCHIVE_CONFIG
         } else {
-            $userRoot = [Environment]::GetFolderPath('UserProfile')
+            $userRoot = $(if ($env:USERPROFILE) { $env:USERPROFILE } else { [Environment]::GetFolderPath('UserProfile') })
             Join-Path (Join-Path (Join-Path $userRoot '.agents') 'skills') '.agent-chat-archive.json'
         }
     ),
 
     [string]$CodexHome = $(
         if ($env:CODEX_HOME) { $env:CODEX_HOME }
-        else { Join-Path ([Environment]::GetFolderPath('UserProfile')) '.codex' }
+        else { Join-Path ($(if ($env:USERPROFILE) { $env:USERPROFILE } else { [Environment]::GetFolderPath('UserProfile') })) '.codex' }
     ),
 
     [string]$GrokHome = $(
         if ($env:GROK_HOME) { $env:GROK_HOME }
-        else { Join-Path ([Environment]::GetFolderPath('UserProfile')) '.grok' }
+        else { Join-Path ($(if ($env:USERPROFILE) { $env:USERPROFILE } else { [Environment]::GetFolderPath('UserProfile') })) '.grok' }
+    ),
+
+    [string]$OmpHome = $(
+        if ($env:OMP_HOME) { $env:OMP_HOME }
+        else { Join-Path ($(if ($env:USERPROFILE) { $env:USERPROFILE } else { [Environment]::GetFolderPath('UserProfile') })) '.omp' }
     ),
 
     [string]$CommandCodeHome = $(
         if ($env:COMMANDCODE_HOME) { $env:COMMANDCODE_HOME }
-        else { Join-Path ([Environment]::GetFolderPath('UserProfile')) '.commandcode' }
+        else { Join-Path ($(if ($env:USERPROFILE) { $env:USERPROFILE } else { [Environment]::GetFolderPath('UserProfile') })) '.commandcode' }
     )
 )
 
@@ -105,9 +119,9 @@ function Resolve-LocalPath {
     if ([string]::IsNullOrWhiteSpace($Path)) { throw 'Path cannot be empty.' }
     $expanded = [Environment]::ExpandEnvironmentVariables($Path.Trim())
     if ($expanded -eq '~') {
-        $expanded = [Environment]::GetFolderPath('UserProfile')
+        $expanded = $(if ($env:USERPROFILE) { $env:USERPROFILE } else { [Environment]::GetFolderPath('UserProfile') })
     } elseif ($expanded.StartsWith('~/') -or $expanded.StartsWith('~\')) {
-        $expanded = Join-Path ([Environment]::GetFolderPath('UserProfile')) $expanded.Substring(2)
+        $expanded = Join-Path ($(if ($env:USERPROFILE) { $env:USERPROFILE } else { [Environment]::GetFolderPath('UserProfile') })) $expanded.Substring(2)
     }
     return [IO.Path]::GetFullPath($expanded)
 }
@@ -145,6 +159,8 @@ function Save-ArchiveConfig {
     Assert-SafePrefix $GrokFilePrefix 'Grok file prefix'
     Assert-SafePrefix $CommandCodeFolderPrefix 'Command Code folder prefix'
     Assert-SafePrefix $CommandCodeFilePrefix 'Command Code file prefix'
+    Assert-SafePrefix $OmpFolderPrefix 'OMP folder prefix'
+    Assert-SafePrefix $OmpFilePrefix 'OMP file prefix'
     Assert-SafePrefix $HermesFolderPrefix 'Hermes folder prefix'
     Assert-SafePrefix $HermesFilePrefix 'Hermes file prefix'
     $resolvedConfig = Resolve-LocalPath $ConfigPath
@@ -164,6 +180,10 @@ function Save-ArchiveConfig {
             CommandCode = [ordered]@{
                 folderPrefix = $CommandCodeFolderPrefix
                 filePrefix = $CommandCodeFilePrefix
+            }
+            Omp = [ordered]@{
+                folderPrefix = $OmpFolderPrefix
+                filePrefix = $OmpFilePrefix
             }
             Hermes = [ordered]@{
                 folderPrefix = $HermesFolderPrefix
@@ -200,7 +220,12 @@ function Get-ArchiveConfig {
             folderPrefix = 'Hermes-'; filePrefix = 'Hermes_'
         })
     }
-    foreach ($name in @('Codex', 'Grok', 'CommandCode', 'Hermes')) {
+    if (-not (Test-Property $config.harnesses 'Omp')) {
+        $config.harnesses | Add-Member -NotePropertyName Omp -NotePropertyValue ([pscustomobject]@{
+            folderPrefix = 'Omp-'; filePrefix = 'OMP_'
+        })
+    }
+    foreach ($name in @('Codex', 'Grok', 'CommandCode', 'Omp', 'Hermes')) {
         if (-not (Test-Property $config.harnesses $name)) {
             throw "Archive configuration at '$resolvedConfig' has no '$name' settings."
         }
@@ -223,11 +248,13 @@ function Resolve-HarnessName {
         if ($full -match '[\\/]\.commandcode[\\/]') { return 'CommandCode' }
         if ($full -match '[\\/]\.grok[\\/]') { return 'Grok' }
         if ($full -match '[\\/]\.codex[\\/]') { return 'Codex' }
+        if ($full -match '[\\/]\.omp[\\/]') { return 'Omp' }
     }
     if ($env:COMMANDCODE_SESSION_ID) { return 'CommandCode' }
     if ($env:GROK_SESSION_ID) { return 'Grok' }
     if ($env:CODEX_THREAD_ID) { return 'Codex' }
-    throw 'Cannot detect the active harness. Pass -Harness Codex, Grok, or CommandCode.'
+    if ($env:OMP_SESSION_ID) { return 'Omp' }
+    throw 'Cannot detect the active harness. Pass -Harness Codex, Grok, CommandCode, or Omp.'
 }
 
 function Get-CurrentSessionId {
@@ -237,6 +264,7 @@ function Get-CurrentSessionId {
         'Codex' { return [string]$env:CODEX_THREAD_ID }
         'Grok' { return [string]$env:GROK_SESSION_ID }
         'CommandCode' { return [string]$env:COMMANDCODE_SESSION_ID }
+        'Omp' { return [string]$env:OMP_SESSION_ID }
     }
 }
 
@@ -364,222 +392,14 @@ function Read-JsonLines {
     }
 }
 
-function Get-CodexSessionRecord {
-    param([IO.FileInfo]$File)
-
-    $record = New-SessionRecord 'Codex' $File
-    Read-JsonLines $File {
-        param($event)
-        if ($null -eq $event) { $record.WarningCount++; return }
-
-        $eventTimestamp = if (Test-Property $event 'timestamp') { [string]$event.timestamp } else { '' }
-        if ($event.type -eq 'session_meta' -and $event.payload) {
-            if (Test-Property $event.payload 'id') { $record.Id = [string]$event.payload.id }
-            if (Test-Property $event.payload 'cwd') { $record.Cwd = [string]$event.payload.cwd }
-            $metaTimestamp = if (Test-Property $event.payload 'timestamp') { $event.payload.timestamp } else { $eventTimestamp }
-            $record.Started = Convert-ToLocalDateTime $metaTimestamp $File.CreationTime
-            return
-        }
-        if ($event.type -eq 'response_item' -and $event.payload -and $event.payload.type -eq 'message') {
-            $role = [string]$event.payload.role
-            if ($role -notin @('user', 'assistant')) { return }
-            $raw = Get-ContentText $event.payload.content
-            if ($role -eq 'user' -and (Test-InternalApprovalMessage $raw)) {
-                $record.IsInternal = $true
-                return
-            }
-            $text = Remove-InternalContext $raw
-            if (-not $text) { return }
-            $record.Messages.Add([pscustomobject]@{
-                Role = $role
-                Text = $text
-                Timestamp = Convert-ToLocalDateTime $eventTimestamp $record.Started
-            })
-            return
-        }
-        if ($event.type -eq 'event_msg' -and $event.payload) {
-            $role = switch ([string]$event.payload.type) {
-                'user_message' { 'user' }
-                'agent_message' { 'assistant' }
-                default { '' }
-            }
-            if (-not $role) { return }
-            $raw = if (Test-Property $event.payload 'message') { [string]$event.payload.message }
-                elseif (Test-Property $event.payload 'text') { [string]$event.payload.text }
-                else { '' }
-            if ($role -eq 'user' -and (Test-InternalApprovalMessage $raw)) {
-                $record.IsInternal = $true
-                return
-            }
-            $text = Remove-InternalContext $raw
-            if (-not $text) { return }
-            $record.FallbackMessages.Add([pscustomobject]@{
-                Role = $role
-                Text = $text
-                Timestamp = Convert-ToLocalDateTime $eventTimestamp $record.Started
-            })
-        }
-    }
-    if (-not $record.Id -and $File.BaseName -match '([0-9a-f]{8}-[0-9a-f-]{27,})$') {
-        $record.Id = $Matches[1]
-    }
-    if ($record.Messages.Count -eq 0) {
-        foreach ($message in $record.FallbackMessages) { $record.Messages.Add($message) }
-    }
-    return [pscustomobject]$record
-}
-
-function Get-GrokSessionRecord {
-    param([IO.FileInfo]$File)
-
-    $record = New-SessionRecord 'Grok' $File
-    $summaryPath = Join-Path $File.Directory.FullName 'summary.json'
-    if (Test-Path -LiteralPath $summaryPath -PathType Leaf) {
-        try {
-            $summary = Get-Content -LiteralPath $summaryPath -Raw -Encoding UTF8 | ConvertFrom-Json
-            if ((Test-Property $summary 'info') -and $summary.info) {
-                if (Test-Property $summary.info 'id') { $record.Id = [string]$summary.info.id }
-                if (Test-Property $summary.info 'cwd') { $record.Cwd = [string]$summary.info.cwd }
-            }
-            if (Test-Property $summary 'created_at') {
-                $record.Started = Convert-ToLocalDateTime $summary.created_at $File.CreationTime
-            }
-            if (Test-Property $summary 'generated_title') { $record.Title = [string]$summary.generated_title }
-        } catch {
-            $record.WarningCount++
-        }
-    }
-    if (-not $record.Id) { $record.Id = $File.Directory.Name }
-    if (-not $record.Cwd -and $File.Directory.Parent) {
-        try { $record.Cwd = [Uri]::UnescapeDataString($File.Directory.Parent.Name) } catch { }
-    }
-    Read-JsonLines $File {
-        param($event)
-        if ($null -eq $event) { $record.WarningCount++; return }
-        $type = [string]$event.type
-        if ($type -eq 'user') {
-            if (-not (Test-Property $event 'prompt_index') -or (Test-Property $event 'synthetic_reason')) { return }
-            $text = Remove-InternalContext (Get-ContentText $event.content)
-            if ($text) {
-                $record.Messages.Add([pscustomobject]@{
-                    Role = 'user'; Text = $text; Timestamp = $record.Started
-                })
-            }
-        } elseif ($type -eq 'assistant') {
-            $text = Remove-InternalContext (Get-ContentText $event.content)
-            if ($text) {
-                $record.Messages.Add([pscustomobject]@{
-                    Role = 'assistant'; Text = $text; Timestamp = $record.Started
-                })
-            }
-        }
-    }
-    return [pscustomobject]$record
-}
-
-function Get-CommandCodeSessionRecord {
-    param([IO.FileInfo]$File)
-
-    $record = New-SessionRecord 'CommandCode' $File
-    $nodes = @{}
-    $state = [pscustomobject]@{ LastMessageId = '' }
-    Read-JsonLines $File {
-        param($event)
-        if ($null -eq $event) { $record.WarningCount++; return }
-        if ($event.type -eq 'session') {
-            if (Test-Property $event 'id') { $record.Id = [string]$event.id }
-            if (Test-Property $event 'cwd') { $record.Cwd = [string]$event.cwd }
-            if (Test-Property $event 'timestamp') {
-                $record.Started = Convert-ToLocalDateTime $event.timestamp $File.CreationTime
-            }
-            return
-        }
-        if ($event.type -eq 'message' -and (Test-Property $event 'id')) {
-            $id = [string]$event.id
-            $nodes[$id] = $event
-            $state.LastMessageId = $id
-        }
-    }
-    if (-not $record.Id) { $record.Id = $File.BaseName }
-    $metaPath = $File.FullName -replace '\.jsonl$', '.meta.json'
-    if (Test-Path -LiteralPath $metaPath -PathType Leaf) {
-        try {
-            $meta = Get-Content -LiteralPath $metaPath -Raw -Encoding UTF8 | ConvertFrom-Json
-            if (Test-Property $meta 'title') { $record.Title = [string]$meta.title }
-        } catch {
-            $record.WarningCount++
-        }
-    }
-
-    $branch = New-Object System.Collections.Generic.List[object]
-    $seen = @{}
-    $current = $state.LastMessageId
-    while ($current -and $nodes.ContainsKey($current) -and -not $seen.ContainsKey($current)) {
-        $seen[$current] = $true
-        $event = $nodes[$current]
-        $branch.Add($event)
-        $current = if (Test-Property $event 'parentId') { [string]$event.parentId } else { '' }
-    }
-    $ordered = $branch.ToArray()
-    [array]::Reverse($ordered)
-    foreach ($event in $ordered) {
-        if (-not $event.message) { continue }
-        $role = [string]$event.message.role
-        if ($role -notin @('user', 'assistant')) { continue }
-        $text = Remove-InternalContext (Get-ContentText $event.message.content)
-        if (-not $text) { continue }
-        $timestamp = if (Test-Property $event 'timestamp') {
-            Convert-ToLocalDateTime $event.timestamp $record.Started
-        } else { $record.Started }
-        $record.Messages.Add([pscustomobject]@{
-            Role = $role; Text = $text; Timestamp = $timestamp
-        })
-    }
-    return [pscustomobject]$record
-}
-
-function Get-SessionFiles {
+function Get-HarnessHome {
     param([string]$HarnessName)
 
-    $files = New-Object System.Collections.Generic.List[IO.FileInfo]
     switch ($HarnessName) {
-        'Codex' {
-            $sessionsRoot = Join-Path (Resolve-LocalPath $CodexHome) 'sessions'
-            if (Test-Path -LiteralPath $sessionsRoot) {
-                foreach ($file in Get-ChildItem -LiteralPath $sessionsRoot -Recurse -File -Filter '*.jsonl') { $files.Add($file) }
-            }
-            if ($IncludeArchived) {
-                $archivedRoot = Join-Path (Resolve-LocalPath $CodexHome) 'archived_sessions'
-                if (Test-Path -LiteralPath $archivedRoot) {
-                    foreach ($file in Get-ChildItem -LiteralPath $archivedRoot -Recurse -File -Filter '*.jsonl') { $files.Add($file) }
-                }
-            }
-        }
-        'Grok' {
-            $sessionsRoot = Join-Path (Resolve-LocalPath $GrokHome) 'sessions'
-            if (Test-Path -LiteralPath $sessionsRoot) {
-                foreach ($file in Get-ChildItem -LiteralPath $sessionsRoot -Recurse -File -Filter 'chat_history.jsonl') { $files.Add($file) }
-            }
-        }
-        'CommandCode' {
-            $projectsRoot = Join-Path (Resolve-LocalPath $CommandCodeHome) 'projects'
-            if (Test-Path -LiteralPath $projectsRoot) {
-                foreach ($file in Get-ChildItem -LiteralPath $projectsRoot -Recurse -File -Filter '*.jsonl') {
-                    if ($file.Name -match '^[0-9a-fA-F-]{36}\.jsonl$') { $files.Add($file) }
-                }
-            }
-        }
-    }
-    return $files
-}
-
-function Get-SessionRecord {
-    param([string]$HarnessName, [IO.FileInfo]$File)
-
-    switch ($HarnessName) {
-        'Codex' { return Get-CodexSessionRecord $File }
-        'Grok' { return Get-GrokSessionRecord $File }
-        'CommandCode' { return Get-CommandCodeSessionRecord $File }
+        'Codex' { return $CodexHome }
+        'Grok' { return $GrokHome }
+        'CommandCode' { return $CommandCodeHome }
+        'Omp' { return $OmpHome }
     }
 }
 
@@ -740,6 +560,8 @@ if ($PSCmdlet.ParameterSetName -eq 'ShowConfig') {
         GrokFilePrefix = $config.harnesses.Grok.filePrefix
         CommandCodeFolderPrefix = $config.harnesses.CommandCode.folderPrefix
         CommandCodeFilePrefix = $config.harnesses.CommandCode.filePrefix
+        OmpFolderPrefix = $config.harnesses.Omp.folderPrefix
+        OmpFilePrefix = $config.harnesses.Omp.filePrefix
         HermesFolderPrefix = $config.harnesses.Hermes.folderPrefix
         HermesFilePrefix = $config.harnesses.Hermes.filePrefix
     }
@@ -747,11 +569,17 @@ if ($PSCmdlet.ParameterSetName -eq 'ShowConfig') {
 }
 
 $harnessName = Resolve-HarnessName
+$adapterPath = Join-Path (Join-Path $PSScriptRoot 'harnesses') ($harnessName + '.ps1')
+if (-not (Test-Path -LiteralPath $adapterPath -PathType Leaf)) {
+    throw "No adapter is installed for harness '$harnessName'."
+}
+. $adapterPath
+
 $candidateFiles = @()
 if ($PSCmdlet.ParameterSetName -eq 'Path') {
     $candidateFiles = @((Get-Item -LiteralPath (Resolve-LocalPath $SessionPath)))
 } else {
-    $candidateFiles = @(Get-SessionFiles $harnessName)
+    $candidateFiles = @(Get-AgentChatSessionFiles -HarnessRoot (Get-HarnessHome $harnessName) -IncludeArchived:$IncludeArchived)
 }
 if ($candidateFiles.Count -eq 0) {
     throw "No $harnessName session files found."
@@ -773,7 +601,7 @@ if ($PSCmdlet.ParameterSetName -eq 'SessionId') {
 
 $records = New-Object System.Collections.Generic.List[object]
 foreach ($file in ($candidateFiles | Sort-Object LastWriteTime -Descending)) {
-    $record = Get-SessionRecord $harnessName $file
+    $record = Get-AgentChatSessionRecord $file
     if (-not $record.IsInternal -and (Test-CwdMatch $record.Cwd $WorkingDirectory)) {
         $records.Add($record)
         if ($PSCmdlet.ParameterSetName -eq 'List' -and $records.Count -ge $Limit) { break }
@@ -829,6 +657,12 @@ if ($Title -and $records.Count -gt 1) {
 $config = Get-ArchiveConfig
 $exported = 0
 $skipped = 0
+$keepSync = Join-Path $env:USERPROFILE '.local\bin\ccusage-keep-sync.py'
+$keepPy = Join-Path $env:LOCALAPPDATA 'Programs\Python\Python313\python.exe'
+if ((Test-Path -LiteralPath $keepSync) -and (Test-Path -LiteralPath $keepPy)) {
+    & $keepPy $keepSync | Out-Null
+    if ($LASTEXITCODE -ne 0) { "WARN|ccusage-keep sync failed" }
+}
 foreach ($record in $records) {
     $result = Export-SessionRecord $record $Title $config
     if ($result.Status -eq 'EXPORTED') {

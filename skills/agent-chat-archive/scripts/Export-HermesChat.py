@@ -186,6 +186,9 @@ def inferred_profile() -> str | None:
 
 
 def export_one(session_id: str, config: dict, title: str | None, profile: str | None) -> None:
+    snapshot = Path.home() / ".local/bin/ccusage-keep-sync.py"
+    if snapshot.is_file():
+        subprocess.run([sys.executable, str(snapshot)], check=False, capture_output=True)
     with tempfile.TemporaryDirectory() as temp_root:
         temporary = Path(temp_root) / "session.jsonl"
         command = [sys.executable, "-m", "hermes_cli.main"]

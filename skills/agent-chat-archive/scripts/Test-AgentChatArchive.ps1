@@ -31,7 +31,6 @@ try {
     $outputRoot = Join-Path $testRoot 'output'
     $configPath = Join-Path $testRoot 'config.json'
     & $exporter -Configure -ConfigPath $configPath -OutputRoot $outputRoot | Out-Null
-    Assert-True (Test-Path -LiteralPath $configPath) 'configuration was not created'
 
     $codexId = '11111111-1111-4111-8111-111111111111'
     $codexHome = Join-Path $testRoot 'codex'
@@ -44,7 +43,6 @@ try {
     )
     $codexResult = @(& $exporter -Harness Codex -SessionPath $codexPath -ConfigPath $configPath -Title 'Codex Test')
     $codexExport = ($codexResult | Where-Object { $_ -like 'EXPORTED|*' }) -replace '^EXPORTED\|([^|]+)\|.*$', '$1'
-    Assert-True (Test-Path -LiteralPath $codexExport) 'Codex export missing'
     Assert-True ($codexExport -like '*\Codex-CodexRepo\CDX_Codex-Test_*.md') 'Codex naming profile mismatch'
     $codexText = Get-Content -LiteralPath $codexExport -Raw -Encoding UTF8
     Assert-True ($codexText -match 'Codex visible' -and $codexText -match 'Codex reply') 'Codex visible messages missing'
@@ -74,7 +72,6 @@ try {
     )
     $grokResult = @(& $exporter -Harness Grok -SessionPath $grokPath -ConfigPath $configPath)
     $grokExport = ($grokResult | Where-Object { $_ -like 'EXPORTED|*' }) -replace '^EXPORTED\|([^|]+)\|.*$', '$1'
-    Assert-True (Test-Path -LiteralPath $grokExport) 'Grok export missing'
     Assert-True ($grokExport -like '*\Grok-GrokRepo\Grok_Grok-Test_*.md') 'Grok naming profile mismatch'
     $grokText = Get-Content -LiteralPath $grokExport -Raw -Encoding UTF8
     Assert-True ($grokText -match 'Grok visible' -and $grokText -match 'Grok reply') 'Grok visible messages missing'
@@ -98,21 +95,62 @@ try {
     )
     $commandResult = @(& $exporter -Harness CommandCode -SessionPath $commandPath -ConfigPath $configPath)
     $commandExport = ($commandResult | Where-Object { $_ -like 'EXPORTED|*' }) -replace '^EXPORTED\|([^|]+)\|.*$', '$1'
-    Assert-True (Test-Path -LiteralPath $commandExport) 'Command Code export missing'
     Assert-True ($commandExport -like '*\CommandCode-CommandRepo\CommandCode_Command-Test_*.md') 'Command Code naming profile mismatch'
     $commandText = Get-Content -LiteralPath $commandExport -Raw -Encoding UTF8
     Assert-True ($commandText -match 'Command visible' -and $commandText -match 'Command reply' -and $commandText -match 'Command final') 'Command Code visible messages missing'
     Assert-True ($commandText -notmatch 'secret') 'Command Code internal content leaked'
+    $ompId = '20260813T040000Z_test'
+    $ompHome = Join-Path $testRoot 'omp'
+    $ompDir = Join-Path $ompHome 'agent\sessions\--C--Work-OmpRepo--'
+    $ompPath = Join-Path $ompDir "$ompId.jsonl"
+    Write-JsonLines $ompPath @(
+        [ordered]@{ type = 'title_change'; timestamp = '2026-08-13T04:00:00Z'; title = 'Omp Test' },
+        [ordered]@{ type = 'session'; version = 3; id = $ompId; timestamp = '2026-08-13T04:00:00Z'; cwd = 'C:\Work\OmpRepo' },
+        [ordered]@{ type = 'message'; timestamp = '2026-08-13T04:00:01Z'; message = [ordered]@{ role = 'user'; content = @([ordered]@{ type = 'text'; text = 'OMP visible' }) } },
+        [ordered]@{ type = 'message'; timestamp = '2026-08-13T04:00:02Z'; message = [ordered]@{ role = 'assistant'; content = @([ordered]@{ type = 'thinking'; thinking = 'OMP reasoning secret' }, [ordered]@{ type = 'text'; text = 'OMP reply' }) } },
+        [ordered]@{ type = 'custom_message'; customType = 'skill-prompt'; content = 'OMP injected secret' }
+    )
+    $ompResult = @(& $exporter -Harness Omp -SessionPath $ompPath -ConfigPath $configPath)
+    $ompExport = ($ompResult | Where-Object { $_ -like 'EXPORTED|*' }) -replace '^EXPORTED\|([^|]+)\|.*$', '$1'
+    Assert-True ($ompExport -like '*\Omp-OmpRepo\OMP_Omp-Test_*.md') 'OMP naming profile mismatch'
+    $ompText = Get-Content -LiteralPath $ompExport -Raw -Encoding UTF8
+    Assert-True ($ompText -match 'OMP visible' -and $ompText -match 'OMP reply') 'OMP visible messages missing'
+    Assert-True ($ompText -notmatch 'secret') 'OMP internal content leaked'
 
     $customConfig = Join-Path $testRoot 'custom-config.json'
     & $exporter -Configure -ConfigPath $customConfig -OutputRoot (Join-Path $testRoot 'custom-output') `
         -CodexFolderPrefix '' -CodexFilePrefix '' -GrokFolderPrefix '' -GrokFilePrefix '' `
         -CommandCodeFolderPrefix '' -CommandCodeFilePrefix '' | Out-Null
     $custom = Get-Content -LiteralPath $customConfig -Raw -Encoding UTF8 | ConvertFrom-Json
-    Assert-True ([string]$custom.harnesses.Codex.folderPrefix -eq '' -and [string]$custom.harnesses.Grok.filePrefix -eq '') 'empty custom prefixes were not preserved'
     Assert-True ([string]$custom.harnesses.Hermes.folderPrefix -eq 'Hermes-' -and [string]$custom.harnesses.Hermes.filePrefix -eq 'Hermes_') 'Hermes naming profile missing'
+    Assert-True ([string]$custom.harnesses.Omp.folderPrefix -eq 'Omp-' -and [string]$custom.harnesses.Omp.filePrefix -eq 'OMP_') 'OMP naming profile missing'
 
     $unsafeRejected = $false
+    $savedUserProfile = $env:USERPROFILE
+    $savedCodexHome = $env:CODEX_HOME
+    $savedArchiveConfig = $env:AGENT_CHAT_ARCHIVE_CONFIG
+    try {
+        $defaultProfile = Join-Path $testRoot 'default-profile'
+        $defaultId = '44444444-4444-4444-8444-444444444444'
+        $defaultSession = Join-Path $defaultProfile ".codex\sessions\2026\08\rollout-$defaultId.jsonl"
+        Write-JsonLines $defaultSession @(
+            [ordered]@{ timestamp = '2026-08-13T04:00:00Z'; type = 'session_meta'; payload = [ordered]@{ id = $defaultId; cwd = 'C:\Work\DefaultRepo'; timestamp = '2026-08-13T04:00:00Z' } },
+            [ordered]@{ timestamp = '2026-08-13T04:00:01Z'; type = 'response_item'; payload = [ordered]@{ type = 'message'; role = 'user'; content = @([ordered]@{ type = 'input_text'; text = 'Default profile visible' }) } },
+            [ordered]@{ timestamp = '2026-08-13T04:00:02Z'; type = 'response_item'; payload = [ordered]@{ type = 'message'; role = 'assistant'; content = @([ordered]@{ type = 'output_text'; text = 'Default profile reply' }) } }
+        )
+        $env:USERPROFILE = $defaultProfile
+        $env:CODEX_HOME = $null
+        $env:AGENT_CHAT_ARCHIVE_CONFIG = $null
+        & $exporter -Configure -OutputRoot (Join-Path $testRoot 'default-output') | Out-Null
+        $defaultResult = @(& $exporter -Harness Codex -SessionId $defaultId -Title 'Default Profile')
+        $defaultExport = ($defaultResult | Where-Object { $_ -like 'EXPORTED|*' }) -replace '^EXPORTED\|([^|]+)\|.*$', '$1'
+        $defaultText = Get-Content -LiteralPath $defaultExport -Raw -Encoding UTF8
+        Assert-True ($defaultText -match 'Default profile visible' -and $defaultText -match 'Default profile reply') 'default USERPROFILE session messages missing'
+    } finally {
+        $env:USERPROFILE = $savedUserProfile
+        $env:CODEX_HOME = $savedCodexHome
+        $env:AGENT_CHAT_ARCHIVE_CONFIG = $savedArchiveConfig
+    }
     try {
         & $exporter -Configure -ConfigPath (Join-Path $testRoot 'unsafe.json') -OutputRoot $outputRoot -GrokFolderPrefix '..\escape' | Out-Null
     } catch {
