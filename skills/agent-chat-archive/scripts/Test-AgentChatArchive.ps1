@@ -117,6 +117,43 @@ try {
     Assert-True ($ompText -match 'OMP visible' -and $ompText -match 'OMP reply') 'OMP visible messages missing'
     Assert-True ($ompText -notmatch 'secret') 'OMP internal content leaked'
 
+    $claudeId = '55555555-5555-4555-8555-555555555555'
+    $subId = '66666666-6666-4666-8666-666666666666'
+    $claudeHome = Join-Path $testRoot '.claude'
+    $claudeDir = Join-Path $claudeHome 'projects\claude-repo'
+    $claudePath = Join-Path $claudeDir "$claudeId.jsonl"
+    Write-JsonLines $claudePath @(
+        [ordered]@{ type = 'custom-title'; customTitle = 'Claude Test'; timestamp = '2026-08-13T05:00:00Z'; sessionId = $claudeId; cwd = 'C:\Work\ClaudeRepo' },
+        [ordered]@{ type = 'user'; uuid = 'u1'; parentUuid = $null; timestamp = '2026-08-13T05:00:01Z'; sessionId = $claudeId; cwd = 'C:\Work\ClaudeRepo'; isMeta = $false; isSidechain = $false; message = [ordered]@{ role = 'user'; content = 'Claude visible <system-reminder>reminder secret</system-reminder>' } },
+        [ordered]@{ type = 'assistant'; uuid = 'a1'; parentUuid = 'u1'; timestamp = '2026-08-13T05:00:02Z'; sessionId = $claudeId; message = [ordered]@{ id = 'msg_a'; role = 'assistant'; content = @([ordered]@{ type = 'thinking'; thinking = 'thinking secret' }, [ordered]@{ type = 'text'; text = 'partial secret' }) } },
+        [ordered]@{ type = 'user'; uuid = 'abandoned'; parentUuid = 'u1'; timestamp = '2026-08-13T05:00:03Z'; sessionId = $claudeId; message = [ordered]@{ role = 'user'; content = 'abandoned secret' } },
+        [ordered]@{ type = 'assistant'; uuid = 'a1b'; parentUuid = 'a1'; timestamp = '2026-08-13T05:00:04Z'; sessionId = $claudeId; message = [ordered]@{ id = 'msg_a'; role = 'assistant'; content = @([ordered]@{ type = 'text'; text = 'Claude reply' }, [ordered]@{ type = 'tool_use'; name = 'secret-tool'; input = [ordered]@{ path = 'secret' } }) } },
+        [ordered]@{ type = 'user'; uuid = 'side'; parentUuid = 'a1b'; isSidechain = $true; timestamp = '2026-08-13T05:00:05Z'; sessionId = $claudeId; message = [ordered]@{ role = 'user'; content = 'side secret' } },
+        [ordered]@{ type = 'user'; uuid = 'meta'; parentUuid = 'a1b'; isMeta = $true; timestamp = '2026-08-13T05:00:06Z'; sessionId = $claudeId; message = [ordered]@{ role = 'user'; content = 'meta secret' } },
+        [ordered]@{ type = 'user'; uuid = 'tool'; parentUuid = 'a1b'; timestamp = '2026-08-13T05:00:07Z'; sessionId = $claudeId; message = [ordered]@{ role = 'user'; content = @([ordered]@{ type = 'tool_result'; content = 'tool secret' }) } },
+        [ordered]@{ type = 'user'; uuid = 'ucmd'; parentUuid = 'tool'; timestamp = '2026-08-13T05:00:08Z'; sessionId = $claudeId; message = [ordered]@{ role = 'user'; content = '<command-name>/archive</command-name><command-args>now</command-args>injected skill secret' } },
+        [ordered]@{ type = 'assistant'; uuid = 'a2'; parentUuid = 'ucmd'; timestamp = '2026-08-13T05:00:09Z'; sessionId = $claudeId; message = [ordered]@{ id = 'msg_b'; role = 'assistant'; content = @([ordered]@{ type = 'text'; text = 'Claude final' }) } }
+    )
+    Write-JsonLines (Join-Path $claudeDir "$claudeId\subagents\$subId.jsonl") @(
+        [ordered]@{ type = 'user'; uuid = 'sub'; parentUuid = $null; sessionId = $subId; cwd = 'C:\Work\ClaudeRepo'; message = [ordered]@{ role = 'user'; content = 'subagent secret' } }
+    )
+    $claudeResult = @(& $exporter -SessionPath $claudePath -ConfigPath $configPath)
+    $claudeExport = ($claudeResult | Where-Object { $_ -like 'EXPORTED|*' }) -replace '^EXPORTED\|([^|]+)\|.*$', '$1'
+    Assert-True ($claudeExport -like '*\Claude-ClaudeRepo\Claude_Claude-Test_*.md') 'Claude naming profile mismatch'
+    $claudeText = Get-Content -LiteralPath $claudeExport -Raw -Encoding UTF8
+    Assert-True ($claudeText -match 'Claude visible' -and $claudeText -match 'Claude reply' -and $claudeText -match '/archive now' -and $claudeText -match 'Claude final') 'Claude visible messages missing'
+    Assert-True ($claudeText -notmatch 'secret') 'Claude internal content leaked'
+    Assert-True ([bool](@($claudeResult) -match 'messages=4')) 'Claude visible message count mismatch'
+    $claudeList = @(& $exporter -Harness Claude -List -ClaudeHome $claudeHome -WorkingDirectory 'C:\Work\ClaudeRepo')
+    Assert-True (@($claudeList | Select-Object -ExpandProperty SessionId) -contains $claudeId) 'Claude session missing from list'
+    Assert-True (-not (@($claudeList | Select-Object -ExpandProperty SessionId) -contains $subId)) 'Claude subagent transcript listed'
+    $legacyPath = Join-Path $testRoot 'legacy-config.json'
+    $legacy = Get-Content -LiteralPath $configPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    $legacy.harnesses.PSObject.Properties.Remove('Claude')
+    [IO.File]::WriteAllText($legacyPath, (($legacy | ConvertTo-Json -Depth 5) + "`n"), (New-Object Text.UTF8Encoding($false)))
+    $legacyResult = @(& $exporter -Harness Claude -SessionPath $claudePath -ConfigPath $legacyPath)
+    Assert-True ([bool](@($legacyResult) -match '^EXPORTED\|')) 'legacy config missing Claude settings was rejected'
+
     $customConfig = Join-Path $testRoot 'custom-config.json'
     & $exporter -Configure -ConfigPath $customConfig -OutputRoot (Join-Path $testRoot 'custom-output') `
         -CodexFolderPrefix '' -CodexFilePrefix '' -GrokFolderPrefix '' -GrokFilePrefix '' `
@@ -124,6 +161,7 @@ try {
     $custom = Get-Content -LiteralPath $customConfig -Raw -Encoding UTF8 | ConvertFrom-Json
     Assert-True ([string]$custom.harnesses.Hermes.folderPrefix -eq 'Hermes-' -and [string]$custom.harnesses.Hermes.filePrefix -eq 'Hermes_') 'Hermes naming profile missing'
     Assert-True ([string]$custom.harnesses.Omp.folderPrefix -eq 'Omp-' -and [string]$custom.harnesses.Omp.filePrefix -eq 'OMP_') 'OMP naming profile missing'
+    Assert-True ([string]$custom.harnesses.Claude.folderPrefix -eq 'Claude-' -and [string]$custom.harnesses.Claude.filePrefix -eq 'Claude_') 'Claude naming profile missing'
 
     $unsafeRejected = $false
     $savedUserProfile = $env:USERPROFILE

@@ -17,7 +17,9 @@ DEFAULT_HARNESSES = {
     "Codex": {"folderPrefix": "Codex-", "filePrefix": "CDX_"},
     "Grok": {"folderPrefix": "Grok-", "filePrefix": "Grok_"},
     "CommandCode": {"folderPrefix": "CommandCode-", "filePrefix": "CommandCode_"},
+    "Omp": {"folderPrefix": "Omp-", "filePrefix": "OMP_"},
     "Hermes": {"folderPrefix": "Hermes-", "filePrefix": "Hermes_"},
+    "Claude": {"folderPrefix": "Claude-", "filePrefix": "Claude_"},
 }
 JSON_PREFIX = "\x00json:"
 

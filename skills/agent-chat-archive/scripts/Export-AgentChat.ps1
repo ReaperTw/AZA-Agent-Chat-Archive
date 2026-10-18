@@ -21,7 +21,7 @@ param(
     [Parameter(Mandatory, ParameterSetName = 'ShowConfig')]
     [switch]$ShowConfig,
 
-    [ValidateSet('Auto', 'Codex', 'Grok', 'CommandCode', 'Omp')]
+    [ValidateSet('Auto', 'Codex', 'Grok', 'CommandCode', 'Omp', 'Claude')]
     [string]$Harness = 'Auto',
 
     [switch]$IncludeArchived,
@@ -75,6 +75,14 @@ param(
     [AllowEmptyString()]
     [string]$HermesFilePrefix = 'Hermes_',
 
+    [Parameter(ParameterSetName = 'Configure')]
+    [AllowEmptyString()]
+    [string]$ClaudeFolderPrefix = 'Claude-',
+
+    [Parameter(ParameterSetName = 'Configure')]
+    [AllowEmptyString()]
+    [string]$ClaudeFilePrefix = 'Claude_',
+
     [string]$ConfigPath = $(
         if ($env:AGENT_CHAT_ARCHIVE_CONFIG) {
             $env:AGENT_CHAT_ARCHIVE_CONFIG
@@ -102,6 +110,11 @@ param(
     [string]$CommandCodeHome = $(
         if ($env:COMMANDCODE_HOME) { $env:COMMANDCODE_HOME }
         else { Join-Path ($(if ($env:USERPROFILE) { $env:USERPROFILE } else { [Environment]::GetFolderPath('UserProfile') })) '.commandcode' }
+    ),
+
+    [string]$ClaudeHome = $(
+        if ($env:CLAUDE_CONFIG_DIR) { $env:CLAUDE_CONFIG_DIR }
+        else { Join-Path ($(if ($env:USERPROFILE) { $env:USERPROFILE } else { [Environment]::GetFolderPath('UserProfile') })) '.claude' }
     )
 )
 
@@ -163,6 +176,8 @@ function Save-ArchiveConfig {
     Assert-SafePrefix $OmpFilePrefix 'OMP file prefix'
     Assert-SafePrefix $HermesFolderPrefix 'Hermes folder prefix'
     Assert-SafePrefix $HermesFilePrefix 'Hermes file prefix'
+    Assert-SafePrefix $ClaudeFolderPrefix 'Claude folder prefix'
+    Assert-SafePrefix $ClaudeFilePrefix 'Claude file prefix'
     $resolvedConfig = Resolve-LocalPath $ConfigPath
     $resolvedOutput = Resolve-LocalPath $OutputRoot
     $config = [ordered]@{
@@ -188,6 +203,10 @@ function Save-ArchiveConfig {
             Hermes = [ordered]@{
                 folderPrefix = $HermesFolderPrefix
                 filePrefix = $HermesFilePrefix
+            }
+            Claude = [ordered]@{
+                folderPrefix = $ClaudeFolderPrefix
+                filePrefix = $ClaudeFilePrefix
             }
         }
     }
@@ -225,7 +244,12 @@ function Get-ArchiveConfig {
             folderPrefix = 'Omp-'; filePrefix = 'OMP_'
         })
     }
-    foreach ($name in @('Codex', 'Grok', 'CommandCode', 'Omp', 'Hermes')) {
+    if (-not (Test-Property $config.harnesses 'Claude')) {
+        $config.harnesses | Add-Member -NotePropertyName Claude -NotePropertyValue ([pscustomobject]@{
+            folderPrefix = 'Claude-'; filePrefix = 'Claude_'
+        })
+    }
+    foreach ($name in @('Codex', 'Grok', 'CommandCode', 'Omp', 'Hermes', 'Claude')) {
         if (-not (Test-Property $config.harnesses $name)) {
             throw "Archive configuration at '$resolvedConfig' has no '$name' settings."
         }
@@ -249,12 +273,17 @@ function Resolve-HarnessName {
         if ($full -match '[\\/]\.grok[\\/]') { return 'Grok' }
         if ($full -match '[\\/]\.codex[\\/]') { return 'Codex' }
         if ($full -match '[\\/]\.omp[\\/]') { return 'Omp' }
+        if ($full -match '[\\/]\.claude[\\/]projects[\\/]') { return 'Claude' }
+        $claudeRoot = (Resolve-LocalPath $ClaudeHome).TrimEnd('\', '/')
+        $underClaude = $full.StartsWith($claudeRoot + '\', [StringComparison]::OrdinalIgnoreCase) -or $full.StartsWith($claudeRoot + '/', [StringComparison]::OrdinalIgnoreCase)
+        if ($underClaude -and $full -match '[\\/]projects[\\/]') { return 'Claude' }
     }
     if ($env:COMMANDCODE_SESSION_ID) { return 'CommandCode' }
     if ($env:GROK_SESSION_ID) { return 'Grok' }
     if ($env:CODEX_THREAD_ID) { return 'Codex' }
     if ($env:OMP_SESSION_ID) { return 'Omp' }
-    throw 'Cannot detect the active harness. Pass -Harness Codex, Grok, CommandCode, or Omp.'
+    if ($env:CLAUDE_SESSION_ID -or $env:CLAUDE_CODE_SESSION_ID -or $env:CLAUDECODE -eq '1') { return 'Claude' }
+    throw 'Cannot detect the active harness. Pass -Harness Codex, Grok, CommandCode, Omp, or Claude.'
 }
 
 function Get-CurrentSessionId {
@@ -265,6 +294,10 @@ function Get-CurrentSessionId {
         'Grok' { return [string]$env:GROK_SESSION_ID }
         'CommandCode' { return [string]$env:COMMANDCODE_SESSION_ID }
         'Omp' { return [string]$env:OMP_SESSION_ID }
+        'Claude' {
+            if ($env:CLAUDE_SESSION_ID) { return [string]$env:CLAUDE_SESSION_ID }
+            return [string]$env:CLAUDE_CODE_SESSION_ID
+        }
     }
 }
 
@@ -300,7 +333,10 @@ function Remove-InternalContext {
         'collaboration_mode',
         'apps_instructions',
         'plugins_instructions',
-        'skills_instructions'
+        'skills_instructions',
+        'system-reminder',
+        'local-command-caveat',
+        'local-command-stdout'
     )
     foreach ($name in $blockNames) {
         $escaped = [regex]::Escape($name)
@@ -400,6 +436,7 @@ function Get-HarnessHome {
         'Grok' { return $GrokHome }
         'CommandCode' { return $CommandCodeHome }
         'Omp' { return $OmpHome }
+        'Claude' { return $ClaudeHome }
     }
 }
 
@@ -564,6 +601,8 @@ if ($PSCmdlet.ParameterSetName -eq 'ShowConfig') {
         OmpFilePrefix = $config.harnesses.Omp.filePrefix
         HermesFolderPrefix = $config.harnesses.Hermes.folderPrefix
         HermesFilePrefix = $config.harnesses.Hermes.filePrefix
+        ClaudeFolderPrefix = $config.harnesses.Claude.folderPrefix
+        ClaudeFilePrefix = $config.harnesses.Claude.filePrefix
     }
     exit 0
 }

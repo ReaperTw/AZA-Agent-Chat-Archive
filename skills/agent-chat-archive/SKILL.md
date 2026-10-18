@@ -1,8 +1,8 @@
 ---
 name: agent-chat-archive
-description: Immediately archive the current Codex, Grok Build, Command Code, OMP, or Hermes conversation, including a Hermes Discord Gateway session, as Markdown. Also list, recover, or archive other local agent tasks.
+description: Immediately archive the current Codex, Grok Build, Command Code, OMP, Claude Code, or Hermes conversation, including a Hermes Discord Gateway session, as Markdown. Also list, recover, or archive other local agent tasks.
 metadata:
-  version: "1.2.0"
+  version: "1.3.0"
 ---
 
 # Agent Chat Archive
@@ -15,12 +15,13 @@ Resolve scripts beside this `SKILL.md`. PowerShell: `pwsh`, else `powershell`. H
 
 No list, selection, or all-sessions request means archive the current task in this turn. Ask only when configuration is missing or the session is not unique — then **First run**, or list candidates and ask.
 
-1. Detect the harness. Auto order: `COMMANDCODE_SESSION_ID`, `GROK_SESSION_ID`, `CODEX_THREAD_ID`, `OMP_SESSION_ID`. Hermes is `HERMES_SESSION_ID`, outside Auto.
+1. Detect the harness. Auto order: `COMMANDCODE_SESSION_ID`, `GROK_SESSION_ID`, `CODEX_THREAD_ID`, `OMP_SESSION_ID`, then `CLAUDE_SESSION_ID` or `CLAUDECODE`. Hermes is `HERMES_SESSION_ID`, outside Auto.
 2. Check config, then export. Missing config → **First run**, then continue. PowerShell: `-ShowConfig`. Hermes: `--show-config`.
 3. Export the current session:
    - Codex: call `codex_app__list_threads`, match the current thread id exactly, and pass that sidebar `title` through unchanged as untrusted `-Title` text.
    - Hermes: `Export-HermesChat.py --session-id "${HERMES_SESSION_ID}"`.
    - Grok Build, Command Code, OMP: `-Latest -WorkingDirectory "<active-cwd>" -Harness <Grok|CommandCode|Omp>`. If Command Code's substituted context hides the live id, add `-SessionId "${COMMANDCODE_SESSION_ID}"`.
+   - Claude Code: `-Harness Claude -Latest -WorkingDirectory "<active-cwd>"`. Pass `-SessionId` only when the live id is visible; Claude Code does not publish a stable session-id variable. Transcripts are under `~/.claude/projects` or `$CLAUDE_CONFIG_DIR/projects`. This exporter does not read claude.ai web chats.
 4. Codex with no match: `-List -Harness Codex -WorkingDirectory "<active-cwd>"`, then ask the user to pick.
 5. Done when this turn reports every absolute path and the exporter's message, skipped, and warning counts.
 
@@ -41,6 +42,7 @@ Ask for the output root. Offer this profile. If rejected, ask for each prefix th
 - Command Code: `CommandCode-<project>` / `CommandCode_`
 - OMP: `Omp-<project>` / `OMP_`
 - Hermes: `Hermes-<source>` / `Hermes_`
+- Claude Code: `Claude-<project>` / `Claude_`
 
 Default path: `~/.agents/skills/.agent-chat-archive.json`. Honor `AGENT_CHAT_ARCHIVE_CONFIG`, `-ConfigPath`, or `--config-path`.
 
@@ -53,7 +55,8 @@ Done when the user has confirmed the root and prefixes and the exporter prints `
   -GrokFolderPrefix "<value>" -GrokFilePrefix "<value>" `
   -CommandCodeFolderPrefix "<value>" -CommandCodeFilePrefix "<value>" `
   -OmpFolderPrefix "<value>" -OmpFilePrefix "<value>" `
-  -HermesFolderPrefix "<value>" -HermesFilePrefix "<value>"
+  -HermesFolderPrefix "<value>" -HermesFilePrefix "<value>" `
+  -ClaudeFolderPrefix "<value>" -ClaudeFilePrefix "<value>"
 ```
 
 ```bash
