@@ -93,15 +93,15 @@ def decode_content(value) -> str:
         for part in value:
             if isinstance(part, str):
                 parts.append(part)
-            elif isinstance(part, dict) and isinstance(part.get("text") or part.get("content"), str):
-                parts.append(part.get("text") or part.get("content"))
-            else:
-                parts.append(json.dumps(part, ensure_ascii=False, sort_keys=True))
+            elif isinstance(part, dict):
+                text = part.get("text") if isinstance(part.get("text"), str) else part.get("content")
+                if isinstance(text, str):
+                    parts.append(text)
         return "\n".join(filter(None, parts))
     if isinstance(value, dict):
-        text = value.get("text") or value.get("content")
-        return text if isinstance(text, str) else json.dumps(value, ensure_ascii=False, sort_keys=True)
-    return str(value)
+        text = value.get("text") if isinstance(value.get("text"), str) else value.get("content")
+        return text if isinstance(text, str) else ""
+    return str(value) if not isinstance(value, (dict, list)) else ""
 
 
 def read_export(path: Path) -> dict:
@@ -142,11 +142,12 @@ def render_markdown(data: dict) -> tuple[str, int]:
     return "\n".join(lines).rstrip() + "\n", visible_count - 1
 
 
-def find_existing(directory: Path, session_id: str) -> Path | None:
+def find_existing(root: Path, session_id: str) -> Path | None:
     marker = f"<!-- agent-chat-archive: Hermes:{session_id} -->"
-    if not directory.is_dir():
+    if not root.is_dir():
         return None
-    for path in directory.glob("*.md"):
+    # ponytail: full-root scan; index by marker if archives get huge
+    for path in root.rglob("*.md"):
         try:
             if marker in path.read_text(encoding="utf-8-sig"):
                 return path
@@ -160,10 +161,10 @@ def save_markdown(data: dict, config: dict, requested_title: str | None) -> tupl
     source = safe_part(str(data.get("source") or "Hermes"), "Hermes", 94)
     title = safe_part(requested_title or str(data.get("title") or f"{source}-Chat"))
     started = parse_time(data.get("started_at"))
-    destination = Path(config["outputRoot"]).expanduser() / f"{settings['folderPrefix']}{source}"
-    destination.mkdir(parents=True, exist_ok=True)
+    root = Path(config["outputRoot"]).expanduser()
+    destination = root / f"{settings['folderPrefix']}{source}"
     desired = destination / f"{settings['filePrefix']}{title}_{started:%Y%m%d_%H%M%S}.md"
-    existing = find_existing(destination, str(data["id"]))
+    existing = find_existing(root, str(data["id"]))
     path = desired if requested_title or not existing else existing
     if path.exists() and path != existing:
         index = 2
@@ -171,7 +172,8 @@ def save_markdown(data: dict, config: dict, requested_title: str | None) -> tupl
             path = desired.with_name(f"{desired.stem}_{index}{desired.suffix}")
             index += 1
     text, visible_count = render_markdown(data)
-    temporary = path.with_suffix(path.suffix + ".tmp")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
     temporary.write_text(text, encoding="utf-8-sig")
     os.replace(temporary, path)
     if existing and existing != path and existing.exists():
@@ -188,9 +190,6 @@ def inferred_profile() -> str | None:
 
 
 def export_one(session_id: str, config: dict, title: str | None, profile: str | None) -> None:
-    snapshot = Path.home() / ".local/bin/ccusage-keep-sync.py"
-    if snapshot.is_file():
-        subprocess.run([sys.executable, str(snapshot)], check=False, capture_output=True)
     with tempfile.TemporaryDirectory() as temp_root:
         temporary = Path(temp_root) / "session.jsonl"
         command = [sys.executable, "-m", "hermes_cli.main"]
@@ -216,18 +215,23 @@ def self_test() -> None:
             "id": "20260821_test", "source": "discord", "title": "Discord Test", "started_at": 1787200000,
             "messages": [
                 {"role": "user", "content": "hello"},
-                {"role": "assistant", "content": "world"},
+                {"role": "assistant", "content": [{"type": "tool_use", "name": "secret-tool", "input": {"x": 1}}, {"type": "text", "text": "visible-part"}]},
                 {"role": "tool", "content": "secret-tool"},
                 {"role": "system", "content": "secret-system"},
+                {"role": "user", "content": {"type": "control", "secret": "secret-payload"}},
             ],
         }
         config = {"outputRoot": str(root_path / "out"), "harnesses": {"Hermes": DEFAULT_HARNESSES["Hermes"]}}
         path, count = save_markdown(data, config, None)
         markdown = path.read_text(encoding="utf-8-sig")
-        assert count == 2 and "hello" in markdown and "world" in markdown
-        assert "secret-tool" not in markdown and "secret-system" not in markdown
-        assert path.name.startswith("Hermes_Discord-Test_")
-    print("HERMES_SELF_TEST_OK checks=3")
+        assert count == 2 and "hello" in markdown and "visible-part" in markdown
+        assert "secret-tool" not in markdown and "secret-system" not in markdown and "secret-payload" not in markdown
+        moved = root_path / "out" / "elsewhere" / "kept.md"
+        moved.parent.mkdir()
+        path.replace(moved)
+        again, _ = save_markdown(data, config, None)
+        assert again == moved.resolve()
+    print("HERMES_SELF_TEST_OK checks=4")
 
 
 def main() -> None:

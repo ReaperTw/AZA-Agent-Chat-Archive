@@ -196,6 +196,23 @@ try {
     }
     Assert-True $unsafeRejected 'unsafe folder prefix was accepted'
 
+    $mergeConfig = Join-Path $testRoot 'merge-config.json'
+    & $exporter -Configure -ConfigPath $mergeConfig -OutputRoot $outputRoot -HermesFolderPrefix 'Keep-' -HermesFilePrefix 'Keep_' | Out-Null
+    & $exporter -Configure -ConfigPath $mergeConfig -OutputRoot (Join-Path $testRoot 'merge-out') | Out-Null
+    $merged = Get-Content -LiteralPath $mergeConfig -Raw -Encoding UTF8 | ConvertFrom-Json
+    Assert-True ([string]$merged.harnesses.Hermes.folderPrefix -eq 'Keep-') 'configure reset an omitted Hermes prefix'
+    Assert-True ([string]$merged.outputRoot -like '*merge-out*') 'configure did not update the output root'
+
+    $movedDir = Join-Path $outputRoot 'moved'
+    [IO.Directory]::CreateDirectory($movedDir) | Out-Null
+    $movedFile = Join-Path $movedDir 'kept.md'
+    Move-Item -LiteralPath $codexExport -Destination $movedFile
+    $again = @(& $exporter -Harness Codex -SessionPath $codexPath -ConfigPath $configPath)
+    $againPath = ($again | Where-Object { $_ -like 'EXPORTED|*' }) -replace '^EXPORTED\|([^|]+)\|.*$', '$1'
+    Assert-True ($againPath -eq $movedFile) 're-export did not update the file outside the project folder'
+    Assert-True (-not (Get-ChildItem -LiteralPath $outputRoot -Recurse -Force -Filter '.*.tmp')) 'atomic write left a temp file'
+
+
     "SELF_TEST_OK checks=$script:checks"
 } finally {
     if ((Test-Path -LiteralPath $resolvedTest) -and $resolvedTest.StartsWith($resolvedTemp, [StringComparison]::OrdinalIgnoreCase)) {

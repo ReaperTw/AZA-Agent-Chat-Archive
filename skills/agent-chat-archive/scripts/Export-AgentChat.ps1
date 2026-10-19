@@ -120,6 +120,7 @@ param(
 
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
+$script:BoundParameters = $PSBoundParameters
 
 function Test-Property {
     param($Object, [string]$Name)
@@ -144,14 +145,22 @@ function Write-AtomicText {
 
     $directory = Split-Path -Parent $Path
     [IO.Directory]::CreateDirectory($directory) | Out-Null
-    $temporary = $Path + '.tmp'
+    $temporary = Join-Path $directory ('.' + [IO.Path]::GetFileName($Path) + '.' + [guid]::NewGuid().ToString('N') + '.tmp')
     $encoding = New-Object Text.UTF8Encoding($Bom)
-    [IO.File]::WriteAllText($temporary, $Text, $encoding)
-    if (Test-Path -LiteralPath $Path) {
-        [IO.File]::Copy($temporary, $Path, $true)
-        [IO.File]::Delete($temporary)
-    } else {
-        Move-Item -LiteralPath $temporary -Destination $Path
+    try {
+        [IO.File]::WriteAllText($temporary, $Text, $encoding)
+        if (Test-Path -LiteralPath $Path) {
+            $backup = $temporary + '.bak'
+            [IO.File]::Replace($temporary, $Path, $backup)
+            if (Test-Path -LiteralPath $backup) { Remove-Item -LiteralPath $backup -Force }
+        } else {
+            [IO.File]::Move($temporary, $Path)
+        }
+    } catch {
+        if (Test-Path -LiteralPath $temporary) {
+            Remove-Item -LiteralPath $temporary -Force -ErrorAction SilentlyContinue
+        }
+        throw
     }
 }
 
@@ -166,49 +175,46 @@ function Assert-SafePrefix {
 }
 
 function Save-ArchiveConfig {
-    Assert-SafePrefix $CodexFolderPrefix 'Codex folder prefix'
-    Assert-SafePrefix $CodexFilePrefix 'Codex file prefix'
-    Assert-SafePrefix $GrokFolderPrefix 'Grok folder prefix'
-    Assert-SafePrefix $GrokFilePrefix 'Grok file prefix'
-    Assert-SafePrefix $CommandCodeFolderPrefix 'Command Code folder prefix'
-    Assert-SafePrefix $CommandCodeFilePrefix 'Command Code file prefix'
-    Assert-SafePrefix $OmpFolderPrefix 'OMP folder prefix'
-    Assert-SafePrefix $OmpFilePrefix 'OMP file prefix'
-    Assert-SafePrefix $HermesFolderPrefix 'Hermes folder prefix'
-    Assert-SafePrefix $HermesFilePrefix 'Hermes file prefix'
-    Assert-SafePrefix $ClaudeFolderPrefix 'Claude folder prefix'
-    Assert-SafePrefix $ClaudeFilePrefix 'Claude file prefix'
     $resolvedConfig = Resolve-LocalPath $ConfigPath
     $resolvedOutput = Resolve-LocalPath $OutputRoot
+    $existing = $null
+    if (Test-Path -LiteralPath $resolvedConfig -PathType Leaf) {
+        try {
+            $existing = Get-Content -LiteralPath $resolvedConfig -Raw -Encoding UTF8 | ConvertFrom-Json
+        } catch {
+            $existing = $null
+        }
+    }
+    $pairs = @(
+        @{ Name = 'Codex'; Folder = 'CodexFolderPrefix'; File = 'CodexFilePrefix'; FolderDefault = 'Codex-'; FileDefault = 'CDX_' },
+        @{ Name = 'Grok'; Folder = 'GrokFolderPrefix'; File = 'GrokFilePrefix'; FolderDefault = 'Grok-'; FileDefault = 'Grok_' },
+        @{ Name = 'CommandCode'; Folder = 'CommandCodeFolderPrefix'; File = 'CommandCodeFilePrefix'; FolderDefault = 'CommandCode-'; FileDefault = 'CommandCode_' },
+        @{ Name = 'Omp'; Folder = 'OmpFolderPrefix'; File = 'OmpFilePrefix'; FolderDefault = 'Omp-'; FileDefault = 'OMP_' },
+        @{ Name = 'Hermes'; Folder = 'HermesFolderPrefix'; File = 'HermesFilePrefix'; FolderDefault = 'Hermes-'; FileDefault = 'Hermes_' },
+        @{ Name = 'Claude'; Folder = 'ClaudeFolderPrefix'; File = 'ClaudeFilePrefix'; FolderDefault = 'Claude-'; FileDefault = 'Claude_' }
+    )
+    $harnesses = [ordered]@{}
+    foreach ($pair in $pairs) {
+        $folder = $pair.FolderDefault
+        $filePrefix = $pair.FileDefault
+        if ($existing -and (Test-Property $existing 'harnesses') -and (Test-Property $existing.harnesses $pair.Name)) {
+            $prior = $existing.harnesses.($pair.Name)
+            if (Test-Property $prior 'folderPrefix') { $folder = [string]$prior.folderPrefix }
+            if (Test-Property $prior 'filePrefix') { $filePrefix = [string]$prior.filePrefix }
+        }
+        if ($script:BoundParameters.ContainsKey($pair.Folder)) { $folder = [string]$script:BoundParameters[$pair.Folder] }
+        if ($script:BoundParameters.ContainsKey($pair.File)) { $filePrefix = [string]$script:BoundParameters[$pair.File] }
+        Assert-SafePrefix $folder "$($pair.Name) folder prefix"
+        Assert-SafePrefix $filePrefix "$($pair.Name) file prefix"
+        $harnesses[$pair.Name] = [ordered]@{
+            folderPrefix = $folder
+            filePrefix = $filePrefix
+        }
+    }
     $config = [ordered]@{
         version = 1
         outputRoot = $resolvedOutput
-        harnesses = [ordered]@{
-            Codex = [ordered]@{
-                folderPrefix = $CodexFolderPrefix
-                filePrefix = $CodexFilePrefix
-            }
-            Grok = [ordered]@{
-                folderPrefix = $GrokFolderPrefix
-                filePrefix = $GrokFilePrefix
-            }
-            CommandCode = [ordered]@{
-                folderPrefix = $CommandCodeFolderPrefix
-                filePrefix = $CommandCodeFilePrefix
-            }
-            Omp = [ordered]@{
-                folderPrefix = $OmpFolderPrefix
-                filePrefix = $OmpFilePrefix
-            }
-            Hermes = [ordered]@{
-                folderPrefix = $HermesFolderPrefix
-                filePrefix = $HermesFilePrefix
-            }
-            Claude = [ordered]@{
-                folderPrefix = $ClaudeFolderPrefix
-                filePrefix = $ClaudeFilePrefix
-            }
-        }
+        harnesses = $harnesses
     }
     $json = $config | ConvertTo-Json -Depth 5
     Write-AtomicText $resolvedConfig ($json + [Environment]::NewLine)
@@ -499,12 +505,13 @@ function Get-ProjectFolder {
 }
 
 function Find-ExistingExport {
-    param([string]$Directory, $Record)
+    param([string]$Root, $Record)
 
-    if (-not $Record.Id -or -not (Test-Path -LiteralPath $Directory)) { return $null }
+    if (-not $Record.Id -or -not (Test-Path -LiteralPath $Root)) { return $null }
     $markers = @("<!-- agent-chat-archive: $($Record.Harness):$($Record.Id) -->")
     if ($Record.Harness -eq 'Codex') { $markers += "<!-- cdx-session-id: $($Record.Id) -->" }
-    foreach ($file in Get-ChildItem -LiteralPath $Directory -File -Filter '*.md') {
+    # ponytail: full-root scan; index by marker if archives get huge
+    foreach ($file in Get-ChildItem -LiteralPath $Root -File -Filter '*.md' -Recurse) {
         foreach ($marker in $markers) {
             if (Select-String -LiteralPath $file.FullName -SimpleMatch $marker -Quiet) { return $file.FullName }
         }
@@ -521,11 +528,10 @@ function Export-SessionRecord {
     $settings = $Config.harnesses.($Record.Harness)
     $projectFolder = Get-ProjectFolder $Record $settings
     $destination = Join-Path $Config.outputRoot $projectFolder
-    [IO.Directory]::CreateDirectory($destination) | Out-Null
 
     $chosenTitle = if ($RequestedTitle) { Get-SafeFilePart $RequestedTitle } else { Get-DerivedTitle $Record }
     $stamp = $Record.Started.ToString('yyyyMMdd_HHmmss')
-    $existingPath = Find-ExistingExport $destination $Record
+    $existingPath = Find-ExistingExport $Config.outputRoot $Record
     $baseName = ([string]$settings.filePrefix) + $chosenTitle + '_' + $stamp
     $desiredPath = Join-Path $destination ($baseName + '.md')
     $previousPath = $null
@@ -533,6 +539,7 @@ function Export-SessionRecord {
     if ($existingPath -and -not $RequestedTitle) {
         $path = $existingPath
     } else {
+        [IO.Directory]::CreateDirectory($destination) | Out-Null
         $path = $desiredPath
         $suffix = 2
         while ((Test-Path -LiteralPath $path) -and (-not $existingPath -or -not $path.Equals($existingPath, [StringComparison]::OrdinalIgnoreCase))) {
@@ -696,12 +703,6 @@ if ($Title -and $records.Count -gt 1) {
 $config = Get-ArchiveConfig
 $exported = 0
 $skipped = 0
-$keepSync = Join-Path $env:USERPROFILE '.local\bin\ccusage-keep-sync.py'
-$keepPy = Join-Path $env:LOCALAPPDATA 'Programs\Python\Python313\python.exe'
-if ((Test-Path -LiteralPath $keepSync) -and (Test-Path -LiteralPath $keepPy)) {
-    & $keepPy $keepSync | Out-Null
-    if ($LASTEXITCODE -ne 0) { "WARN|ccusage-keep sync failed" }
-}
 foreach ($record in $records) {
     $result = Export-SessionRecord $record $Title $config
     if ($result.Status -eq 'EXPORTED') {

@@ -2,7 +2,7 @@
 name: agent-chat-archive
 description: Immediately archive the current Codex, Grok Build, Command Code, OMP, Claude Code, or Hermes conversation, including a Hermes Discord Gateway session, as Markdown. Also list, recover, or archive other local agent tasks.
 metadata:
-  version: "1.4.0"
+  version: "1.4.1"
 ---
 
 # Agent Chat Archive
@@ -16,7 +16,7 @@ Resolve scripts beside this `SKILL.md`. PowerShell: `pwsh`, else `powershell`. H
 No list, selection, or all-sessions request means archive the current task in this turn. Ask only when configuration is missing or the session is not unique — then **First run**, or list candidates and ask.
 
 1. Detect the harness. First match wins: `COMMANDCODE_SESSION_ID` → `harnesses/CommandCode.md`, `GROK_SESSION_ID` → `harnesses/Grok.md`, `CODEX_THREAD_ID` → `harnesses/Codex.md`, `OMP_SESSION_ID` → `harnesses/Omp.md`, `CLAUDE_SESSION_ID` or `CLAUDECODE` → `harnesses/Claude.md`. `HERMES_SESSION_ID` selects `harnesses/Hermes.md` only when none of those match.
-2. Check config, then export. Missing config → **First run**, then continue. PowerShell: `-ShowConfig`. Hermes: `--show-config`.
+2. Check config. Missing config → **First run**, then continue. PowerShell: `-ShowConfig`. Hermes: `--show-config`. Done when the config exists, or the user has not yet confirmed it.
 3. Read the detected harness file and run the export command written there. Fill its angle-bracket placeholders. Leave every other flag as written. Done when the command you run is that command.
 4. Done when this turn reports every absolute path and the exporter's message, skipped, and warning counts.
 
