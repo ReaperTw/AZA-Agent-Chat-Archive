@@ -1,8 +1,10 @@
 // ==UserScript==
 // @name        GYC - Grok
-// @namespace   https://github.com/ReaperTw/AZA-AI-Chat-Archive
-// @version     1.0.0
-// @description Grab Your Chat - Grok 端對話匯出器；最後更新於 20260824
+// @namespace   https://github.com/ReaperTw/AZA-Agent-Chat-Archive
+// @version     1.1.0
+// @description Grab Your Chat - Grok 端對話匯出器；最後更新於 20261018
+// @updateURL   https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-grok.user.js
+// @downloadURL https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-grok.user.js
 // @match       https://grok.com/*
 // @match       https://x.com/i/grok/*
 // @run-at      document-idle
@@ -336,6 +338,10 @@
         let modelIndex = 1;
         let output = '';
         for (const message of exportTimeline) {
+            if (message.type === 'gap') {
+                output += `${message.text}\n\n`;
+                continue;
+            }
             const heading = message.type === 'user'
                 ? `User ${userIndex++}`
                 : `Model ${modelIndex++}`;
@@ -708,7 +714,10 @@
                         `掃描位置 ${Math.round(getScrollTop())} 的內容斷層` +
                         '經回訪後仍無法安全銜接'
                     );
-                    globalTimeline = globalTimeline.concat(fragment);
+                    globalTimeline = globalTimeline.concat(
+                        [{ type: 'gap', text: '⚠️ 此處掃描斷層，前後訊息可能不連續' }],
+                        fragment
+                    );
                     retryCount = 0;
                 } else {
                     globalTimeline = mergeResult.merged;
@@ -920,6 +929,10 @@
 
         container.append(menu, fab);
         document.body.appendChild(container);
+    }
+    if (typeof module !== 'undefined' && module.exports && typeof document === 'undefined') {
+        module.exports = { mergeTimelines };
+        return;
     }
 
     const observer = new MutationObserver(() => createButton());

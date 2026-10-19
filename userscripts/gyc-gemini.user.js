@@ -1,8 +1,10 @@
 // ==UserScript==
 // @name         GYC - Gemini
-// @namespace    https://github.com/ReaperTw/AZA-AI-Chat-Archive
-// @version      1.0.0
-// @description  Grab Your Chat - Gemini 端對話匯出器；最後更新於 20260824
+// @namespace    https://github.com/ReaperTw/AZA-Agent-Chat-Archive
+// @version      1.1.0
+// @description  Grab Your Chat - Gemini 端對話匯出器；最後更新於 20261018
+// @updateURL    https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-gemini.user.js
+// @downloadURL  https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-gemini.user.js
 // @match        https://gemini.google.com/*
 // @run-at       document-idle
 // @grant        none
@@ -13,8 +15,6 @@
 
     // --- 參數設定 ---
     const MAX_UPWARD_LOOPS = 80;   // 向上滾動最大次數
-    const RETRY_EMPTY_MAX = 5;     // 發現空白內容時，最大重試次數
-    const RETRY_EMPTY_WAIT = 2000; // 發現空白內容時，每次重試等待時間
 
     // 【慢速安全模式參數】
     const SLOW_UPWARD_WAIT = 2000;
@@ -221,54 +221,61 @@
         document.body.appendChild(overlay);
     }
 
-    // --- 核心邏輯 ---
+    function sameTurn(a, b, allowGrow) {
+        if (a.type !== b.type) return false;
+        if (a.text === b.text) return true;
+        return allowGrow && (a.text.includes(b.text) || b.text.includes(a.text));
+    }
+
+    function mergeTimelines(master, fragment) {
+        if (master.length === 0) return { merged: fragment, hasGap: false };
+        if (fragment.length === 0) return { merged: master, hasGap: false };
+        for (let overlapLength = Math.min(master.length, fragment.length); overlapLength > 0; overlapLength--) {
+            let isMatch = true;
+            for (let i = 0; i < overlapLength; i++) {
+                if (!sameTurn(master[master.length - overlapLength + i], fragment[i], i === overlapLength - 1)) {
+                    isMatch = false;
+                    break;
+                }
+            }
+            if (isMatch) {
+                for (let i = 0; i < overlapLength; i++) {
+                    if (fragment[i].text.length > master[master.length - overlapLength + i].text.length) {
+                        master[master.length - overlapLength + i].text = fragment[i].text;
+                    }
+                }
+                return { merged: master.concat(fragment.slice(overlapLength)), hasGap: false };
+            }
+        }
+        return { merged: master, hasGap: true };
+    }
+
+    function collectTurns(scroller) {
+        const specific = Array.from(scroller.querySelectorAll('.user-query-bubble-with-background, .model-response'));
+        const nodes = specific.length
+            ? specific
+            : Array.from(scroller.querySelectorAll('.response-container'));
+        return nodes
+            .filter(node => !nodes.some(other => other !== node && other.contains(node)))
+            .map(node => ({
+                type: node.classList.contains('user-query-bubble-with-background') ? 'user' : 'ai',
+                text: cleanContent(node.innerText || '')
+            }))
+            .filter(turn => turn.text);
+    }
+
     async function scrollToTop(btn) {
         if (!btn) return;
         btn.disabled = true;
         const originalText = btn.innerText;
-        const scroller = findScrollContainer();
-
-        btn.innerText = '⬆️ 狂奔至頂端中...';
-
-        let stagnantCount = 0; // 停滯計數器
-        for (let i = 0; i < MAX_UPWARD_LOOPS; i++) {
-            let pre = scroller.scrollHeight;
-            scroller.scrollTop = 0;
-            await new Promise(r => setTimeout(r, FAST_UPWARD_WAIT));
-
-            // 如果高度沒有改變
-            if (scroller.scrollHeight <= pre) {
-                stagnantCount++;
-                if (stagnantCount >= 3) break; // 给與 3 次網路延遲的容錯機會
-            } else {
-                stagnantCount = 0; // 有新內容載入，重新計數
-            }
-        }
-
-        btn.innerText = '✅ 已達最頂端';
-        setTimeout(() => {
-            btn.disabled = false;
-            btn.innerText = originalText;
-        }, 2000);
-    }
-
-    async function processAndExport(config, btn) {
-        if (!btn) return;
-
-        btn.disabled = true;
-        const originalText = btn.innerText;
-        const scroller = findScrollContainer();
-
-        // 1. 定位起點 (向上滾動)
-        if (!config.skipUpward) {
-            btn.innerText = '定位起點...';
-            let stagnantCount = 0; // 停滯計數器
+        try {
+            btn.innerText = '⬆️ 狂奔至頂端中...';
+            const scroller = findScrollContainer();
+            let stagnantCount = 0;
             for (let i = 0; i < MAX_UPWARD_LOOPS; i++) {
-                let pre = scroller.scrollHeight;
+                const pre = scroller.scrollHeight;
                 scroller.scrollTop = 0;
-                await new Promise(r => setTimeout(r, config.upWait));
-
-                // 相同容錯機制
+                await new Promise(r => setTimeout(r, FAST_UPWARD_WAIT));
                 if (scroller.scrollHeight <= pre) {
                     stagnantCount++;
                     if (stagnantCount >= 3) break;
@@ -276,75 +283,117 @@
                     stagnantCount = 0;
                 }
             }
+            btn.innerText = '✅ 已達最頂端';
+        } finally {
+            setTimeout(() => {
+                btn.disabled = false;
+                btn.innerText = originalText;
+            }, 2000);
         }
+    }
 
-        // 2. 向下滾動 (觸發初次渲染)
-        btn.innerText = '掃描中...';
-        if (!config.skipUpward) scroller.scrollTop = 0;
+    async function processAndExport(config, btn) {
+        if (!btn) return;
+        btn.disabled = true;
+        const originalText = btn.innerText;
+        const warnings = [];
+        try {
+            const scroller = findScrollContainer();
+            if (!config.skipUpward) {
+                btn.innerText = '定位起點...';
+                let stagnantCount = 0;
+                for (let i = 0; i < MAX_UPWARD_LOOPS; i++) {
+                    const pre = scroller.scrollHeight;
+                    scroller.scrollTop = 0;
+                    await new Promise(r => setTimeout(r, config.upWait));
+                    if (scroller.scrollHeight <= pre) {
+                        stagnantCount++;
+                        if (stagnantCount >= 3) break;
+                    } else {
+                        stagnantCount = 0;
+                    }
+                }
+                scroller.scrollTop = 0;
+            }
 
-        while (true) {
-            const currentScroll = scroller.scrollTop;
-            scroller.scrollTop += config.step;
-            await new Promise(r => setTimeout(r, config.baseWait));
-            if (Math.abs(scroller.scrollTop - currentScroll) < 10) break; // 到底了
-        }
+            let timeline = collectTurns(scroller);
+            const step = Math.max(200, config.step || 800);
+            const estimated = Math.ceil((scroller.scrollHeight || 1) / step);
+            const maxPasses = Math.min(5000, Math.max(100, estimated * 4 + 50));
+            let bottomStable = 0;
+            let retryCount = 0;
+            for (let pass = 0; pass < maxPasses; pass++) {
+                const before = scroller.scrollTop;
+                const maxTop = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
+                scroller.scrollTop = Math.min(maxTop, before + step);
+                await new Promise(r => setTimeout(r, config.baseWait));
+                const fragment = collectTurns(scroller);
+                const merged = mergeTimelines(timeline, fragment);
+                if (merged.hasGap && fragment.length && timeline.length) {
+                    retryCount++;
+                    if (retryCount <= 3) {
+                        scroller.scrollTop = Math.max(0, scroller.scrollTop - step * 0.5);
+                        await new Promise(r => setTimeout(r, Math.max(1000, config.baseWait * 2)));
+                        continue;
+                    }
+                    warnings.push('掃描斷層，前後訊息可能不連續');
+                    timeline = timeline.concat(
+                        [{ type: 'gap', text: '⚠️ 此處掃描斷層，前後訊息可能不連續' }],
+                        fragment
+                    );
+                    retryCount = 0;
+                } else {
+                    timeline = merged.merged;
+                    retryCount = 0;
+                }
+                const atBottom = scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop <= 5;
+                if (atBottom && Math.abs(scroller.scrollTop - before) < 5) bottomStable++;
+                else bottomStable = 0;
+                const percent = maxTop > 0 ? Math.min(100, Math.round(scroller.scrollTop / maxTop * 100)) : 100;
+                btn.innerText = `掃描 ${percent}%｜已存 ${timeline.filter(turn => turn.type !== 'gap').length} 則`;
+                if (bottomStable >= 2) break;
+                if (pass === maxPasses - 1) warnings.push(`達到安全迴圈上限 ${maxPasses}`);
+            }
 
-        // 3. 收集元素
-        btn.innerText = '精確提取中...';
-        const messages = Array.from(scroller.querySelectorAll('.user-query-bubble-with-background, .model-response, .response-container'));
+            if (!timeline.some(turn => turn.type !== 'gap' && turn.text)) {
+                showNotification('❌ 未找到任何對話內容', true);
+                return;
+            }
 
-        if (messages.length === 0) {
-            showNotification('❌ 未找到任何對話內容', true);
+            let out = '';
+            let uIdx = 1;
+            let mIdx = 1;
+            for (const turn of timeline) {
+                if (turn.type === 'gap') {
+                    out += `\n${turn.text}\n`;
+                    continue;
+                }
+                const head = turn.type === 'user' ? `User ${uIdx++}` : `Model ${mIdx++}`;
+                out += `\n--- [${head}] ---\n${turn.text}\n`;
+            }
+            if (warnings.length) {
+                out += `\n> **匯出不完整**\n>\n${warnings.map(text => `> ${text}`).join('\n')}\n`;
+            }
+            let title = determineTitle();
+            if (warnings.length) title += '_INCOMPLETE';
+            showSaveModal(title, out, finalTitle => {
+                const blob = new Blob(['\uFEFF' + out], { type: 'text/markdown;charset=utf-8' });
+                const anchor = document.createElement('a');
+                const url = URL.createObjectURL(blob);
+                anchor.href = url;
+                anchor.download = `GEM_${sanitizeFileName(finalTitle)}_${getTimestamp()}.md`;
+                document.body.appendChild(anchor);
+                anchor.click();
+                anchor.remove();
+                setTimeout(() => URL.revokeObjectURL(url), 1000);
+            });
+        } catch (error) {
+            console.error('[Gemini Exporter] 匯出失敗', error);
+            showNotification(`❌ 匯出失敗：${error.message}`, true);
+        } finally {
             btn.disabled = false;
             btn.innerText = originalText;
-            return;
         }
-
-        // 4. 解析與二次檢查
-        let out = '';
-        let uIdx = 1, mIdx = 1, emptyCount = 0;
-
-        for (let i = 0; i < messages.length; i++) {
-            const msg = messages[i];
-            let txt = msg.innerText.trim();
-
-            // 【二次檢查機制】: 如果這區塊抓下來是空的，強制滾動到它並等待渲染
-            if (!txt) {
-                btn.innerText = `二次檢查空白區塊 (${i+1}/${messages.length})...`;
-                msg.scrollIntoView({ behavior: 'smooth', block: 'center' });
-
-                let retry = 0;
-                while (!txt && retry < RETRY_EMPTY_MAX) {
-                    await new Promise(r => setTimeout(r, RETRY_EMPTY_WAIT));
-                    txt = msg.innerText.trim();
-                    retry++;
-                }
-            }
-
-            if (!txt) {
-                emptyCount++;
-                txt = "(( Empty Content - 嘗試渲染失敗 ))";
-            }
-
-            let head = msg.classList.contains('user-query-bubble-with-background') ? `User ${uIdx++}` : `Model ${mIdx++}`;
-            out += `\n--- [${head}] ---\n${cleanContent(txt)}\n`;
-        }
-
-        let title = determineTitle();
-        if (emptyCount > 0) title += "_INCOMPLETE";
-        const defaultFileName = title; // 統一輸出檔名，不因模式細分加上後綴
-
-        // 檔案下載模式：使用自訂 Modal
-        showSaveModal(defaultFileName, out, (finalTitle) => {
-            const blob = new Blob(['\uFEFF' + out], { type: 'text/markdown;charset=utf-8' });
-            const a = document.createElement('a');
-            a.href = URL.createObjectURL(blob);
-            a.download = `GEM_${sanitizeFileName(finalTitle)}_${getTimestamp()}.md`;
-            a.click();
-            URL.revokeObjectURL(a.href);
-        });
-        btn.disabled = false;
-        btn.innerText = originalText;
     }
 
     function createButton() {

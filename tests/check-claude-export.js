@@ -196,6 +196,28 @@ check('non-unique artifact update warns', () => {
     assert.match(result.markdown, /changed\nsame/);
 });
 
+check('pagination warning stays in the file', () => {
+    const result = api.exportConversation({
+        name: '長對話',
+        has_more: true,
+        chat_messages: [{
+            uuid: 'u1', sender: 'human', index: 0,
+            content: [{ type: 'text', text: '還有下一頁' }]
+        }]
+    });
+    assert.match(result.markdown, /匯出不完整/);
+    assert.match(result.markdown, /還有下一頁/);
+    assert.strictEqual(api.nextPageUrl('opaque-token'), '');
+    assert.strictEqual(api.nextPageUrl('/api/next'), '/api/next');
+    const merged = api.mergeConversationPages([
+        { chat_messages: [{ uuid: 'a' }], next_cursor: '/api/p2' },
+        { chat_messages: [{ uuid: 'a' }, { uuid: 'b' }] }
+    ]);
+    assert.strictEqual(merged.chat_messages.length, 2);
+    assert.strictEqual(merged.has_more, false);
+});
+
+
 check('rejects a response without chat_messages', () => {
     assert.throws(() => api.exportConversation({ name: 'x' }), /chat_messages/);
 });

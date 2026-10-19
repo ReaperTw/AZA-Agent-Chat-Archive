@@ -1,8 +1,10 @@
 // ==UserScript==
 // @name         GYC - ChatGPT
-// @namespace    https://github.com/ReaperTw/AZA-AI-Chat-Archive
-// @version      1.0.4
-// @description  Grab Your Chat - ChatGPT 端對話匯出器；最後更新於 20260924
+// @namespace    https://github.com/ReaperTw/AZA-Agent-Chat-Archive
+// @version      1.0.5
+// @description  Grab Your Chat - ChatGPT 端對話匯出器；最後更新於 20261018
+// @updateURL    https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-chatgpt.user.js
+// @downloadURL  https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-chatgpt.user.js
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
 // @run-at       document-idle

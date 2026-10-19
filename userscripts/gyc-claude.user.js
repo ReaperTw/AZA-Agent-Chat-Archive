@@ -1,8 +1,10 @@
 // ==UserScript==
 // @name         GYC - Claude
-// @namespace    https://github.com/ReaperTw/AZA-AI-Chat-Archive
-// @version      1.0.0
-// @description  Grab Your Chat - Claude 端對話匯出器；最後更新於 20261011
+// @namespace    https://github.com/ReaperTw/AZA-Agent-Chat-Archive
+// @version      1.1.0
+// @description  Grab Your Chat - Claude 端對話匯出器；最後更新於 20261018
+// @updateURL    https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-claude.user.js
+// @downloadURL  https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-claude.user.js
 // @match        https://claude.ai/*
 // @run-at       document-idle
 // @grant        none
@@ -346,12 +348,12 @@
             warnings.push(`API 回報 ${reported} 則，這次回應只有 ${data.chat_messages.length} 則`);
         }
         const messages = renderMessages(orderCurrentBranch(data, warnings), warnings, info);
-        return {
-            messages,
-            warnings: [...new Set(warnings)],
-            info,
-            markdown: buildMarkdown(messages)
-        };
+        const unique = [...new Set(warnings)];
+        let markdown = buildMarkdown(messages);
+        if (unique.length) {
+            markdown += `\n\n> **匯出不完整**\n>\n${unique.map(text => `> ${text}`).join('\n')}\n`;
+        }
+        return { messages, warnings: unique, info, markdown };
     }
 
     const api = {
@@ -360,7 +362,9 @@
         exportConversation,
         sanitizeFileName,
         buildDownloadName,
-        buildMarkdown
+        buildMarkdown,
+        nextPageUrl,
+        mergeConversationPages
     };
 
     if (typeof module !== 'undefined' && module.exports && !root.document) {
@@ -585,18 +589,32 @@
         return '';
     }
 
-    async function fetchConversation() {
-        const conversationId = conversationIdFromPath(root.location.pathname);
-        if (!conversationId) {
-            throw new Error('請先開啟一篇 Claude 對話（目前網址沒有對話 ID）。可改用快照匯出目前畫面');
+    function nextPageUrl(cursor) {
+        if (typeof cursor !== 'string' || !cursor) return '';
+        if (/^https?:\/\//i.test(cursor) || cursor.startsWith('/')) return cursor;
+        return '';
+    }
+
+    function mergeConversationPages(pages) {
+        const base = { ...(pages[0] || {}) };
+        const seen = new Set();
+        const messages = [];
+        for (const page of pages) {
+            for (const message of page.chat_messages || []) {
+                const key = message && message.uuid;
+                if (key && seen.has(key)) continue;
+                if (key) seen.add(key);
+                messages.push(message);
+            }
         }
-        const orgId = await resolveOrgId();
-        if (!orgId) {
-            throw new Error('讀不到登入組織（lastActiveOrg）。請重新登入後再試，或改用快照匯出');
-        }
-        // @grant none keeps this in the page context so the session cookie is sent.
-        const url = `/api/organizations/${encodeURIComponent(orgId)}/chat_conversations/` +
-            `${encodeURIComponent(conversationId)}?tree=true&rendering_mode=messages&render_all_tools=true`;
+        const last = pages[pages.length - 1] || {};
+        base.chat_messages = messages;
+        base.has_more = Boolean(last.has_more || last.next_cursor);
+        base.next_cursor = last.next_cursor || '';
+        return base;
+    }
+
+    async function readConversationPage(url) {
         let response;
         try {
             response = await fetch(url, {
@@ -619,6 +637,29 @@
         } catch (error) {
             throw new Error(`Claude API 回應無法解析：${error.message}`);
         }
+    }
+
+    async function fetchConversation() {
+        const conversationId = conversationIdFromPath(root.location.pathname);
+        if (!conversationId) {
+            throw new Error('請先開啟一篇 Claude 對話（目前網址沒有對話 ID）。可改用快照匯出目前畫面');
+        }
+        const orgId = await resolveOrgId();
+        if (!orgId) {
+            throw new Error('讀不到登入組織（lastActiveOrg）。請重新登入後再試，或改用快照匯出');
+        }
+        // @grant none keeps this in the page context so the session cookie is sent.
+        let url = `/api/organizations/${encodeURIComponent(orgId)}/chat_conversations/` +
+            `${encodeURIComponent(conversationId)}?tree=true&rendering_mode=messages&render_all_tools=true`;
+        const pages = [];
+        const seen = new Set();
+        for (let page = 0; page < 20 && url && !seen.has(url); page++) {
+            seen.add(url);
+            const data = await readConversationPage(url);
+            pages.push(data);
+            url = nextPageUrl(data.next_cursor);
+        }
+        return mergeConversationPages(pages);
     }
 
     function isScroller(element) {
@@ -1042,10 +1083,10 @@
             baseWait: SLOW_BASE_WAIT
         }, event.currentTarget));
         topButton.title = '只回到對話最頂端，不進行匯出';
-        snapshotButton.title = 'Snapshot：匯出目前已掛載的訊息';
-        directButton.title = 'Direct：從目前位置開始往下匯出';
-        fastButton.title = 'Fast：正常速度，從頂端完整匯出';
-        fullButton.title = 'Full：較慢速度，從頂端保守完整匯出';
+        snapshotButton.title = '快照：只匯出目前掛在畫面上的訊息';
+        directButton.title = '往下匯出：從目前位置捲動掃描，長對話可能不完整';
+        fastButton.title = '正常匯出：讀目前分支，不靠捲動';
+        fullButton.title = '慢速匯出：較慢捲動掃描，長對話可能不完整';
         menu.append(topButton, snapshotButton, directButton, fastButton, fullButton);
 
         const fab = root.document.createElement('button');
