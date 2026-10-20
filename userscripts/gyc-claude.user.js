@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GYC - Claude
 // @namespace    https://github.com/ReaperTw/AZA-Agent-Chat-Archive
-// @version      1.1.1
+// @version      1.2.0
 // @description  Grab Your Chat - Claude 端對話匯出器；最後更新於 20261018
 // @updateURL    https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-claude.user.js
 // @downloadURL  https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-claude.user.js
@@ -374,16 +374,6 @@
     }
     if (!root.document) return;
 
-    const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
-    const SLOW_UPWARD_WAIT = 900;
-    const SLOW_SCROLL_STEP = 400;
-    const SLOW_BASE_WAIT = 900;
-    const FAST_UPWARD_WAIT = 500;
-    const FAST_SCROLL_STEP = 2000;
-    const FAST_BASE_WAIT = 500;
-    const USER_SELECTOR = '[data-testid="user-message"], [data-testid="user-human-turn"]';
-    const ASSISTANT_SELECTOR = '.font-claude-response, .font-claude-message, [data-testid="assistant-message"]';
-    const MESSAGE_SELECTOR = `${USER_SELECTOR}, ${ASSISTANT_SELECTOR}`;
 
     function determineTitle(apiName) {
         const fromApi = sanitizeFileName(apiName);
@@ -624,7 +614,7 @@
                 headers: { 'Content-Type': 'application/json' }
             });
         } catch (error) {
-            throw new Error(`連不到 Claude：${error.message}。可改用快照匯出目前畫面`);
+            throw new Error(`連不到 Claude：${error.message}。請確認網路後重試`);
         }
         if (!response.ok) {
             const hint = response.status === 401 || response.status === 403
@@ -644,11 +634,11 @@
     async function fetchConversation() {
         const conversationId = conversationIdFromPath(root.location.pathname);
         if (!conversationId) {
-            throw new Error('請先開啟一篇 Claude 對話（目前網址沒有對話 ID）。可改用快照匯出目前畫面');
+            throw new Error('請先開啟一篇 Claude 對話（目前網址沒有對話 ID）');
         }
         const orgId = await resolveOrgId();
         if (!orgId) {
-            throw new Error('讀不到登入組織（lastActiveOrg）。請重新登入後再試，或改用快照匯出');
+            throw new Error('讀不到登入組織（lastActiveOrg）。請重新登入後再試');
         }
         // @grant none keeps this in the page context so the session cookie is sent.
         let url = `/api/organizations/${encodeURIComponent(orgId)}/chat_conversations/` +
@@ -664,147 +654,6 @@
         return mergeConversationPages(pages);
     }
 
-    function isScroller(element) {
-        if (!element || element === root.document.body || element === root.document.documentElement) {
-            return false;
-        }
-        const style = getComputedStyle(element);
-        if (style.overflowY !== 'auto' && style.overflowY !== 'scroll') return false;
-        if (element.clientHeight < root.innerHeight * 0.4) return false;
-        return element.scrollHeight > element.clientHeight + 80;
-    }
-
-    function findScrollContainer() {
-        const explicit = root.document.querySelector('[data-autoscroll-container="true"]');
-        if (explicit) return explicit;
-        const seed = root.document.querySelector(MESSAGE_SELECTOR) ||
-            root.document.querySelector('[data-index]');
-        const found = [];
-        let element = seed?.parentElement;
-        while (element && element !== root.document.body) {
-            if (isScroller(element)) found.push(element);
-            element = element.parentElement;
-        }
-        return found.sort((a, b) => b.clientHeight - a.clientHeight)[0] ||
-            root.document.scrollingElement ||
-            root.document.documentElement;
-    }
-
-    function outermost(rootNode, selector) {
-        if (rootNode.matches?.(selector)) return [rootNode];
-        return Array.from(rootNode.querySelectorAll?.(selector) || []).filter(node => {
-            const parent = node.parentElement?.closest(selector);
-            return !parent || !rootNode.contains(parent);
-        });
-    }
-
-    function readNodeText(node) {
-        if (!node) return '';
-        const clone = node.cloneNode(true);
-        clone.querySelectorAll('button, [role="button"], .sr-only').forEach(element => element.remove());
-        return clone.innerText || clone.textContent || '';
-    }
-
-    function turnIndex(node) {
-        let element = node;
-        while (element && element !== root.document.body) {
-            const value = element.getAttribute?.('data-index') ?? element.getAttribute?.('data-rs-index');
-            if (value !== null && value !== undefined && value !== '' && Number.isInteger(Number(value))) {
-                return Number(value);
-            }
-            element = element.parentElement;
-        }
-        return null;
-    }
-
-    function snapshotTurns() {
-        const indexed = Array.from(root.document.querySelectorAll('[data-index]'))
-            .filter(node => !node.querySelector('[data-index]'))
-            .filter(node => node.matches(MESSAGE_SELECTOR) || node.querySelector(MESSAGE_SELECTOR));
-        if (indexed.length) return indexed;
-        return Array.from(root.document.querySelectorAll(MESSAGE_SELECTOR)).filter(node => {
-            const parent = node.parentElement?.closest(MESSAGE_SELECTOR);
-            return !parent;
-        });
-    }
-
-    function snapshotMessages() {
-        const turns = snapshotTurns();
-        turns.sort((a, b) => {
-            const ai = turnIndex(a);
-            const bi = turnIndex(b);
-            if (Number.isInteger(ai) && Number.isInteger(bi) && ai !== bi) return ai - bi;
-            const position = a.compareDocumentPosition(b);
-            if (position & Node.DOCUMENT_POSITION_FOLLOWING) return -1;
-            if (position & Node.DOCUMENT_POSITION_PRECEDING) return 1;
-            return 0;
-        });
-        const messages = [];
-        for (const turn of turns) {
-            const userNode = turn.matches?.(USER_SELECTOR)
-                ? turn
-                : turn.querySelector?.(USER_SELECTOR);
-            const role = userNode ? 'user' : 'assistant';
-            const textNode = userNode || turn;
-            const blocks = role === 'user'
-                ? [textNode]
-                : outermost(turn, '.standard-markdown, .font-claude-response, .font-claude-message');
-            let text = cleanContent(
-                (blocks.length ? blocks : [textNode]).map(readNodeText).filter(Boolean).join('\n\n')
-            );
-            const images = turn.querySelectorAll?.('img')?.length || 0;
-            if (images) {
-                const note = `> [非文字內容：圖片附件 × ${images}；附件本體未嵌入匯出檔]`;
-                text = text ? `${text}\n\n${note}` : note;
-            }
-            if (!text) continue;
-            messages.push({ role, text, createdAt: '', note: '', index: turnIndex(turn) });
-        }
-        return messages;
-    }
-
-    function snapshotWarnings(messages) {
-        const warnings = [];
-        let setsize = 0;
-        for (const node of root.document.querySelectorAll('[aria-setsize]')) {
-            const value = Number(node.getAttribute('aria-setsize'));
-            if (Number.isFinite(value)) setsize = Math.max(setsize, value);
-        }
-        if (setsize > messages.length + 1) {
-            warnings.push(`畫面只掛載 ${messages.length} 列，對話約 ${setsize} 列；這是快照，不是全文`);
-        }
-        const indexes = messages.map(message => message.index).filter(Number.isInteger).sort((a, b) => a - b);
-        for (let i = 1; i < indexes.length; i++) {
-            if (indexes[i] - indexes[i - 1] > 1) {
-                warnings.push('已掛載列的索引不連續，快照中間有缺。長對話請改用正常匯出');
-                break;
-            }
-        }
-        return warnings;
-    }
-
-    async function moveToTop(button) {
-        const scroller = findScrollContainer();
-        if (!scroller) throw new Error('找不到對話捲動容器');
-        const oldest = getComputedStyle(scroller).flexDirection === 'column-reverse'
-            ? scroller.clientHeight - scroller.scrollHeight
-            : 0;
-        let stable = 0;
-        let previous = '';
-        for (let index = 0; index < 40; index++) {
-            if (typeof scroller.scrollTo === 'function') scroller.scrollTo({ top: oldest, behavior: 'auto' });
-            scroller.scrollTop = oldest;
-            await delay(500);
-            const signature = snapshotMessages().map(message => `${message.role}:${message.text.length}`).join('|');
-            const atOldest = Math.abs(scroller.scrollTop - oldest) <= 3;
-            if (atOldest && signature === previous) stable++;
-            else stable = 0;
-            previous = signature;
-            button.textContent = `定位起點… ${index + 1}/40`;
-            if (stable >= 2) return true;
-        }
-        return false;
-    }
 
     async function runExclusive(button, fn) {
         if (!button || button.disabled) return;
@@ -847,145 +696,6 @@
         });
     }
 
-    function processSnapshotExport(button) {
-        return runExclusive(button, async () => {
-            const messages = snapshotMessages();
-            if (!messages.length) throw new Error('目前畫面找不到 Claude 訊息節點');
-            const warnings = snapshotWarnings(messages);
-            const markdown = buildMarkdown(messages);
-            let title = determineTitle('');
-            if (warnings.length) title += '_INCOMPLETE';
-            openSave(title, markdown, {
-                heading: '快照完成',
-                messageCount: messages.length,
-                warning: warnings.length ? `⚠️ ${warnings.join('\n')}` : '',
-                status: warnings.length ? '' : '未發現未解析的訊息空殼'
-            });
-        });
-    }
-
-    function scrollBounds(scroller) {
-        const distance = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
-        return getComputedStyle(scroller).flexDirection === 'column-reverse'
-            ? { oldest: -distance, newest: 0 }
-            : { oldest: 0, newest: distance };
-    }
-
-    function messageKey(message) {
-        if (Number.isInteger(message.index)) return `index:${message.index}`;
-        return `text:${message.role}:${message.text.slice(0, 80)}:${message.text.length}`;
-    }
-
-    function absorbMessages(map, state, messages) {
-        let added = 0;
-        for (const message of messages) {
-            const key = messageKey(message);
-            const existing = map.get(key);
-            if (!existing) {
-                map.set(key, { ...message, sequence: state.next++ });
-                added++;
-            } else if (message.text.length > existing.text.length) {
-                existing.text = message.text;
-            }
-        }
-        return added;
-    }
-
-    function processSweepExport(config, button) {
-        return runExclusive(button, async btn => {
-            const scroller = findScrollContainer();
-            if (!root.document.querySelector(MESSAGE_SELECTOR)) {
-                throw new Error('目前滾動容器內找不到對話訊息節點');
-            }
-            if (!config.skipUpward) {
-                const reached = await moveToTop(btn);
-                if (!reached) throw new Error('較早訊息仍在載入，無法確認對話頂端');
-                await delay(Math.max(config.upWait || 500, 1000));
-            }
-
-            const map = new Map();
-            const state = { next: 0 };
-            const warnings = [];
-            const viewport = Math.max(scroller.clientHeight, 400);
-            const step = Math.max(200, Math.min(config.step, Math.floor(viewport * 0.6)));
-            const estimated = Math.ceil((scroller.scrollHeight || viewport) / step);
-            const maxPasses = Math.min(5000, Math.max(100, estimated * 4 + 50));
-            absorbMessages(map, state, snapshotMessages());
-
-            let bottomStable = 0;
-            let stallCount = 0;
-            let previousSignature = '';
-            for (let pass = 0; pass < maxPasses; pass++) {
-                const beforeTop = scroller.scrollTop;
-                const bounds = scrollBounds(scroller);
-                const nextTop = Math.min(bounds.newest, beforeTop + step);
-                if (typeof scroller.scrollTo === 'function') {
-                    scroller.scrollTo({ top: nextTop, behavior: 'auto' });
-                }
-                scroller.scrollTop = nextTop;
-                await delay(config.baseWait);
-
-                let visible = snapshotMessages();
-                let added = absorbMessages(map, state, visible);
-                let signature = visible.map(message => `${message.index}:${message.text.length}`).join('|');
-                const currentBounds = scrollBounds(scroller);
-                const atBottom = currentBounds.newest - scroller.scrollTop <= 5;
-                const moved = Math.abs(scroller.scrollTop - beforeTop) >= 5;
-                if (!moved && !atBottom && added === 0) stallCount++;
-                else stallCount = 0;
-                if (stallCount === 2) {
-                    scroller.dispatchEvent(new Event('scroll', { bubbles: true }));
-                    await delay(config.baseWait);
-                    visible = snapshotMessages();
-                    added = absorbMessages(map, state, visible);
-                    signature = visible.map(message => `${message.index}:${message.text.length}`).join('|');
-                }
-
-                if (atBottom && signature === previousSignature && added === 0) bottomStable++;
-                else bottomStable = 0;
-
-                const total = currentBounds.newest - currentBounds.oldest;
-                const percent = total > 0
-                    ? Math.min(100, Math.round((scroller.scrollTop - currentBounds.oldest) / total * 100))
-                    : 100;
-                btn.textContent = `動態掃描 ${percent}%｜已存 ${map.size} 則`;
-                if (bottomStable >= 2) break;
-                if (stallCount >= 8) {
-                    warnings.push(`在非底部停滯（scrollTop=${Math.round(scroller.scrollTop)}）`);
-                    break;
-                }
-                previousSignature = signature;
-                if (pass === maxPasses - 1) warnings.push(`達到安全迴圈上限 ${maxPasses}`);
-            }
-
-            const messages = Array.from(map.values()).sort((a, b) => {
-                if (Number.isInteger(a.index) && Number.isInteger(b.index)) {
-                    return a.index - b.index || a.sequence - b.sequence;
-                }
-                return a.sequence - b.sequence;
-            });
-            if (!messages.length) throw new Error('掃描完成，但沒有取得任何非空白對話');
-            warnings.push(...snapshotWarnings(messages).map(text => text
-                .replace('畫面只掛載', '這次只取得')
-                .replace('這是快照，不是全文', '捲動掃描未補齊，請改用正常匯出')
-                .replace('快照中間有缺。長對話請改用正常匯出', '索引不連續。長對話請改用正常匯出')));
-            const warning = [...new Set(warnings)].join('\n');
-            let title = determineTitle('');
-            if (warning) title += '_INCOMPLETE';
-            openSave(title, buildMarkdown(messages), {
-                messageCount: messages.length,
-                warning: warning ? `⚠️ ${warning}` : '',
-                status: warning ? '' : '未發現未解析的訊息空殼'
-            });
-        });
-    }
-
-    function scrollToTop(button) {
-        return runExclusive(button, async btn => {
-            const reached = await moveToTop(btn);
-            showNotification(reached ? '✅ 已到達目前對話頂端' : '⚠️ 無法確認已到最頂端', !reached);
-        });
-    }
 
     function createButton() {
         if (!root.document.body || root.document.getElementById('claude-export-fab-container')) return;
@@ -1069,31 +779,13 @@
             return button;
         };
 
-        const topButton = makeButton('↑  到頂端', event => scrollToTop(event.currentTarget));
-        const snapshotButton = makeButton('◇  快照匯出', event => processSnapshotExport(event.currentTarget));
-        const directButton = makeButton('↓  往下匯出', event => processSweepExport({
-            skipUpward: true,
-            upWait: 0,
-            step: FAST_SCROLL_STEP,
-            baseWait: FAST_BASE_WAIT
-        }, event.currentTarget));
-        const fastButton = makeButton('»  正常匯出', event => processApiExport(event.currentTarget));
-        const fullButton = makeButton('◆  慢速匯出', event => processSweepExport({
-            skipUpward: false,
-            upWait: SLOW_UPWARD_WAIT,
-            step: SLOW_SCROLL_STEP,
-            baseWait: SLOW_BASE_WAIT
-        }, event.currentTarget));
-        topButton.title = '只回到對話最頂端，不進行匯出';
-        snapshotButton.title = '快照：只匯出目前掛在畫面上的訊息';
-        directButton.title = '往下匯出：從目前位置捲動掃描，長對話可能不完整';
-        fastButton.title = '正常匯出：讀目前分支，不靠捲動';
-        fullButton.title = '慢速匯出：較慢捲動掃描，長對話可能不完整';
-        menu.append(topButton, snapshotButton, directButton, fastButton, fullButton);
+        const exportButton = makeButton('»  正常匯出', event => processApiExport(event.currentTarget));
+        exportButton.title = '正常匯出：讀目前分支，不靠捲動';
+        menu.append(exportButton);
 
         const fab = root.document.createElement('button');
         fab.textContent = '✳';
-        fab.title = 'GYC - Claude - v1.0.0';
+        fab.title = 'GYC - Claude - v1.2.0';
         fab.setAttribute('aria-label', '開啟 Grab Your Chat - Claude 工具');
         Object.assign(fab.style, {
             width: '56px',
