@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name        GYC - Grok
 // @namespace   https://github.com/ReaperTw/AZA-Agent-Chat-Archive
-// @version     1.1.0
-// @description Grab Your Chat - Grok 端對話匯出器；最後更新於 20261018
+// @version     1.2.0
+// @description Grab Your Chat - Grok 端對話匯出器；最後更新於 20261020
 // @updateURL   https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-grok.user.js
 // @downloadURL https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-grok.user.js
 // @match       https://grok.com/*
@@ -323,17 +323,25 @@
     }
 
     function openTimelineSaveModal(timeline, scanWarnings = []) {
+        let nonTextWarn = false;
         const exportTimeline = timeline
-            .map(message => ({
-                type: message.type,
-                text: cleanContent(message.text)
-            }))
-            .filter(message => message.text);
+            .map(message => {
+                const txt = cleanContent(message.text || '');
+                if (!txt && message.text !== undefined) nonTextWarn = true;
+                return {
+                    type: message.type,
+                    text: txt,
+                    timestamp: message.timestamp || message.createTime
+                };
+            })
+            .filter(message => message.text || message.timestamp);
 
         if (!exportTimeline.length) {
             throw new Error('沒有取得任何有效對話');
         }
 
+        let warnings = scanWarnings.slice();
+        if (nonTextWarn) warnings.push('nontext missing body');
         let userIndex = 1;
         let modelIndex = 1;
         let output = '';
@@ -345,16 +353,26 @@
             const heading = message.type === 'user'
                 ? `User ${userIndex++}`
                 : `Model ${modelIndex++}`;
+            let dateStr = '';
+            const ts = message.timestamp;
+            if (ts) {
+                // source only actual createTime field if semantically supported (ISO or seconds)
+                let d;
+                if (typeof ts === 'string') d = new Date(ts);
+                else if (ts.seconds) d = new Date(ts.seconds * 1000 + ((ts.nanos||0)/1e6));
+                else if (ts > 0) d = new Date(ts);
+                if (d && !isNaN(d)) dateStr = ` (${d.toLocaleString()})`;
+            }
+            if (dateStr) output += `> **對話時間**：${dateStr.slice(2, -1)}\n\n`;
             output += `--- [${heading}] ---\n${message.text}\n\n`;
         }
 
-        const warning = scanWarnings.length
-            ? `⚠️ ${scanWarnings.join('\n')}`
+        const warning = warnings.length
+            ? `⚠️ ${warnings.join('\n')}`
             : '';
         let title = determineTitle();
         if (warning) title += '_INCOMPLETE';
-        const finalOutput = output.trimEnd() + '\n';
-
+        const finalOutput = output.trimEnd() + (warning ? `\n\n> **匯出不完整**\n${warnings.map(text => '> ' + text).join('\n')}` : '') + '\n';
         showSaveModal(title, finalOutput, {
             messageCount: exportTimeline.length,
             warning
@@ -577,6 +595,17 @@
         btn.disabled = true;
 
         try {
+            const isGrokCom = location.hostname === 'grok.com';
+            const convId = conversationIdFromPath(location.pathname);
+            if (mode === 'fast' && isGrokCom && convId) {
+                btn.innerText = 'API 讀取中…';
+                const apiData = await fetchConversationViaApi(convId);
+                const branch = buildActiveBranchTimeline(apiData.responses, convId);
+                const warnings = [apiData.warning, branch.warning].filter(Boolean);
+                if (!branch.timeline.length) throw new Error('API 沒有可匯出的訊息；可改用慢速匯出');
+                openTimelineSaveModal(branch.timeline, warnings);
+                return;
+            }
             const scroller = findScrollContainer();
             if (!scroller.querySelector(CONFIG.CONTENT_NODES)) {
                 throw new Error('目前滾動容器內找不到 Grok 訊息節點');
@@ -885,7 +914,7 @@
 
         const fab = document.createElement('button');
         fab.innerText = '𝕏';
-        fab.title = 'GYC - Grok - v1.0.0';
+        fab.title = 'GYC - Grok - v1.2.0';
         fab.setAttribute('aria-label', '開啟 Grab Your Chat - Grok 工具');
         Object.assign(fab.style, {
             width: '56px',
@@ -930,8 +959,123 @@
         container.append(menu, fab);
         document.body.appendChild(container);
     }
+    // Grok fields: responseId, parentResponseId, sender ('human'|'assistant'), message (string body), createTime (ISO or {seconds,nanos})
+    function conversationIdFromPath(pathname) {
+        const parts = String(pathname || '').split('/').filter(Boolean);
+        for (let i = parts.length - 1; i >= 0; i--) {
+            const p = parts[i];
+            if (/^[0-9a-f-]{10,}$/i.test(p) && (parts[i-1] === 'c' || parts[i-1] === 'chat')) {
+                return p;
+            }
+        }
+        return null;
+    }
+
+    function chunkIds(ids, size = 50) {
+        const chunks = [];
+        for (let i = 0; i < ids.length; i += size) chunks.push(ids.slice(i, i + size));
+        return chunks;
+    }
+
+    function parseLoadResponses(rawResponses, requestedIds) {
+        if (!Array.isArray(rawResponses)) return {items: [], missing: requestedIds.slice()};
+        const byId = new Map();
+        for (const r of rawResponses) {
+            const id = r.responseId || r.id;
+            if (id && !byId.has(id)) byId.set(id, r);
+        }
+        const items = [];
+        const missing = [];
+        for (const id of requestedIds) {
+            if (byId.has(id)) items.push(byId.get(id));
+            else missing.push(id);
+        }
+        return {items, missing};
+    }
+
+    async function fetchConversationViaApi(conversationId) {
+        const base = '/rest/app-chat/conversations/' + encodeURIComponent(conversationId);
+        const request = async (url, options = {}) => {
+            const response = await fetch(url, { ...options, credentials: 'include', signal: AbortSignal.timeout(30000) });
+            if (!response.ok) throw new Error(`Grok API HTTP ${response.status}；可改用慢速匯出`);
+            return response.json();
+        };
+        const tree = await request(base + '/response-node?includeThreads=true');
+        if (!Array.isArray(tree?.responseNodes)) throw new Error('Grok 訊息樹格式已改變；可改用慢速匯出');
+        const allIds = [...new Set(tree.responseNodes.map(node => node?.responseId).filter(id => typeof id === 'string' && id))];
+        const ids = allIds.slice(0, 10000);
+        const warnings = [];
+        if (allIds.length > ids.length) warnings.push('訊息超過 10000 則安全上限，未取得全部內容');
+        if (tree.inflightResponses?.length) warnings.push('對話仍有生成中的訊息');
+        const responses = [];
+        let missingCount = 0;
+        for (const chunk of chunkIds(ids, 50)) {
+            const data = await request(base + '/load-responses', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ responseIds: chunk })
+            });
+            if (!Array.isArray(data?.responses)) throw new Error('Grok 訊息正文格式已改變；可改用慢速匯出');
+            const parsed = parseLoadResponses(data.responses, chunk);
+            responses.push(...parsed.items);
+            missingCount += parsed.missing.length;
+        }
+        if (missingCount) warnings.push(`${missingCount} 則訊息正文未回傳`);
+        return { ids, responses, warning: warnings.join('；') || null };
+    }
+
+    function buildActiveBranchTimeline(responses, rootId) {
+        const byId = new Map();
+        for (const response of responses) {
+            if (response && (response.responseId || response.id)) byId.set(response.responseId || response.id, response);
+        }
+        const children = new Map();
+        const roots = [];
+        const warnings = new Set();
+        for (const [id, response] of byId) {
+            const parent = response.parentResponseId;
+            if (parent && byId.has(parent)) {
+                if (!children.has(parent)) children.set(parent, []);
+                children.get(parent).push(id);
+            } else {
+                roots.push(id);
+                if (parent && parent !== rootId) warnings.add('部分父訊息不在回應中，無法確認上游完整性');
+            }
+        }
+        const branched = [...children.values()].some(ids => ids.length > 1) || roots.length > 1;
+        if (branched) warnings.add('API 含多條分支，無法確認目前分支；以下逐則保留並標記，並非單一連續對話');
+        const timeline = [];
+        const seen = new Set();
+        const pending = roots.slice().reverse();
+        while (seen.size < byId.size) {
+            if (!pending.length) {
+                warnings.add('訊息鏈含循環或無法連回根節點');
+                pending.push([...byId.keys()].find(id => !seen.has(id)));
+            }
+            const id = pending.pop();
+            if (seen.has(id)) continue;
+            seen.add(id);
+            const response = byId.get(id);
+            const role = response.sender || response.role;
+            if (role === 'human' || role === 'user' || role === 'assistant') {
+                let body = typeof response.message === 'string' ? response.message.trim() : '';
+                if (!body) {
+                    body = '> [非文字或空白訊息；本體未嵌入匯出檔]';
+                    warnings.add('部分訊息沒有文字正文，附件本體未嵌入');
+                }
+                if (branched) body = '> [分支未確認的訊息，勿視為單一連續對話]\n\n' + body;
+                timeline.push({ type: role === 'assistant' ? 'ai' : 'user', text: body, timestamp: response.createTime });
+            } else if (!['tool', 'system', 'reasoning'].includes(role)) {
+                warnings.add('已略過角色無法識別的訊息');
+            }
+            const next = children.get(id) || [];
+            if (next.some(child => seen.has(child))) warnings.add('訊息鏈含循環');
+            pending.push(...next.slice().reverse());
+        }
+        return { timeline, warning: [...warnings].join('；') || null };
+    }
+
     if (typeof module !== 'undefined' && module.exports && typeof document === 'undefined') {
-        module.exports = { mergeTimelines };
+        module.exports = { mergeTimelines, conversationIdFromPath, chunkIds, parseLoadResponses, fetchConversationViaApi, buildActiveBranchTimeline };
         return;
     }
 

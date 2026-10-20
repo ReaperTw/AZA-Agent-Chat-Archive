@@ -1,0 +1,2 @@
+# Local browser/API diagnostics (keep regression tests tracked).
+/tests/inspect-*.js

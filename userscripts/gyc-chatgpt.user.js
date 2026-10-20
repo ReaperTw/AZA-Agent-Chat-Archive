@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         GYC - ChatGPT
 // @namespace    https://github.com/ReaperTw/AZA-Agent-Chat-Archive
-// @version      1.0.5
-// @description  Grab Your Chat - ChatGPT 端對話匯出器；最後更新於 20261018
+// @version      1.1.0
+// @description  Grab Your Chat - ChatGPT 端對話匯出器；最後更新於 20261020
 // @updateURL    https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-chatgpt.user.js
 // @downloadURL  https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-chatgpt.user.js
 // @match        https://chatgpt.com/*
@@ -49,6 +49,107 @@
             .replace(/^顯示思路[\r\n]*/gm, '')
             .replace(/[\r\n]{3,}/g, '\n\n')
             .trim();
+    }
+
+
+    // Pure API helpers (Node + browser). Source protocol facts: current_node + mapping parent/create_time chain.
+    // https://github.com/mvanhorn/agent-tincan/blob/main/extension/ops.js MIT © 2026 Matthew Charles Van Horn (reference only; original impl)
+    function getConversationIdFromUrl(pathname) {
+        const path = pathname ?? (typeof location !== 'undefined' ? location.pathname : '');
+        const match = path.match(/^\/(?:g\/[^/]+\/)?c\/([0-9a-f-]{10,})\/?$/i);
+        return match ? match[1] : null;
+    }
+
+    function isPersonalChatRoute(pathname) {
+        return Boolean(getConversationIdFromUrl(pathname));
+    }
+
+    async function fetchAccessToken() {
+        const response = await fetch('/api/auth/session', { credentials: 'include', signal: AbortSignal.timeout(30000) });
+        if (!response.ok) throw new Error(`登入資訊 HTTP ${response.status}`);
+        const session = await response.json();
+        if (!session.accessToken) throw new Error('登入資訊缺少 accessToken');
+        return session.accessToken;
+    }
+
+    async function fetchConversationApi(id, token) {
+        const response = await fetch(`/backend-api/conversation/${encodeURIComponent(id)}`, {
+            credentials: 'include', headers: { Authorization: `Bearer ${token}` },
+            signal: AbortSignal.timeout(30000)
+        });
+        if (!response.ok) throw new Error(`對話 API HTTP ${response.status}`);
+        return response.json();
+    }
+
+    function formatApiDate(timestamp) {
+        if (typeof timestamp !== 'number' || !Number.isFinite(timestamp)) return '';
+        const date = new Date(timestamp * 1000);
+        return Number.isNaN(date.getTime()) ? '' : date.toLocaleString('zh-TW');
+    }
+
+    function parseApiConversation(payload) {
+        const messages = [];
+        const warnings = new Set();
+        const mapping = payload?.mapping;
+        if (!mapping || typeof mapping !== 'object' || Array.isArray(mapping)) throw new Error('對話 API 缺少訊息樹');
+        if (!payload.current_node) warnings.add('缺少目前分支的終點');
+        if (payload.has_more || payload.next_cursor) warnings.add('API 仍有後續資料，這次沒有取得全文');
+        const seen = new Set();
+        let id = payload.current_node;
+        while (id) {
+            if (seen.has(id)) { warnings.add('訊息鏈含循環'); break; }
+            seen.add(id);
+            if (!Object.hasOwn(mapping, id) || !mapping[id]) { warnings.add('部分父訊息不在回應中'); break; }
+            const node = mapping[id];
+            const message = node.message;
+            const role = message?.author?.role;
+            const hidden = message?.metadata?.is_visually_hidden_from_conversation ||
+                (message?.channel && message.channel !== 'final') ||
+                (message?.recipient && message.recipient !== 'all');
+            if ((role === 'user' || role === 'assistant') && !hidden) {
+                const content = message.content;
+                const parts = Array.isArray(content?.parts) ? content.parts : [];
+                let omitted = false;
+                const text = parts.map(part => {
+                    if (typeof part === 'string') return part;
+                    omitted = true;
+                    return '> [非文字內容；本體未嵌入匯出檔]';
+                }).join('\n\n').trim();
+                if (omitted || (!text && content?.content_type !== 'text')) warnings.add('部分非文字內容未嵌入匯出檔');
+                if (text || omitted || content?.content_type !== 'text') {
+                    messages.push({
+                        role, text: text || '> [此訊息內容格式無法解析]',
+                        create_time: message.create_time, date: formatApiDate(message.create_time)
+                    });
+                }
+            }
+            id = node.parent;
+        }
+        messages.reverse();
+        return {
+            title: typeof payload.title === 'string' ? payload.title : 'ChatGPT-Chat',
+            messages, incomplete: warnings.size > 0,
+            warning: [...warnings].join('；') || null
+        };
+    }
+
+    function buildApiMarkdown(parsed, sourceTitle) {
+        const title = sanitizeFileName(sourceTitle || parsed.title);
+        let content = '';
+        let user = 1;
+        let model = 1;
+        for (const message of parsed.messages) {
+            if (message.date) content += `> **對話時間**：${message.date}\n\n`;
+            const heading = message.role === 'user' ? `User ${user++}` : `Model ${model++}`;
+            content += `--- [${heading}] ---\n${message.text}\n\n`;
+        }
+        if (parsed.incomplete) content += `> **匯出不完整**：${parsed.warning}\n`;
+        return { filename: title, content: content.trimEnd() + '\n' };
+    }
+
+    if (typeof module !== 'undefined' && module.exports && typeof document === 'undefined') {
+        module.exports = { parseApiConversation, buildApiMarkdown, formatApiDate, isPersonalChatRoute, getConversationIdFromUrl };
+        return;
     }
 
     function determineTitle() {
@@ -902,6 +1003,41 @@
         }
     }
 
+    async function processApiExport(button) {
+        if (!button || button.disabled) return;
+        const originalText = button.textContent;
+        button.disabled = true;
+        try {
+            if (!isPersonalChatRoute()) {
+                throw new Error('非個人路由（含群組聊天），請改用 DOM 正常/慢速匯出');
+            }
+            const id = getConversationIdFromUrl();
+            if (!id) throw new Error('URL 中找不到 conversation id');
+            const token = await fetchAccessToken();
+            const payload = await fetchConversationApi(id, token);
+            const parsed = parseApiConversation(payload);
+            if (!parsed.messages.length) throw new Error('API 沒有可匯出的可見訊息');
+            const { filename, content } = buildApiMarkdown(parsed, payload && payload.title);
+            const finalName = `GPT_${sanitizeFileName(filename)}_${getTimestamp()}${parsed.incomplete ? '_INCOMPLETE' : ''}`;
+            showSaveModal(finalName, content, { messageCount: parsed.messages.length, warning: parsed.warning }, (name) => {
+                const blob = new Blob(["\uFEFF" + content], { type: 'text/markdown;charset=utf-8' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `${name}.md`;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                setTimeout(() => URL.revokeObjectURL(url), 1500);
+            });
+        } catch (error) { showNotification(`API 匯出失敗。可嘗試慢速 DOM 模式`, true);
+        } finally {
+            button.disabled = false;
+            button.textContent = originalText;
+        }
+    }
+
+
     function createButton() {
         if (document.getElementById('chatgpt-export-fab-container')) return;
 
@@ -1006,12 +1142,12 @@
         );
         const fastButton = makeButton(
             '»  正常匯出',
-            event => processAndExport({
-                skipUpward: false,
-                upWait: FAST_UPWARD_WAIT,
-                step: FAST_SCROLL_STEP,
-                baseWait: FAST_BASE_WAIT
-            }, event.currentTarget)
+            event => isPersonalChatRoute()
+                ? processApiExport(event.currentTarget)
+                : processAndExport({
+                    skipUpward: false, upWait: FAST_UPWARD_WAIT,
+                    step: FAST_SCROLL_STEP, baseWait: FAST_BASE_WAIT
+                }, event.currentTarget)
         );
         const fullButton = makeButton(
             '◆  慢速匯出',
@@ -1024,7 +1160,7 @@
         );
         topButton.title = '只回到對話最頂端，不進行匯出';
         directButton.title = 'Direct：從目前位置開始往下匯出';
-        fastButton.title = 'Fast：正常速度，從頂端完整匯出';
+        fastButton.title = '正常匯出：個人對話讀 API；群聊維持捲動掃描';
         fullButton.title = 'Full：較慢速度，從頂端保守完整匯出';
         menu.append(topButton, directButton, fastButton, fullButton);
 
@@ -1036,7 +1172,7 @@
                 <path fill="currentColor"
                     d="M22.2819 9.8211a5.9847 5.9847 0 0 0-.5157-4.9108 6.0462 6.0462 0 0 0-6.5098-2.9A6.0651 6.0651 0 0 0 4.9807 4.1818a5.9847 5.9847 0 0 0-3.9977 2.9 6.0462 6.0462 0 0 0 .7427 7.0966 5.98 5.98 0 0 0 .511 4.9107 6.051 6.051 0 0 0 6.5146 2.9001A5.9847 5.9847 0 0 0 13.2599 24a6.0557 6.0557 0 0 0 5.7718-4.2058 5.9894 5.9894 0 0 0 3.9977-2.9001 6.0557 6.0557 0 0 0-.7475-7.0729zm-9.022 12.6081a4.4755 4.4755 0 0 1-2.8764-1.0408l.1419-.0804 4.7783-2.7582a.7948.7948 0 0 0 .3927-.6813v-6.7369l2.02 1.1686a.071.071 0 0 1 .038.052v5.5826a4.504 4.504 0 0 1-4.4945 4.4944zm-9.6607-4.1254a4.4708 4.4708 0 0 1-.5346-3.0137l.142.0852 4.783 2.7582a.7712.7712 0 0 0 .7806 0l5.8428-3.3685v2.3324a.0804.0804 0 0 1-.0332.0615L9.74 19.9502a4.4992 4.4992 0 0 1-6.1408-1.6464zM2.3408 7.8956a4.485 4.485 0 0 1 2.3655-1.9728V11.6a.7664.7664 0 0 0 .3879.6765l5.8144 3.3543-2.0201 1.1685a.0757.0757 0 0 1-.071 0l-4.8303-2.7865A4.504 4.504 0 0 1 2.3408 7.872zm16.5963 3.8558L13.1038 8.364 15.1192 7.2a.0757.0757 0 0 1 .071 0l4.8303 2.7913a4.4944 4.4944 0 0 1-.6765 8.1042v-5.6772a.79.79 0 0 0-.407-.667zm2.0107-3.0231l-.142-.0852-4.7735-2.7818a.7759.7759 0 0 0-.7854 0L9.409 9.2297V6.8974a.0662.0662 0 0 1 .0284-.0615l4.8303-2.7866a4.4992 4.4992 0 0 1 6.6802 4.66zM8.3065 12.863l-2.02-1.1638a.0804.0804 0 0 1-.038-.0567V6.0742a4.4992 4.4992 0 0 1 7.3757-3.4537l-.142.0805L8.704 5.459a.7948.7948 0 0 0-.3927.6813zm1.0976-2.3654 2.602-1.4998 2.6069 1.4998v2.9994l-2.5974 1.4997-2.6067-1.4997Z"/>
             </svg>`;
-        fab.title = 'GYC - ChatGPT - v1.0.4';
+        fab.title = 'GYC - ChatGPT 1.1.0';
         fab.setAttribute('aria-label', '開啟 Grab Your Chat - ChatGPT 工具');
         Object.assign(fab.style, {
             width: '56px',
