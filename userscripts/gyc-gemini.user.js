@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         GYC - Gemini
 // @namespace    https://github.com/ReaperTw/AZA-Agent-Chat-Archive
-// @version      1.2.2
-// @description  Grab Your Chat - Gemini 端對話匯出器；最後更新於 20261018
+// @version      1.2.3
+// @description  Grab Your Chat - Gemini 端對話匯出器；最後更新於 20261020
 // @updateURL    https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-gemini.user.js
 // @downloadURL  https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-gemini.user.js
 // @match        https://gemini.google.com/*
@@ -67,16 +67,17 @@ function parseGeminiApiData(rawTurns) {
             turns.push({ type: 'user', text: '> [非文字或空白使用者訊息；附件本體未嵌入]', timestamp, dateStr });
         }
         const candidates = Array.isArray(turn[3]?.[0]) ? turn[3][0] : [];
-        const references = Array.isArray(turn[1]) ? turn[1].filter(value => typeof value === 'string') : [];
-        const matched = candidates.filter(candidate => references.includes(candidate?.[0]));
+        const selectedId = turn[3]?.[3];
+        const hasSelection = typeof selectedId === 'string' && selectedId.length > 0;
+        const matched = hasSelection ? candidates.filter(candidate => candidate?.[0] === selectedId) : [];
         let selected;
         let isAlt = false;
-        if (candidates.length === 1) selected = candidates;
-        else if (matched.length === 1) selected = matched;
+        if (matched.length === 1) selected = matched;
+        else if (!hasSelection && candidates.length === 1) selected = candidates;
         else {
             selected = candidates;
             isAlt = candidates.length > 1;
-            warnings.add(isAlt ? '無法確認目前回答，已保留標示清楚的候選回答' : '部分回合沒有回答正文，可能仍在生成');
+            warnings.add(candidates.length ? '無法確認目前回答，已保留可取得的候選回答' : '部分回合沒有回答正文，可能仍在生成');
         }
         const answers = selected.map((candidate, index) => {
             let text = candidate?.[1]?.[0];
@@ -671,7 +672,7 @@ if (typeof document !== 'undefined') {
 
             const fab = document.createElement('button');
             fab.textContent = '✦';
-            fab.title = 'GYC - Gemini - v1.2.2';
+            fab.title = 'GYC - Gemini - v1.2.3';
             fab.setAttribute('aria-label', '開啟 Grab Your Chat - Gemini 工具');
             Object.assign(fab.style, {
                 width: '56px',

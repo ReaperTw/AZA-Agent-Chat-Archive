@@ -55,8 +55,26 @@ const tokens = { SNlM0e: 'token', cfb2h: 'build', FdrFJe: 'session' };
     const incomplete = parseGeminiApiData([emptyAnswer]);
     assert.equal(incomplete.parseWarnings.length, 1);
     assert(uncertain.turns[1].text.includes('alternative'));
-    variants[1] = ['c_chat', 'r_1', 'rc_other'];
+    variants[1] = ['c_chat', 'r_1', 'rc_1']; // Request metadata is not the selected answer.
+    variants[3][3] = 'rc_other';
     assert.equal(parseGeminiApiData([variants]).turns[1].text, 'alternative');
+
+    const withEmptyAlternative = turn(4);
+    withEmptyAlternative[3][0].push(['rc_empty', ['']]);
+    withEmptyAlternative[3][3] = 'rc_4';
+    const selectedText = parseGeminiApiData([withEmptyAlternative]);
+    assert.equal(selectedText.turns[1].text, 'answer-4');
+    assert.deepEqual(selectedText.parseWarnings, []);
+    withEmptyAlternative[3][3] = 'rc_empty';
+    const selectedEmpty = parseGeminiApiData([withEmptyAlternative]);
+    assert(!selectedEmpty.turns[1].text.includes('answer-4'));
+    assert.equal(selectedEmpty.parseWarnings.length, 1);
+
+    const missingSelected = turn(5);
+    missingSelected[3][3] = 'rc_missing';
+    const unresolved = parseGeminiApiData([missingSelected]);
+    assert.equal(unresolved.turns[1].text, 'answer-5');
+    assert.equal(unresolved.parseWarnings.length, 1);
     assert.throws(() => parseGeminiRpc(")]}'\n" + JSON.stringify([['wrb.fr', 'hNvQHb', null]])));
     console.log('ok Gemini API: framed RPC, >100 history, no-progress warning, dates, answer alternatives');
 })().catch(error => { console.error(error); process.exitCode = 1; });
