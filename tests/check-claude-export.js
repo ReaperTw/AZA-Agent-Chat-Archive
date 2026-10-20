@@ -53,6 +53,26 @@ check('current branch ignores regenerated sibling', () => {
     assert.doesNotMatch(result.markdown, /舊回答/);
 });
 
+check('two-turn conversation ends at the Claude root sentinel', () => {
+    const result = api.exportConversation({
+        current_leaf_message_uuid: 'answer',
+        chat_messages: [
+            {
+                uuid: 'question',
+                parent_message_uuid: '00000000-0000-4000-8000-000000000000',
+                sender: 'human', content: [{ type: 'text', text: '問題' }]
+            },
+            {
+                uuid: 'answer', parent_message_uuid: 'question',
+                sender: 'assistant', content: [{ type: 'text', text: '回答' }]
+            }
+        ]
+    });
+    assert.deepStrictEqual(result.messages.map(message => message.text), ['問題', '回答']);
+    assert.deepStrictEqual(result.warnings, []);
+    assert.doesNotMatch(result.markdown, /匯出不完整/);
+});
+
 check('missing leaf falls back to index', () => {
     const result = api.exportConversation({
         chat_messages: [

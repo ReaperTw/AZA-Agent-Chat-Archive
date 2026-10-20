@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GYC - Claude
 // @namespace    https://github.com/ReaperTw/AZA-Agent-Chat-Archive
-// @version      1.1.0
+// @version      1.1.1
 // @description  Grab Your Chat - Claude 端對話匯出器；最後更新於 20261018
 // @updateURL    https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-claude.user.js
 // @downloadURL  https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-claude.user.js
@@ -108,8 +108,10 @@
             while (current && !seen.has(current.uuid)) {
                 seen.add(current.uuid);
                 path.push(current);
-                if (!current.parent_message_uuid) break;
-                const parent = byUuid.get(current.parent_message_uuid);
+                const parentId = current.parent_message_uuid;
+                // Claude uses a synthetic root UUID; it is not a missing message.
+                if (!parentId || parentId === '00000000-0000-4000-8000-000000000000') break;
+                const parent = byUuid.get(parentId);
                 if (!parent) {
                     broken = true;
                     break;
