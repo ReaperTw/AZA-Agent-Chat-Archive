@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        GYC - Grok
 // @namespace   https://github.com/ReaperTw/AZA-Agent-Chat-Archive
-// @version     1.2.0
+// @version     1.2.1
 // @description Grab Your Chat - Grok 端對話匯出器；最後更新於 20261020
 // @updateURL   https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-grok.user.js
 // @downloadURL https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-grok.user.js
@@ -23,42 +23,17 @@
         MAX_CONTENT_WAIT: 15,
         MAX_RETRIES: 5,
         MAX_END_CHECK: 2,
-        SLOW_UPWARD_WAIT: 900,
-        SLOW_SCROLL_STEP: 400,
-        SLOW_BASE_WAIT: 900,
         FAST_UPWARD_WAIT: 500,
         FAST_SCROLL_STEP: 2000,
-        FAST_BASE_WAIT: 500,
-        SNAPSHOT_STABLE_CHECKS: 3,
-        SNAPSHOT_MAX_CHECKS: 15,
-        SNAPSHOT_WAIT: 600
+        FAST_BASE_WAIT: 500
     };
 
-    const EXPORT_MODES = {
-        direct: {
-            label: 'Direct',
-            skipUpward: true,
-            upwardWait: 0,
-            scrollStep: CONFIG.FAST_SCROLL_STEP,
-            baseWait: CONFIG.FAST_BASE_WAIT,
-            maxEndCheck: CONFIG.MAX_END_CHECK
-        },
-        fast: {
-            label: 'Fast',
-            skipUpward: false,
-            upwardWait: CONFIG.FAST_UPWARD_WAIT,
-            scrollStep: CONFIG.FAST_SCROLL_STEP,
-            baseWait: CONFIG.FAST_BASE_WAIT,
-            maxEndCheck: CONFIG.MAX_END_CHECK
-        },
-        full: {
-            label: 'Full',
-            skipUpward: false,
-            upwardWait: CONFIG.SLOW_UPWARD_WAIT,
-            scrollStep: CONFIG.SLOW_SCROLL_STEP,
-            baseWait: CONFIG.SLOW_BASE_WAIT,
-            maxEndCheck: CONFIG.MAX_END_CHECK
-        }
+    const NORMAL_SCAN = {
+        label: 'Normal',
+        upwardWait: CONFIG.FAST_UPWARD_WAIT,
+        scrollStep: CONFIG.FAST_SCROLL_STEP,
+        baseWait: CONFIG.FAST_BASE_WAIT,
+        maxEndCheck: CONFIG.MAX_END_CHECK
     };
 
     function sanitizeFileName(str) {
@@ -316,11 +291,6 @@
         return timeline;
     }
 
-    function getTimelineSignature(timeline) {
-        return timeline
-            .map(message => `${message.type}\u0000${message.text}`)
-            .join('\u0001');
-    }
 
     function openTimelineSaveModal(timeline, scanWarnings = []) {
         let nonTextWarn = false;
@@ -473,113 +443,22 @@
         }
     }
 
-    async function processSnapshotExport(btn) {
+    async function processApiExport(btn) {
         if (!btn || btn.disabled) return;
         const originalText = btn.innerText;
         btn.disabled = true;
-
         try {
-            const scroller = findScrollContainer();
-            if (!scroller.querySelector(CONFIG.CONTENT_NODES)) {
-                throw new Error('目前滾動容器內找不到 Grok 訊息節點');
+            const convId = conversationIdFromPath(location.pathname);
+            if (location.hostname !== 'grok.com' || !convId) {
+                throw new Error('API匯出僅支援 grok.com 已保存的對話；請用正常匯出');
             }
-
-            const isWindow =
-                scroller === document.documentElement ||
-                scroller === document.body;
-
-            let lastHeight = -1;
-            let topStable = 0;
-            for (
-                let index = 0;
-                index < CONFIG.MAX_UPWARD_LOOPS && topStable < 2;
-                index++
-            ) {
-                while (document.hidden) {
-                    btn.innerText = '⏸️ 暫停｜等待頁面顯示';
-                    await new Promise(resolve => setTimeout(resolve, 1000));
-                }
-
-                if (isWindow) {
-                    window.scrollTo({ top: 0, behavior: 'auto' });
-                } else {
-                    scroller.scrollTo({ top: 0, behavior: 'auto' });
-                }
-
-                await new Promise(resolve =>
-                    setTimeout(resolve, CONFIG.FAST_UPWARD_WAIT)
-                );
-                const currentScroll = isWindow
-                    ? window.scrollY
-                    : scroller.scrollTop;
-                const currentHeight = isWindow
-                    ? document.documentElement.scrollHeight
-                    : scroller.scrollHeight;
-                topStable = currentScroll <= 1 && currentHeight === lastHeight
-                    ? topStable + 1
-                    : 0;
-                lastHeight = currentHeight;
-                btn.innerText =
-                    `定位頂端 ${index + 1}/${CONFIG.MAX_UPWARD_LOOPS}`;
-            }
-
-            if (topStable < 2) {
-                throw new Error('無法穩定回到對話最頂端');
-            }
-
-            if (isWindow) {
-                window.scrollTo({ top: 0, behavior: 'auto' });
-            } else {
-                scroller.scrollTo({ top: 0, behavior: 'auto' });
-            }
-            await new Promise(resolve => setTimeout(resolve, 1000));
-
-            let timeline = [];
-            let previousSignature = '';
-            let stableChecks = 0;
-
-            for (
-                let index = 0;
-                index < CONFIG.SNAPSHOT_MAX_CHECKS &&
-                    stableChecks < CONFIG.SNAPSHOT_STABLE_CHECKS;
-                index++
-            ) {
-                while (document.hidden) {
-                    btn.innerText = '⏸️ 暫停｜等待頁面顯示';
-                    await new Promise(resolve => setTimeout(resolve, 1000));
-                }
-
-                timeline = getVisibleTimeline(scroller);
-                const signature = getTimelineSignature(timeline);
-                stableChecks = signature && signature === previousSignature
-                    ? stableChecks + 1
-                    : 0;
-                previousSignature = signature;
-                btn.innerText =
-                    `確認快照 ${stableChecks}/${CONFIG.SNAPSHOT_STABLE_CHECKS}` +
-                    `｜候選 ${timeline.length} 則`;
-
-                if (stableChecks < CONFIG.SNAPSHOT_STABLE_CHECKS) {
-                    await new Promise(resolve =>
-                        setTimeout(resolve, CONFIG.SNAPSHOT_WAIT)
-                    );
-                }
-            }
-
-            if (stableChecks < CONFIG.SNAPSHOT_STABLE_CHECKS) {
-                throw new Error('頂端訊息仍在載入，請稍後再試');
-            }
-
-            const report = openTimelineSaveModal(timeline);
-            console.info('[Grok Exporter] 快照報告', {
-                mode: 'Snapshot',
-                candidates: report.candidateCount,
-                messages: report.messageCount,
-                filtered: report.filteredCount
-            });
+            btn.innerText = 'API 讀取中…';
+            const data = await fetchConversationViaApi(convId);
+            const branch = buildActiveBranchTimeline(data.responses, convId);
+            if (!branch.timeline.length) throw new Error('API 沒有可匯出的訊息；請用正常匯出');
+            openTimelineSaveModal(branch.timeline, [data.warning, branch.warning].filter(Boolean));
         } catch (error) {
-            console.error('[Grok Exporter] 快照匯出失敗', error);
-            showNotification(`❌ 快照匯出失敗：${error.message}`, true, 6000);
+            showNotification(`❌ API匯出失敗：${error.message}`, true, 6000);
         } finally {
             btn.disabled = false;
             btn.innerText = originalText;
@@ -587,25 +466,12 @@
     }
 
     // ChatGPT 匯出流程的 Grok adapter：僅保留 Grok 容器、節點與角色辨識。
-    async function processAndExport(mode, btn) {
+    async function processAndExport(btn) {
         if (!btn || btn.disabled) return;
-        const scan = typeof mode === 'string' ? EXPORT_MODES[mode] : mode;
-        if (!scan) return;
+        const scan = NORMAL_SCAN;
         const originalText = btn.innerText;
         btn.disabled = true;
-
         try {
-            const isGrokCom = location.hostname === 'grok.com';
-            const convId = conversationIdFromPath(location.pathname);
-            if (mode === 'fast' && isGrokCom && convId) {
-                btn.innerText = 'API 讀取中…';
-                const apiData = await fetchConversationViaApi(convId);
-                const branch = buildActiveBranchTimeline(apiData.responses, convId);
-                const warnings = [apiData.warning, branch.warning].filter(Boolean);
-                if (!branch.timeline.length) throw new Error('API 沒有可匯出的訊息；可改用慢速匯出');
-                openTimelineSaveModal(branch.timeline, warnings);
-                return;
-            }
             const scroller = findScrollContainer();
             if (!scroller.querySelector(CONFIG.CONTENT_NODES)) {
                 throw new Error('目前滾動容器內找不到 Grok 訊息節點');
@@ -639,7 +505,7 @@
                 }
             }
 
-            if (!scan.skipUpward) {
+            {
                 let lastHeight = -1;
                 let stable = 0;
                 for (
@@ -889,32 +755,16 @@
             '↑  到頂端',
             button => moveToTop(button)
         );
-        const btnSnapshot = makeButton(
-            '◇  快照匯出',
-            button => processSnapshotExport(button)
-        );
-        const btnDirect = makeButton(
-            '↓  往下匯出',
-            button => processAndExport('direct', button)
-        );
-        const btnFast = makeButton(
-            '»  正常匯出',
-            button => processAndExport('fast', button)
-        );
-        const btnFull = makeButton(
-            '◆  慢速匯出',
-            button => processAndExport('full', button)
-        );
+        const apiButton = makeButton('API匯出', button => processApiExport(button));
+        const normalButton = makeButton('正常匯出', button => processAndExport(button));
         btnTop.title = '載入並回到對話最頂端';
-        btnSnapshot.title = 'Snapshot：自動載入頂端後，直接匯出所有已載入訊息';
-        btnDirect.title = 'Direct：從目前位置開始往下匯出';
-        btnFast.title = 'Fast：正常速度，從頂端完整匯出';
-        btnFull.title = 'Full：較慢速度，從頂端保守完整匯出';
-        menu.append(btnTop, btnSnapshot, btnDirect, btnFast, btnFull);
+        apiButton.title = '讀取 grok.com API；X 版請用正常匯出';
+        normalButton.title = '從頂端捲動掃描畫面，不使用 API';
+        menu.append(btnTop, apiButton, normalButton);
 
         const fab = document.createElement('button');
         fab.innerText = '𝕏';
-        fab.title = 'GYC - Grok - v1.2.0';
+        fab.title = 'GYC - Grok - v1.2.1';
         fab.setAttribute('aria-label', '開啟 Grab Your Chat - Grok 工具');
         Object.assign(fab.style, {
             width: '56px',
@@ -997,11 +847,11 @@
         const base = '/rest/app-chat/conversations/' + encodeURIComponent(conversationId);
         const request = async (url, options = {}) => {
             const response = await fetch(url, { ...options, credentials: 'include', signal: AbortSignal.timeout(30000) });
-            if (!response.ok) throw new Error(`Grok API HTTP ${response.status}；可改用慢速匯出`);
+            if (!response.ok) throw new Error(`Grok API HTTP ${response.status}；可改用正常匯出`);
             return response.json();
         };
         const tree = await request(base + '/response-node?includeThreads=true');
-        if (!Array.isArray(tree?.responseNodes)) throw new Error('Grok 訊息樹格式已改變；可改用慢速匯出');
+        if (!Array.isArray(tree?.responseNodes)) throw new Error('Grok 訊息樹格式已改變；可改用正常匯出');
         const allIds = [...new Set(tree.responseNodes.map(node => node?.responseId).filter(id => typeof id === 'string' && id))];
         const ids = allIds.slice(0, 10000);
         const warnings = [];
@@ -1014,7 +864,7 @@
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ responseIds: chunk })
             });
-            if (!Array.isArray(data?.responses)) throw new Error('Grok 訊息正文格式已改變；可改用慢速匯出');
+            if (!Array.isArray(data?.responses)) throw new Error('Grok 訊息正文格式已改變；可改用正常匯出');
             const parsed = parseLoadResponses(data.responses, chunk);
             responses.push(...parsed.items);
             missingCount += parsed.missing.length;

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GYC - ChatGPT
 // @namespace    https://github.com/ReaperTw/AZA-Agent-Chat-Archive
-// @version      1.1.0
+// @version      1.1.1
 // @description  Grab Your Chat - ChatGPT 端對話匯出器；最後更新於 20261020
 // @updateURL    https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-chatgpt.user.js
 // @downloadURL  https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-chatgpt.user.js
@@ -17,9 +17,6 @@
     const MAX_UPWARD_LOOPS = 40;
     const RETRY_EMPTY_MAX = 3;
     const RETRY_EMPTY_WAIT = 350;
-    const SLOW_UPWARD_WAIT = 900;
-    const SLOW_SCROLL_STEP = 400;
-    const SLOW_BASE_WAIT = 900;
     const FAST_UPWARD_WAIT = 500;
     const FAST_SCROLL_STEP = 2000;
     const FAST_BASE_WAIT = 500;
@@ -790,12 +787,10 @@
                 throw new Error('目前滾動容器內找不到對話訊息節點');
             }
 
-            if (!config.skipUpward) {
-                const reachedTop = await moveToTop(scroller, config.upWait, button);
-                if (!reachedTop) throw new Error('較早訊息仍在載入，無法確認對話頂端');
-                await delay(Math.max(config.upWait, 1000));
-            }
-            let chatTime = config.skipUpward ? '' : findChatTimestamp(scroller);
+            const reachedTop = await moveToTop(scroller, config.upWait, button);
+            if (!reachedTop) throw new Error('較早訊息仍在載入，無法確認對話頂端');
+            await delay(Math.max(config.upWait, 1000));
+            let chatTime = findChatTimestamp(scroller);
 
             const snapshotMap = new Map();
             const state = {
@@ -839,7 +834,7 @@
                     scroller.dispatchEvent(new Event('scroll', { bubbles: true }));
                     await delay(config.baseWait);
 
-                    if (!chatTime && !config.skipUpward && sweep === 0 && pass < 12) {
+                    if (!chatTime && sweep === 0 && pass < 12) {
                         chatTime = findChatTimestamp(scroller);
                     }
 
@@ -905,7 +900,7 @@
             const unresolved = Array.from(state.pendingEmpty.values())
                 .filter(item => !snapshotMap.has(item.key));
             const warnings = [...scanWarnings];
-            if (!config.skipUpward && !chatTime && state.timeMarkers.size === 0) {
+            if (!chatTime && state.timeMarkers.size === 0) {
                 warnings.push('已完成全文掃描，但未取得對話頂端時間戳');
             }
             if (unresolved.length) {
@@ -1009,7 +1004,7 @@
         button.disabled = true;
         try {
             if (!isPersonalChatRoute()) {
-                throw new Error('非個人路由（含群組聊天），請改用 DOM 正常/慢速匯出');
+                throw new Error('API匯出不支援目前網址或群聊，請用正常匯出');
             }
             const id = getConversationIdFromUrl();
             if (!id) throw new Error('URL 中找不到 conversation id');
@@ -1030,7 +1025,7 @@
                 a.remove();
                 setTimeout(() => URL.revokeObjectURL(url), 1500);
             });
-        } catch (error) { showNotification(`API 匯出失敗。可嘗試慢速 DOM 模式`, true);
+        } catch (error) { showNotification('API匯出失敗，請用正常匯出', true);
         } finally {
             button.disabled = false;
             button.textContent = originalText;
@@ -1131,38 +1126,15 @@
             '↑  到頂端',
             event => scrollToTop(event.currentTarget)
         );
-        const directButton = makeButton(
-            '↓  往下匯出',
-            event => processAndExport({
-                skipUpward: true,
-                upWait: 0,
-                step: FAST_SCROLL_STEP,
-                baseWait: FAST_BASE_WAIT
-            }, event.currentTarget)
-        );
-        const fastButton = makeButton(
-            '»  正常匯出',
-            event => isPersonalChatRoute()
-                ? processApiExport(event.currentTarget)
-                : processAndExport({
-                    skipUpward: false, upWait: FAST_UPWARD_WAIT,
-                    step: FAST_SCROLL_STEP, baseWait: FAST_BASE_WAIT
-                }, event.currentTarget)
-        );
-        const fullButton = makeButton(
-            '◆  慢速匯出',
-            event => processAndExport({
-                skipUpward: false,
-                upWait: SLOW_UPWARD_WAIT,
-                step: SLOW_SCROLL_STEP,
-                baseWait: SLOW_BASE_WAIT
-            }, event.currentTarget)
-        );
+        const apiButton = makeButton('API匯出', event => processApiExport(event.currentTarget));
+        const normalButton = makeButton('正常匯出', event => processAndExport({
+            upWait: FAST_UPWARD_WAIT,
+            step: FAST_SCROLL_STEP, baseWait: FAST_BASE_WAIT
+        }, event.currentTarget));
         topButton.title = '只回到對話最頂端，不進行匯出';
-        directButton.title = 'Direct：從目前位置開始往下匯出';
-        fastButton.title = '正常匯出：個人對話讀 API；群聊維持捲動掃描';
-        fullButton.title = 'Full：較慢速度，從頂端保守完整匯出';
-        menu.append(topButton, directButton, fastButton, fullButton);
+        apiButton.title = '讀取個人對話 API；群聊請用正常匯出';
+        normalButton.title = '從頂端捲動掃描畫面，不使用 API';
+        menu.append(topButton, apiButton, normalButton);
 
         const fab = document.createElement('button');
         fab.innerHTML = `
@@ -1172,7 +1144,7 @@
                 <path fill="currentColor"
                     d="M22.2819 9.8211a5.9847 5.9847 0 0 0-.5157-4.9108 6.0462 6.0462 0 0 0-6.5098-2.9A6.0651 6.0651 0 0 0 4.9807 4.1818a5.9847 5.9847 0 0 0-3.9977 2.9 6.0462 6.0462 0 0 0 .7427 7.0966 5.98 5.98 0 0 0 .511 4.9107 6.051 6.051 0 0 0 6.5146 2.9001A5.9847 5.9847 0 0 0 13.2599 24a6.0557 6.0557 0 0 0 5.7718-4.2058 5.9894 5.9894 0 0 0 3.9977-2.9001 6.0557 6.0557 0 0 0-.7475-7.0729zm-9.022 12.6081a4.4755 4.4755 0 0 1-2.8764-1.0408l.1419-.0804 4.7783-2.7582a.7948.7948 0 0 0 .3927-.6813v-6.7369l2.02 1.1686a.071.071 0 0 1 .038.052v5.5826a4.504 4.504 0 0 1-4.4945 4.4944zm-9.6607-4.1254a4.4708 4.4708 0 0 1-.5346-3.0137l.142.0852 4.783 2.7582a.7712.7712 0 0 0 .7806 0l5.8428-3.3685v2.3324a.0804.0804 0 0 1-.0332.0615L9.74 19.9502a4.4992 4.4992 0 0 1-6.1408-1.6464zM2.3408 7.8956a4.485 4.485 0 0 1 2.3655-1.9728V11.6a.7664.7664 0 0 0 .3879.6765l5.8144 3.3543-2.0201 1.1685a.0757.0757 0 0 1-.071 0l-4.8303-2.7865A4.504 4.504 0 0 1 2.3408 7.872zm16.5963 3.8558L13.1038 8.364 15.1192 7.2a.0757.0757 0 0 1 .071 0l4.8303 2.7913a4.4944 4.4944 0 0 1-.6765 8.1042v-5.6772a.79.79 0 0 0-.407-.667zm2.0107-3.0231l-.142-.0852-4.7735-2.7818a.7759.7759 0 0 0-.7854 0L9.409 9.2297V6.8974a.0662.0662 0 0 1 .0284-.0615l4.8303-2.7866a4.4992 4.4992 0 0 1 6.6802 4.66zM8.3065 12.863l-2.02-1.1638a.0804.0804 0 0 1-.038-.0567V6.0742a4.4992 4.4992 0 0 1 7.3757-3.4537l-.142.0805L8.704 5.459a.7948.7948 0 0 0-.3927.6813zm1.0976-2.3654 2.602-1.4998 2.6069 1.4998v2.9994l-2.5974 1.4997-2.6067-1.4997Z"/>
             </svg>`;
-        fab.title = 'GYC - ChatGPT 1.1.0';
+        fab.title = 'GYC - ChatGPT 1.1.1';
         fab.setAttribute('aria-label', '開啟 Grab Your Chat - ChatGPT 工具');
         Object.assign(fab.style, {
             width: '56px',

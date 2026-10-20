@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GYC - Gemini
 // @namespace    https://github.com/ReaperTw/AZA-Agent-Chat-Archive
-// @version      1.2.0
+// @version      1.2.1
 // @description  Grab Your Chat - Gemini 端對話匯出器；最後更新於 20261018
 // @updateURL    https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-gemini.user.js
 // @downloadURL  https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-gemini.user.js
@@ -186,10 +186,6 @@ if (typeof document !== 'undefined') {
         // --- 參數設定 ---
         const MAX_UPWARD_LOOPS = 80;   // 向上滾動最大次數
 
-        // 【慢速安全模式參數】
-        const SLOW_UPWARD_WAIT = 2000;
-        const SLOW_SCROLL_STEP = 1000;
-        const SLOW_BASE_WAIT = 1500;
 
         // 【滿速保險模式參數】
         const FAST_UPWARD_WAIT = 800;
@@ -398,7 +394,7 @@ if (typeof document !== 'undefined') {
             const warnings = [];
             try {
                 const scroller = findScrollContainer();
-                if (!config.skipUpward) {
+                {
                     btn.innerText = '定位起點...';
                     let stagnantCount = 0;
                     for (let i = 0; i < MAX_UPWARD_LOOPS; i++) {
@@ -506,7 +502,7 @@ if (typeof document !== 'undefined') {
                 }
                 const cid = findCurrentConversationId();
                 if (!cid) {
-                    throw new Error('無法取得目前對話 cid，請使用慢速 DOM 模式');
+                    throw new Error('無法取得目前對話 cid，請用正常匯出');
                 }
                 const history = await collectGeminiHistory(cid, tokens, authuser);
                 const allRawTurns = history.rawTurns;
@@ -542,7 +538,7 @@ if (typeof document !== 'undefined') {
                     performDownload(finalTitle, out);
                 });
             } catch (error) {
-                showNotification(`❌ API 匯出失敗：${error.message}。可改用慢速 DOM 模式。`, true);
+                showNotification(`❌ API匯出失敗：${error.message}。可改用正常匯出。`, true);
             } finally {
                 btn.disabled = false;
                 btn.innerText = originalText;
@@ -645,37 +641,19 @@ if (typeof document !== 'undefined') {
                 '↑  到頂端',
                 button => scrollToTop(button)
             );
-            const btnDirect = makeButton(
-                '↓  往下匯出',
-                button => processAndExport({
-                    skipUpward: true,
-                    upWait: 0,
-                    step: FAST_SCROLL_STEP,
-                    baseWait: FAST_BASE_WAIT
-                }, button)
-            );
-            const btnFast = makeButton(
-                '»  正常匯出',
-                button => exportViaApi(button)
-            );
-            const btnFull = makeButton(
-                '◆  慢速匯出',
-                button => processAndExport({
-                    skipUpward: false,
-                    upWait: SLOW_UPWARD_WAIT,
-                    step: SLOW_SCROLL_STEP,
-                    baseWait: SLOW_BASE_WAIT
-                }, button)
-            );
+            const apiButton = makeButton('API匯出', button => exportViaApi(button));
+            const normalButton = makeButton('正常匯出', button => processAndExport({
+                upWait: FAST_UPWARD_WAIT,
+                step: FAST_SCROLL_STEP, baseWait: FAST_BASE_WAIT
+            }, button));
             btnTop.title = '只回到對話最頂端，不進行匯出';
-            btnDirect.title = 'Direct：從目前位置開始往下匯出（DOM）';
-            btnFast.title = '正常匯出：讀取 API 歷史，未確認全文時會警告';
-            btnFull.title = 'Full：較慢速度，從頂端保守完整匯出（DOM）';
-            menu.append(btnTop, btnDirect, btnFast, btnFull);
+            apiButton.title = '讀取 Gemini API 歷史；未確認全文時會警告';
+            normalButton.title = '從頂端捲動掃描畫面，不使用 API';
+            menu.append(btnTop, apiButton, normalButton);
 
             const fab = document.createElement('button');
             fab.textContent = '✦';
-            fab.title = 'GYC - Gemini - v1.2.0';
+            fab.title = 'GYC - Gemini - v1.2.1';
             fab.setAttribute('aria-label', '開啟 Grab Your Chat - Gemini 工具');
             Object.assign(fab.style, {
                 width: '56px',
