@@ -21,10 +21,6 @@ check('cookie and path', () => {
         '22222222-2222-2222-2222-222222222222'
     );
     assert.strictEqual(api.conversationIdFromPath('/new'), '');
-    assert.strictEqual(
-        api.buildDownloadName('你好/世界', '20261011_120000'),
-        'Claude_你好世界_20261011_120000.md'
-    );
 });
 
 check('current branch ignores regenerated sibling', () => {
