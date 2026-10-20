@@ -21,6 +21,14 @@
 | Claude | Tampermonkey userscript | [安裝 GYC - Claude](https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-claude.user.js) |
 | Codex、Grok Build、Command Code、OMP、Claude Code、Hermes | Agent Skill | [查看 Agent Chat Archive](skills/agent-chat-archive/) |
 
+### 歷史版本與更新說明
+
+前往 [GitHub Releases](https://github.com/ReaperTw/AZA-Agent-Chat-Archive/releases) 查看各版本差異並下載固定版本；userscript 附 `.user.js`，Agent Skill 附完整安裝目錄 ZIP。
+
+版本依元件獨立編號，例如 `claude-v1.2.1` 與 `archive-skill-v1.4.1`，不代表其他元件同時升級。歷史版本只包含 Git 已保存的版號，未保存的中間版本不補號。
+
+上表安裝連結跟隨 `main` 更新。若要停留在舊版，請從對應 Release 安裝，並關閉該腳本在 Tampermonkey 的自動更新。
+
 ## 網頁對話匯出器
 
 ### 安裝
