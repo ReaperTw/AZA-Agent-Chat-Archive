@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GYC - Gemini
 // @namespace    https://github.com/ReaperTw/AZA-Agent-Chat-Archive
-// @version      1.2.1
+// @version      1.2.2
 // @description  Grab Your Chat - Gemini 端對話匯出器；最後更新於 20261018
 // @updateURL    https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-gemini.user.js
 // @downloadURL  https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-gemini.user.js
@@ -89,6 +89,20 @@ function parseGeminiApiData(rawTurns) {
         if (answers.length) turns.push({ type: 'ai', text: answers.join('\n\n---\n\n'), timestamp, dateStr, isAlt });
     }
     return { turns, parseWarnings: [...warnings] };
+}
+
+function renderGeminiApiMarkdown(turns, warnings = []) {
+    let out = '';
+    let uIdx = 1;
+    let mIdx = 1;
+    for (const turn of turns) {
+        // Gemini timestamps are per exchange: emit them on the user message only.
+        if (turn.type === 'user' && turn.dateStr) out += `\n> **對話時間**：${turn.dateStr}\n`;
+        if (turn.type === 'user') out += `\n--- [User ${uIdx++}] ---\n${turn.text}\n`;
+        else out += `\n--- [Model ${mIdx++}] ---\n${turn.text}\n`;
+    }
+    if (warnings.length) out += `\n> **匯出注意事項**\n>\n${warnings.map(text => `> ${text}`).join('\n')}\n`;
+    return out;
 }
 
 function parseGeminiRpc(text) {
@@ -236,7 +250,7 @@ if (typeof document !== 'undefined') {
             setTimeout(() => toast.remove(), 3000);
         }
 
-        function showSaveModal(defaultTitle, textContent, onSave) {
+        function showSaveModal(defaultTitle, textContent, report, onSave) {
             document.getElementById('gemini-export-modal')?.remove();
             const overlay = document.createElement('div');
             overlay.id = 'gemini-export-modal';
@@ -251,13 +265,24 @@ if (typeof document !== 'undefined') {
                 width: 'min(90vw, 520px)', boxShadow: '0 8px 30px rgba(0,0,0,.4)',
                 fontFamily: 'system-ui, -apple-system, sans-serif'
             });
-            const title = document.createElement('div');
-            title.textContent = '儲存標題';
-            Object.assign(title.style, { fontSize: '18px', fontWeight: '600', marginBottom: '16px' });
-            const inputLabel = document.createElement('div');
+            const heading = document.createElement('div');
+            heading.textContent = `${report.heading || '掃描完成'}：${report.messageCount} 則訊息／${textContent.length} 字`;
+            Object.assign(heading.style, { fontSize: '18px', fontWeight: '600', marginBottom: '12px' });
+            const status = document.createElement('div');
+            status.textContent = [report.status, report.warning].filter(Boolean).join('\n') || '未發現匯出警告';
+            Object.assign(status.style, {
+                padding: '9px 11px', borderRadius: '6px', fontSize: '13px',
+                background: report.warning ? 'rgba(245,158,11,.13)' : 'rgba(255,255,255,.055)',
+                color: report.warning ? '#fbbf24' : '#c8c8c8',
+                border: report.warning ? '1px solid rgba(245,158,11,.3)' : '1px solid rgba(255,255,255,.09)',
+                whiteSpace: 'pre-line', marginBottom: '14px'
+            });
+            const inputLabel = document.createElement('label');
             inputLabel.textContent = '檔案名稱（不含副檔名）';
-            Object.assign(inputLabel.style, { fontSize: '13px', marginBottom: '6px', opacity: '0.8' });
+            inputLabel.htmlFor = 'gemini-export-filename';
+            Object.assign(inputLabel.style, { fontSize: '13px', marginBottom: '6px', opacity: '0.8', display: 'block' });
             const input = document.createElement('input');
+            input.id = 'gemini-export-filename';
             input.type = 'text';
             input.value = defaultTitle;
             Object.assign(input.style, {
@@ -281,7 +306,8 @@ if (typeof document !== 'undefined') {
             });
             btnContainer.appendChild(cancelBtn);
             btnContainer.appendChild(saveBtn);
-            modal.appendChild(title);
+            modal.appendChild(heading);
+            modal.appendChild(status);
             modal.appendChild(inputLabel);
             modal.appendChild(input);
             modal.appendChild(btnContainer);
@@ -455,6 +481,7 @@ if (typeof document !== 'undefined') {
                     return;
                 }
 
+                const exportTurns = timeline.filter(turn => turn.type !== 'gap' && turn.text);
                 let out = '';
                 let uIdx = 1;
                 let mIdx = 1;
@@ -466,14 +493,15 @@ if (typeof document !== 'undefined') {
                     const head = turn.type === 'user' ? `User ${uIdx++}` : `Model ${mIdx++}`;
                     out += `\n--- [${head}] ---\n${turn.text}\n`;
                 }
-                if (warnings.length) {
-                    out += `\n> **匯出不完整**\n>\n${warnings.map(text => `> ${text}`).join('\n')}\n`;
-                }
+                if (warnings.length) out += `\n> **匯出注意事項**\n>\n${warnings.map(text => `> ${text}`).join('\n')}\n`;
                 let title = determineTitle();
                 if (warnings.length) title += '_INCOMPLETE';
-                showSaveModal(title, out, finalTitle => {
-                    performDownload(finalTitle, out);
-                });
+                showSaveModal(title, out, {
+                    heading: '掃描完成',
+                    messageCount: exportTurns.length,
+                    warning: warnings.length ? `⚠️ ${warnings.join('\n')}` : '',
+                    status: warnings.length ? '' : '未發現掃描斷層'
+                }, finalTitle => performDownload(finalTitle, out));
             } catch (error) {
                 console.error('[Gemini Exporter] 匯出失敗', error);
                 showNotification(`❌ 匯出失敗：${error.message}`, true);
@@ -483,7 +511,7 @@ if (typeof document !== 'undefined') {
             }
         }
 
-        // API export for normal button: uses protocol, no raw log, error restores + DOM suggestion, warnings in body + _INCOMPLETE, no silent fallback
+        // API export for API button: protocol-based, no raw log, warnings in body + _INCOMPLETE, no silent fallback
         async function exportViaApi(btn) {
             if (!btn) return;
             btn.disabled = true;
@@ -514,29 +542,19 @@ if (typeof document !== 'undefined') {
                 const parseRes = parseGeminiApiData(allRawTurns);
                 warnings.push(...parseRes.parseWarnings);
                 const parsedTurns = parseRes.turns;
-                let out = '';
-                let uIdx = 1;
-                let mIdx = 1;
-                for (const turn of parsedTurns) {
-                    if (turn.dateStr) out += `\n> **對話時間**：${turn.dateStr}\n`;
-                    if (turn.type === 'user') {
-                        out += `\n--- [User ${uIdx++}] ---\n${turn.text}\n`;
-                    } else {
-                        out += `\n--- [Model ${mIdx++}] ---\n${turn.text}\n`;
-                    }
-                }
-                if (warnings.length) {
-                    out += `\n> **匯出不完整**\n>\n${warnings.map(text => `> ${text}`).join('\n')}\n`;
-                }
                 let title = determineTitle();
                 const hadIssue = warnings.length > 0 || !exhausted;
                 if (hadIssue) {
-                    if (warnings.length === 0) warnings.push('source may not be fully exported');
+                    if (warnings.length === 0) warnings.push('API 尚未確認歷史已讀取完畢');
                     title += '_INCOMPLETE';
                 }
-                showSaveModal(title, out, finalTitle => {
-                    performDownload(finalTitle, out);
-                });
+                const finalOutput = renderGeminiApiMarkdown(parsedTurns, warnings);
+                showSaveModal(title, finalOutput, {
+                    heading: 'API 讀取完成',
+                    messageCount: parsedTurns.length,
+                    warning: warnings.length ? `⚠️ ${warnings.join('\n')}` : '',
+                    status: exhausted ? 'API 已回報無後續歷史；內容疑慮會另外列出。' : 'API 歷史可能尚未完整'
+                }, finalTitle => performDownload(finalTitle, finalOutput));
             } catch (error) {
                 showNotification(`❌ API匯出失敗：${error.message}。可改用正常匯出。`, true);
             } finally {
@@ -653,7 +671,7 @@ if (typeof document !== 'undefined') {
 
             const fab = document.createElement('button');
             fab.textContent = '✦';
-            fab.title = 'GYC - Gemini - v1.2.1';
+            fab.title = 'GYC - Gemini - v1.2.2';
             fab.setAttribute('aria-label', '開啟 Grab Your Chat - Gemini 工具');
             Object.assign(fab.style, {
                 width: '56px',
@@ -711,6 +729,7 @@ if (typeof document !== 'undefined') {
 // Node module.exports for pure parsers/fetch helpers (consumer edge cases use injected RPC/fetch)
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
+        renderGeminiApiMarkdown,
         parseGeminiApiData,
         parseGeminiRpc,
         geminiFetchHistory,

@@ -1,5 +1,5 @@
 const assert = require('node:assert/strict');
-const { parseGeminiRpc, parseGeminiApiData, collectGeminiHistory } = require('../userscripts/gyc-gemini.user.js');
+const { parseGeminiRpc, parseGeminiApiData, collectGeminiHistory, renderGeminiApiMarkdown } = require('../userscripts/gyc-gemini.user.js');
 const turn = i => [['c_chat', 'r_' + i], [], [['question-' + i]], [[['rc_' + i, ['answer-' + i]]]], [1780000000 + i, 0]];
 const frame = data => ")]}'\n\n123\n" + JSON.stringify([['wrb.fr', 'hNvQHb', JSON.stringify(data)]]) + '\n';
 const tokens = { SNlM0e: 'token', cfb2h: 'build', FdrFJe: 'session' };
@@ -24,6 +24,16 @@ const tokens = { SNlM0e: 'token', cfb2h: 'build', FdrFJe: 'session' };
     assert.equal(parsed.turns.at(-1).text, 'answer-150');
     assert.equal(parsed.turns[0].timestamp.getTime(), 1780000001000);
 
+    const sameMinute = [turn(1), turn(2)];
+    sameMinute[1][4] = sameMinute[0][4].slice();
+    const datedTurns = parseGeminiApiData(sameMinute).turns;
+    const datedMarkdown = renderGeminiApiMarkdown(datedTurns);
+    assert.equal((datedMarkdown.match(/\*\*對話時間\*\*/g) || []).length, 2);
+    assert(!/對話時間[^\n]*\n\s*--- \[Model/.test(datedMarkdown));
+    datedTurns.filter(item => item.type === 'user').forEach((message, index) => {
+        assert(datedMarkdown.includes(`> **對話時間**：${message.dateStr}\n\n--- [User ${index + 1}] ---`));
+    });
+
     let calls = 0;
     const stuck = await collectGeminiHistory('c_chat', tokens, 0, async () => {
         calls++;
@@ -39,6 +49,11 @@ const tokens = { SNlM0e: 'token', cfb2h: 'build', FdrFJe: 'session' };
     const uncertain = parseGeminiApiData([variants]);
     assert(uncertain.parseWarnings.length > 0);
     assert(uncertain.turns[1].text.includes('answer-1'));
+    assert(renderGeminiApiMarkdown(uncertain.turns, uncertain.parseWarnings).includes(uncertain.parseWarnings[0]));
+    const emptyAnswer = turn(3);
+    emptyAnswer[3][0][0][1][0] = '';
+    const incomplete = parseGeminiApiData([emptyAnswer]);
+    assert.equal(incomplete.parseWarnings.length, 1);
     assert(uncertain.turns[1].text.includes('alternative'));
     variants[1] = ['c_chat', 'r_1', 'rc_other'];
     assert.equal(parseGeminiApiData([variants]).turns[1].text, 'alternative');
