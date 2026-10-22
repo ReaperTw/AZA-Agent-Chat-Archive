@@ -288,7 +288,24 @@ function Resolve-HarnessName {
     if ($env:GROK_SESSION_ID) { return 'Grok' }
     if ($env:CODEX_THREAD_ID) { return 'Codex' }
     if ($env:OMP_SESSION_ID) { return 'Omp' }
-    if ($env:CLAUDE_SESSION_ID -or $env:CLAUDE_CODE_SESSION_ID -or $env:CLAUDECODE -eq '1') { return 'Claude' }
+    if ($env:CLAUDE_SESSION_ID -or $env:CLAUDE_CODE_SESSION_ID) { return 'Claude' }
+    # OMP tools can inherit CLAUDECODE=1 without an OMP_SESSION_ID.
+    # Prefer the nearest known host process over that compatibility flag.
+    if ($env:OS -eq 'Windows_NT') {
+        try {
+            $ancestorId = $PID
+            for ($depth = 0; $depth -lt 16 -and $ancestorId; $depth++) {
+                $ancestor = Get-CimInstance Win32_Process -Filter "ProcessId=$ancestorId" -ErrorAction Stop
+                if (!$ancestor) { break }
+                if ($ancestor.Name -eq 'omp.exe') { return 'Omp' }
+                if ($ancestor.Name -eq 'claude.exe') { return 'Claude' }
+                $ancestorId = $ancestor.ParentProcessId
+            }
+        } catch {
+            Write-Warning "Cannot inspect host process ancestry: $($_.Exception.Message)"
+        }
+    }
+    if ($env:CLAUDECODE -eq '1') { return 'Claude' }
     throw 'Cannot detect the active harness. Pass -Harness Codex, Grok, CommandCode, Omp, or Claude.'
 }
 
