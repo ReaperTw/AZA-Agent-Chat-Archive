@@ -94,6 +94,63 @@ check('broken parent warns and keeps the tail', () => {
     assert.match(result.warnings.join('\n'), /分支上游/);
 });
 
+check('unknown blocks warn; unknown senders are excluded without fallback leaks', () => {
+    const result = api.exportConversation({
+        current_leaf_message_uuid: 'assistant',
+        chat_messages: [
+            {
+                uuid: 'unknown', sender: 'future_sender',
+                text: 'fallback system secret',
+                content: [
+                    { type: 'text', text: 'system block secret' }
+                ]
+            },
+            {
+                uuid: 'assistant', parent_message_uuid: 'unknown', sender: 'assistant',
+                text: 'fallback reasoning secret',
+                content: [
+                    { type: 'thinking', thinking: 'private thoughts' },
+                    { type: 'redacted_thinking', data: 'redacted private thoughts' },
+                    { type: 'tool_result', content: 'private tool output' },
+                    { type: 'future_block', payload: 'unknown text' },
+                    { type: 'text', text: 'visible answer' }
+                ]
+            }
+        ]
+    });
+    assert.deepStrictEqual(result.messages.map(message => message.text), ['visible answer']);
+    assert.match(result.warnings.join('\n'), /無法確認角色/);
+    assert.match(result.warnings.join('\n'), /未支援的內容類型/);
+    assert.doesNotMatch(result.markdown, /system secret|private thoughts|private tool output|unknown text|reasoning secret/);
+    assert.match(result.markdown, /visible answer/);
+});
+
+check('branch cycles and missing parents are incomplete', () => {
+    const result = api.exportConversation({
+        current_leaf_message_uuid: 'a',
+        chat_messages: [
+            { uuid: 'a', parent_message_uuid: 'b', sender: 'human', content: [{ type: 'text', text: 'A' }] },
+            { uuid: 'b', parent_message_uuid: 'a', sender: 'assistant', content: [{ type: 'text', text: 'B' }] }
+        ]
+    });
+    assert.match(result.warnings.join('\n'), /循環/);
+    assert.match(result.markdown, /匯出不完整/);
+});
+
+check('system and tool roles never become assistant fallback text', () => {
+    const result = api.exportConversation({
+        current_leaf_message_uuid: 'answer',
+        chat_messages: [
+            { uuid: 'system', sender: 'system', text: 'system secret' },
+            { uuid: 'tool', parent_message_uuid: 'system', sender: 'tool', text: 'tool secret' },
+            { uuid: 'answer', parent_message_uuid: 'tool', sender: 'assistant', content: [{ type: 'text', text: 'answer' }] }
+        ]
+    });
+    assert.deepStrictEqual(result.messages.map(message => message.text), ['answer']);
+    assert.deepStrictEqual(result.warnings, []);
+    assert.doesNotMatch(result.markdown, /secret/);
+});
+
 check('artifact fold, thinking skip, attachment quote', () => {
     const result = api.exportConversation({
         current_leaf_message_uuid: 'm2',

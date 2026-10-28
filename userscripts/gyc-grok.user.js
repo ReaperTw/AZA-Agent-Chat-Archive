@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name        GYC - Grok
 // @namespace   https://github.com/ReaperTw/AZA-Agent-Chat-Archive
-// @version     1.2.1
-// @description Grab Your Chat - Grok 端對話匯出器；最後更新於 20261020
+// @version     1.2.3
+// @description Grab Your Chat - Grok 端對話匯出器；最後更新於 20261022
 // @updateURL   https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-grok.user.js
 // @downloadURL https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-grok.user.js
 // @match       https://grok.com/*
@@ -292,7 +292,7 @@
     }
 
 
-    function openTimelineSaveModal(timeline, scanWarnings = []) {
+    function openTimelineSaveModal(timeline, scanWarnings = [], method = 'DOM') {
         let nonTextWarn = false;
         const exportTimeline = timeline
             .map(message => {
@@ -314,7 +314,7 @@
         if (nonTextWarn) warnings.push('nontext missing body');
         let userIndex = 1;
         let modelIndex = 1;
-        let output = '';
+        let output = `> **匯出來源**：${method}\n\n`;
         for (const message of exportTimeline) {
             if (message.type === 'gap') {
                 output += `${message.text}\n\n`;
@@ -354,7 +354,7 @@
             const anchor = document.createElement('a');
             anchor.href = url;
             anchor.download =
-                `Grok_${sanitizeFileName(finalTitle)}_${getTimestamp()}.md`;
+                `Grok_${method}_${sanitizeFileName(finalTitle)}_${getTimestamp()}.md`;
             document.body.appendChild(anchor);
             anchor.click();
             anchor.remove();
@@ -456,7 +456,7 @@
             const data = await fetchConversationViaApi(convId);
             const branch = buildActiveBranchTimeline(data.responses, convId);
             if (!branch.timeline.length) throw new Error('API 沒有可匯出的訊息；請用正常匯出');
-            openTimelineSaveModal(branch.timeline, [data.warning, branch.warning].filter(Boolean));
+            openTimelineSaveModal(branch.timeline, [data.warning, branch.warning].filter(Boolean), 'API');
         } catch (error) {
             showNotification(`❌ API匯出失敗：${error.message}`, true, 6000);
         } finally {
@@ -764,7 +764,7 @@
 
         const fab = document.createElement('button');
         fab.innerText = '𝕏';
-        fab.title = 'GYC - Grok - v1.2.1';
+        fab.title = 'GYC - Grok - v1.2.3';
         fab.setAttribute('aria-label', '開啟 Grab Your Chat - Grok 工具');
         Object.assign(fab.style, {
             width: '56px',

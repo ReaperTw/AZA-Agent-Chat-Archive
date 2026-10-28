@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         GYC - Claude
 // @namespace    https://github.com/ReaperTw/AZA-Agent-Chat-Archive
-// @version      1.2.2
-// @description  Grab Your Chat - Claude 端對話匯出器；最後更新於 20261018
+// @version      1.2.4
+// @description  Grab Your Chat - Claude 端對話匯出器；最後更新於 20261022
 // @updateURL    https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-claude.user.js
 // @downloadURL  https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-claude.user.js
 // @match        https://claude.ai/*
@@ -33,7 +33,7 @@
     }
 
     function buildDownloadName(title, timestamp) {
-        return `CLD_${sanitizeFileName(title) || 'Claude-Chat'}_${timestamp}.md`;
+        return `CLD_API_${sanitizeFileName(title) || 'Claude-Chat'}_${timestamp}.md`;
     }
 
     function readCookie(cookie, name) {
@@ -105,7 +105,11 @@
             const seen = new Set();
             let current = byUuid.get(leafId);
             let broken = false;
-            while (current && !seen.has(current.uuid)) {
+            while (current) {
+                if (seen.has(current.uuid)) {
+                    broken = true;
+                    break;
+                }
                 seen.add(current.uuid);
                 path.push(current);
                 const parentId = current.parent_message_uuid;
@@ -118,7 +122,7 @@
                 }
                 current = parent;
             }
-            if (broken) warnings.push('分支上游有訊息不在回應裡，匯出可能不完整');
+            if (broken) warnings.push('分支上游缺失或形成循環，匯出可能不完整');
             if (path.length) return path.reverse();
         }
 
@@ -255,45 +259,58 @@
     function mapRole(sender, warnings, seen) {
         if (sender === 'human' || sender === 'user') return 'user';
         if (sender === 'assistant') return 'assistant';
+        if (['system', 'tool', 'reasoning'].includes(sender)) return '';
         const key = sender == null ? '' : String(sender);
         if (!seen.has(key)) {
             seen.add(key);
             warnings.push(sender == null
-                ? '有訊息缺少 sender，已當作 Model'
-                : `未預期的 sender「${sender}」，已當作 Model`);
+                ? '有訊息缺少 sender，無法確認角色；已略過'
+                : `未預期的 sender「${sender}」，無法確認角色；已略過`);
         }
-        return 'assistant';
+        return '';
     }
 
-    function renderBlock(block, artifacts, info) {
-        if (!block || typeof block !== 'object') return '';
-        if (block.type === 'text') return typeof block.text === 'string' ? block.text.trim() : '';
+    function renderBlock(block, artifacts, info, warnings) {
+        if (!block || typeof block !== 'object') {
+            warnings.push('訊息含無法識別的內容區塊，正文可能不完整');
+            return '';
+        }
+        if (block.type === 'text') {
+            if (typeof block.text === 'string') return block.text.trim();
+            warnings.push('文字區塊缺少正文，文字解析未完成');
+            return '';
+        }
         if (block.type === 'image') return '> [非文字內容：訊息內圖片；本體未嵌入匯出檔]';
         if (block.type === 'document') return '> [非文字內容：訊息內文件；本體未嵌入匯出檔]';
-        if (block.type !== 'tool_use') return '';
-        return renderToolUse(block, artifacts, info);
+        if (['thinking', 'redacted_thinking', 'tool_result'].includes(block.type)) return '';
+        if (block.type === 'tool_use') return renderToolUse(block, artifacts, info);
+        warnings.push(`訊息含未支援的內容類型「${String(block.type ?? 'unknown')}」，正文可能不完整`);
+        return '';
     }
 
     function renderMessages(ordered, warnings, info) {
-        const artifacts = collectArtifacts(ordered, warnings);
+        const artifacts = collectArtifacts(ordered.filter(message => ['human', 'user', 'assistant'].includes(message.sender)), warnings);
         const seenSenders = new Set();
         const messages = [];
         let truncated = 0;
         for (const message of ordered) {
+            const role = mapRole(message.sender, warnings, seenSenders);
+            if (!role) continue;
             const parts = [];
             const attachment = describeAttachments(message);
             if (attachment) parts.push(attachment);
-            for (const block of contentBlocks(message)) {
-                const rendered = renderBlock(block, artifacts, info);
+            const blocks = contentBlocks(message);
+            for (const block of blocks) {
+                const rendered = renderBlock(block, artifacts, info, warnings);
                 if (rendered) parts.push(rendered);
             }
-            if (!parts.length && typeof message.text === 'string' && message.text.trim()) {
+            if (!blocks.length && typeof message.text === 'string' && message.text.trim()) {
                 parts.push(message.text.trim());
             }
             const text = cleanContent(parts.join('\n\n'));
             if (!text) continue;
             const item = {
-                role: mapRole(message.sender, warnings, seenSenders),
+                role,
                 text,
                 createdAt: message.created_at || '',
                 note: ''
@@ -313,9 +330,10 @@
         return messages;
     }
 
+
     function buildMarkdown(messages) {
         if (!messages?.length) return '';
-        let output = '';
+        let output = '> **匯出來源**：API\n\n';
         let userIndex = 1;
         let modelIndex = 1;
         let previousDay = '';
@@ -785,7 +803,7 @@
 
         const fab = root.document.createElement('button');
         fab.textContent = '✳';
-        fab.title = 'GYC - Claude - v1.2.2';
+        fab.title = 'GYC - Claude - v1.2.4';
         fab.setAttribute('aria-label', '開啟 Grab Your Chat - Claude 工具');
         Object.assign(fab.style, {
             width: '56px',

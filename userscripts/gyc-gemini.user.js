@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         GYC - Gemini
 // @namespace    https://github.com/ReaperTw/AZA-Agent-Chat-Archive
-// @version      1.2.3
-// @description  Grab Your Chat - Gemini 端對話匯出器；最後更新於 20261020
+// @version      1.2.5
+// @description  Grab Your Chat - Gemini 端對話匯出器；最後更新於 20261022
 // @updateURL    https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-gemini.user.js
 // @downloadURL  https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-gemini.user.js
 // @match        https://gemini.google.com/*
@@ -402,12 +402,13 @@ if (typeof document !== 'undefined') {
         }
 
         // Shared download helper (extracted for reuse in DOM + API paths)
-        function performDownload(finalTitle, content) {
-            const blob = new Blob(['\uFEFF' + content], { type: 'text/markdown;charset=utf-8' });
+        function performDownload(finalTitle, content, method) {
+            const marked = `> **匯出來源**：${method}\n\n${content.replace(/^\uFEFF/, '')}`;
+            const blob = new Blob(['\uFEFF' + marked], { type: 'text/markdown;charset=utf-8' });
             const anchor = document.createElement('a');
             const url = URL.createObjectURL(blob);
             anchor.href = url;
-            anchor.download = `GEM_${sanitizeFileName(finalTitle)}_${getTimestamp()}.md`;
+            anchor.download = `GEM_${method}_${sanitizeFileName(finalTitle)}_${getTimestamp()}.md`;
             document.body.appendChild(anchor);
             anchor.click();
             anchor.remove();
@@ -502,7 +503,7 @@ if (typeof document !== 'undefined') {
                     messageCount: exportTurns.length,
                     warning: warnings.length ? `⚠️ ${warnings.join('\n')}` : '',
                     status: warnings.length ? '' : '未發現掃描斷層'
-                }, finalTitle => performDownload(finalTitle, out));
+                }, finalTitle => performDownload(finalTitle, out, 'DOM'));
             } catch (error) {
                 console.error('[Gemini Exporter] 匯出失敗', error);
                 showNotification(`❌ 匯出失敗：${error.message}`, true);
@@ -555,7 +556,7 @@ if (typeof document !== 'undefined') {
                     messageCount: parsedTurns.length,
                     warning: warnings.length ? `⚠️ ${warnings.join('\n')}` : '',
                     status: exhausted ? 'API 已回報無後續歷史；內容疑慮會另外列出。' : 'API 歷史可能尚未完整'
-                }, finalTitle => performDownload(finalTitle, finalOutput));
+                }, finalTitle => performDownload(finalTitle, finalOutput, 'API'));
             } catch (error) {
                 showNotification(`❌ API匯出失敗：${error.message}。可改用正常匯出。`, true);
             } finally {
@@ -672,7 +673,7 @@ if (typeof document !== 'undefined') {
 
             const fab = document.createElement('button');
             fab.textContent = '✦';
-            fab.title = 'GYC - Gemini - v1.2.3';
+            fab.title = 'GYC - Gemini - v1.2.5';
             fab.setAttribute('aria-label', '開啟 Grab Your Chat - Gemini 工具');
             Object.assign(fab.style, {
                 width: '56px',

@@ -50,13 +50,13 @@
 
 ChatGPT、Gemini、Grok 只提供「到頂端／API匯出／正常匯出」。API 權限、格式或內容有問題時，可手動改用「正常匯出」，不會自動切換模式。
 Claude 只提供「API匯出」，直接讀取目前分支，不需要捲動；API 失敗時會顯示錯誤。
-Claude 網頁版匯出檔名使用 `CLD_<標題>_<匯出時間>.md`。
+下載檔名用 `API` 或 `DOM` 標示方法，例如 `GPT_API_<標題>_<時間>.md`、`GPT_DOM_...`、`GEM_API_...`、`Grok_DOM_...`、`CLD_API_...`。檔案第一行也寫 `> **匯出來源**`；改檔名後仍可辨認。`DOM` 就是正常匯出。
 Claude 的分支根節點可能使用特殊 UUID，匯出器會把它視為正常結束；只有實際父訊息缺失才會顯示「分支上游有訊息不在回應裡」警告。
+Claude 1.2.3 會排除系統／工具與未知角色，不把未知 sender 冒充 Model；未知內容區塊及分支循環會明確警告。保留已支援的可見 Artifact／檔案成果，避免用 `message.text` 回填已排除的推理或工具區塊。
 Gemini 的 API 與正常匯出視窗都會顯示訊息數、字數及具體警告；API 匯出每組問答只在 User 前列一次來源時間，不在 Model 回覆重複列出。
-
 ChatGPT 1.1.3 將正常匯出每步基本等待從 500ms 降為 250ms，保留 60% 視窗步距、空殼重試與缺漏回訪。實際速度仍受頁面載入與瀏覽器計時器影響；已登入對話的前後下載全文一致，不代表所有長對話已驗證。
 ChatGPT 1.1.6 的 API／正常匯出共用 Markdown 排版：來源、`User N`／`Model N` 分隔、時間標記及檔尾提示格式一致；正常匯出的不完整警告也會保存到檔案，多行提示維持 Markdown 引用格式。保留各模式實際取得的時間與來源，不補造正常模式沒有的逐則時間，也不改正文擷取規則；時間數量、附件說明、警告或正文不同時，檔案大小仍可能不同。
-本次在隔離瀏覽器以模擬的 4 則訊息操作兩種匯出按鈕與保存流程，API／正常匯出／獨立 DOM 正文比對通過，並確認正常模式缺時間戳的警告寫入檔案；未執行登入實測，不代表既有的 32／29 則差異已解決。
+本次在隔離瀏覽器以模擬的 4 則訊息操作兩種匯出按鈕與保存流程，API／正常匯出／獨立 DOM 正文比對通過，並確認正常模式缺時間戳的警告寫入檔案；未執行登入實測，不代表下方既有的 32／29 則差異已解決。
 
 ### API 匯出的範圍與限制
 
@@ -64,7 +64,39 @@ ChatGPT 1.1.6 的 API／正常匯出共用 Markdown 排版：來源、`User N`�
 - Gemini：已驗證的回合數參數從 100 逐步提高，最多要求 10000 回合；這不是已驗證的游標分頁。若仍有後續資料但無法取得更早回合，會停止並標示不完整。依 API 的目前回答 ID（`turn[3][3]`）選取候選，未選取的空白候選不會觸發正文缺漏警告；選取 ID 無法對應時，仍標示並保留可取得的候選，不猜測選取結果。`_INCOMPLETE` 也可能由回答選取不明或所選正文空白觸發，不一定代表歷史訊息缺漏；視窗會分開說明 API 是否已回報無後續歷史，以及回答內容的疑慮。
 - Grok.com：先取得訊息樹，再每批載入 50 則正文，最多 10000 則。缺少正文或含無法確認目前選取的分支時，保留警告與分支標記，不把多條分支冒充成連續對話。X 版維持 DOM 匯出。
 - 對話時間取自來源資料，轉成瀏覽器本地時區；附件本體不嵌入 Markdown。這些是未公開保證的網站內部介面，可能隨改版失效。
-- API 試用版本已通過模擬回應的瀏覽器按鈕、Markdown 下載及失敗復原檢查；這不等於三個平台都已完成登入實測。
+- ChatGPT 1.1.2 已在登入的實際對話完成 API 按鈕、保存視窗與 Markdown 下載驗證；含圖片的 5 組問答正確計為 10 則訊息，不再把推理節點計入或因已知圖片附件誤標不完整。Gemini、Grok API 試用版本已通過模擬回應的瀏覽器按鈕、Markdown 下載及失敗復原檢查；不等於兩者都已完成登入實測。
+
+### Debug 一致性驗收
+
+共同規則以本節為準；[AGENTS.md](AGENTS.md) 要求相關變更依此驗收。ChatGPT／Gemini／Grok 必須比對 **API／正常匯出／獨立完整 DOM**；Claude 比對 **API／獨立完整 DOM**，不新增正常模式。
+
+1. 等待生成結束，確認同一對話與目前選取分支。逐段載入全部頁面歷史，獨立擷取並核對 DOM；不可拿匯出器解析結果當 DOM 證據。掛載節點數或訊息數相等不足以證明完整。只有已知完整歷史、目前分支，且獨立 DOM 擷取完成，才能標記 `complete: true`。
+2. 比較正文訊息的角色、順序與文字。只允許換行編碼、NBSP 與正文首尾空白正規化；不可丟棄未知文字、合併訊息或放寬正規化。圖片本體忽略；來源引用及已證明的工具／工具前進度可另行標註，未證明的內容仍屬正文並照常比較。正文差異是正文差異；純引用或進度 metadata 差異不得稱為缺少正式答案。
+3. 在版本庫外保存私人 JSON 證據。`conversation`、`branch` 在各模式應一致且去識別；每個 capture 有 `complete` 與獨立的 `messages` 正文：
+
+   ```json
+   {
+     "provider": "chatgpt",
+     "api": {
+       "conversation": "private-chat-A",
+       "branch": "selected-branch-A",
+       "complete": true,
+       "messages": [{ "role": "user", "text": "Example" }],
+       "references": [{ "messageIndex": 1, "label": "Source", "url": "https://example.test" }],
+       "process": [{ "messageIndex": 1, "text": "Searching…", "evidence": "Observed in the UI before the answer." }]
+     },
+     "normal": { "conversation": "private-chat-A", "branch": "selected-branch-A", "complete": true, "messages": [{ "role": "user", "text": "Example" }] },
+     "dom": { "conversation": "private-chat-A", "branch": "selected-branch-A", "complete": true, "messages": [{ "role": "user", "text": "Example" }] }
+   }
+   ```
+
+   `references` 與 `process` 是可選 capture 欄位；缺少或 `null` 表示未驗證，`[]` 表示已檢查且沒有項目。`messageIndex` 以該 capture 的正文 `messages` 為準，從 1 起算。引用須保留標籤與 URL；進度須有非空 `evidence`，說明實際觀察到的 UI／協定證據。不得只因文字不是 final channel 就把它歸為 `process`；未證明的工具進度／前置文字不得移出正文。
+4. 執行 `node tests/check-export-parity.js <私人證據.json>`；也可用 `-` 從 stdin 輸入。Claude 設 `provider: "claude"` 並省略 `normal`。報告分別列出 `body`、`references`、`process` 的 `match`／`different`／`unverified`，並標示 `bodyPassed`。結束碼 **0** 表示已驗證正文一致，**1** 表示正文訊息角色／順序／文字有差異，**2** 表示證據不完整或無效。因而 exit 0 不代表引用、進度或全部欄位都一致；metadata 有差異或未驗證仍須如實呈現。報告不得輸出正文、URL 或私人識別資料。
+5. 分別記錄歷史、文字解析、分支確認及 DOM 證據狀態。比較器只檢查所提供證據，不能自行證明擷取獨立或完整；來源不明、缺登入或未完成 DOM 擷取均為未驗證。
+
+比較器回歸：`node tests/check-export-parity-test.js`。模擬資料與 parser 測試不能替代登入實測。
+
+目前驗證狀態：一則特定 Claude 對話的選取分支有 6 rows，其中 1 則僅含圖片；5 則文字訊息中，4 則正文相同。將 23 字元的工具前進度及 6 個來源連結分開分類後，最後一則正式正文相符；舊版嚴格比較器因此前差異而失敗。這僅是該對話的證據，不代表 Claude 全站驗證。ChatGPT 目前仍是 API 32 則對正常模式／DOM 各 29 則，差異尚未分類，不假設只是進度。Gemini／Grok 尚待登入實測；目前不得宣稱全部供應商通過。
 
 ## Agent Chat Archive Skill
 

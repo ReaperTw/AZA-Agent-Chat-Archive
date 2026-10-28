@@ -28,4 +28,5 @@ const brRes = buildActiveBranchTimeline(br, 'a1');
 assert(brRes.warning, 'ambiguous branch must be reported');
 assert(brRes.timeline.every(item => item.text !== 'a' && item.text !== 'b' && item.text !== 'c'), 'ambiguous messages must carry an explicit label');
 
+
 console.log('Grok API check passed');
