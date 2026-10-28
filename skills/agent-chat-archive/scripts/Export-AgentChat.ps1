@@ -538,6 +538,7 @@ function Find-ExistingExport {
 
 function Export-SessionRecord {
     param($Record, [string]$RequestedTitle, $Config)
+    if ($Record.Harness -eq 'Omp') { return Export-OmpBundle $Record $RequestedTitle $Config }
 
     if ($Record.Messages.Count -eq 0) {
         return [pscustomobject]@{ Status = 'SKIPPED'; Path = ''; Reason = 'no-visible-messages' }
@@ -568,6 +569,22 @@ function Export-SessionRecord {
         }
     }
 
+    $text = ConvertTo-ArchiveMarkdown $Record
+
+    Write-AtomicText $path $text $true
+    if ($previousPath -and (Test-Path -LiteralPath $previousPath)) { Remove-Item -LiteralPath $previousPath }
+
+    return [pscustomobject]@{
+        Status = 'EXPORTED'
+        Path = $path
+        Reason = ''
+        Messages = $Record.Messages.Count
+        Warnings = $Record.WarningCount
+    }
+}
+
+function ConvertTo-ArchiveMarkdown {
+    param($Record)
     $culture = [Globalization.CultureInfo]::GetCultureInfo('zh-TW')
     $builder = New-Object Text.StringBuilder
     [void]$builder.AppendLine("<!-- agent-chat-archive: $($Record.Harness):$($Record.Id) -->")
@@ -577,7 +594,6 @@ function Export-SessionRecord {
     [void]$builder.AppendLine('>')
     [void]$builder.AppendLine("> **來源資料夾**：``$($Record.Cwd)``")
     [void]$builder.AppendLine()
-
     $userIndex = 1
     $modelIndex = 1
     foreach ($message in $Record.Messages) {
@@ -592,17 +608,7 @@ function Export-SessionRecord {
         [void]$builder.AppendLine($message.Text.Trim())
         [void]$builder.AppendLine()
     }
-
-    Write-AtomicText $path ($builder.ToString().TrimEnd() + "`r`n") $true
-    if ($previousPath -and (Test-Path -LiteralPath $previousPath)) { Remove-Item -LiteralPath $previousPath }
-
-    return [pscustomobject]@{
-        Status = 'EXPORTED'
-        Path = $path
-        Reason = ''
-        Messages = $Record.Messages.Count
-        Warnings = $Record.WarningCount
-    }
+    return ($builder.ToString().TrimEnd() + "`r`n")
 }
 
 if ($PSCmdlet.ParameterSetName -eq 'Configure') {
@@ -720,14 +726,25 @@ if ($Title -and $records.Count -gt 1) {
 $config = Get-ArchiveConfig
 $exported = 0
 $skipped = 0
+$partial = 0
 foreach ($record in $records) {
     $result = Export-SessionRecord $record $Title $config
     if ($result.Status -eq 'EXPORTED') {
         $exported++
-        "EXPORTED|$($result.Path)|messages=$($result.Messages)|warnings=$($result.Warnings)"
+        if ($harnessName -eq 'Omp') {
+            if ($result.Completeness -eq 'partial') { $partial++ }
+            "EXPORTED|$($result.Path)|messages=$($result.Messages)|warnings=$($result.Warnings)|completeness=$($result.Completeness)"
+            foreach ($file in $result.Files) { "FILE|$file" }
+        } else {
+            "EXPORTED|$($result.Path)|messages=$($result.Messages)|warnings=$($result.Warnings)"
+        }
     } else {
         $skipped++
         "SKIPPED|$($record.File.FullName)|$($result.Reason)"
     }
 }
-"SUMMARY|harness=$harnessName|exported=$exported|skipped=$skipped|root=$($config.outputRoot)"
+if ($harnessName -eq 'Omp') {
+    "SUMMARY|harness=$harnessName|exported=$exported|skipped=$skipped|partial=$partial|root=$($config.outputRoot)"
+} else {
+    "SUMMARY|harness=$harnessName|exported=$exported|skipped=$skipped|root=$($config.outputRoot)"
+}

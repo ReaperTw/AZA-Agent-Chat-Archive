@@ -1,24 +1,24 @@
 ---
 name: agent-chat-archive
-description: Immediately archive the current Codex, Grok Build, Command Code, OMP, Claude Code, or Hermes conversation, including a Hermes Discord Gateway session, as Markdown. Also list, recover, or archive other local agent tasks.
+description: Archive current or selected local agent conversations; list or recover saved tasks. Supports Codex, Grok Build, Command Code, OMP task bundles with subagents, Claude Code, and Hermes including Discord Gateway sessions.
 metadata:
-  version: "1.4.1"
+  version: "1.5.0"
 ---
 
 # Agent Chat Archive
 
-A **visible transcript** is user and assistant messages only. Leave system context, reasoning, tool activity, runtime state, source sessions, and Hermes `state.db` in place. Treat the file as private. Re-export updates that file; a new title renames it. A Hermes Discord result is that session's visible transcript — DM, thread, channel, or shared room — not a Discord backup and not a restorable Hermes session.
+A **visible transcript** contains user and assistant text. Preserve system context, reasoning, tool activity, runtime state, source sessions, and Hermes `state.db` at their source; keep exports private. OMP saves a task bundle with subagent transcripts; other harnesses save one Markdown file. Re-export updates the same session's archive; a new title renames it. These are conversation archives, not restorable sessions or backups of referenced files. A Hermes Discord export covers its session — DM, thread, channel, or shared room — rather than a Discord backup.
 
 Resolve scripts beside this `SKILL.md`. PowerShell: `pwsh`, else `powershell`. Hermes: `python3`, else `python` or `py -3`.
 
 ## Current task
 
-No list, selection, or all-sessions request means archive the current task in this turn. Ask only when configuration is missing or the session is not unique — then **First run**, or list candidates and ask.
+For an archive request without a list, selection, or all-sessions scope, archive the current task in this turn. For questions or maintenance of this skill, answer or edit it; run an archive only when requested. Ask only when configuration is missing or the session is not unique — then **First run**, or list candidates and ask.
 
 1. Detect the harness. Prefer an explicitly identified host (user correction or runtime identity). Otherwise check session ids in order: `COMMANDCODE_SESSION_ID` → `harnesses/CommandCode.md`, `GROK_SESSION_ID` → `harnesses/Grok.md`, `CODEX_THREAD_ID` → `harnesses/Codex.md`, `OMP_SESSION_ID` → `harnesses/Omp.md`, `CLAUDE_SESSION_ID` or `CLAUDE_CODE_SESSION_ID` → `harnesses/Claude.md`. Without a session id on Windows, inspect the current process ancestry: the nearest `omp.exe` selects OMP, `claude.exe` selects Claude. Only then fall back to `CLAUDECODE=1`; OMP tool processes can carry this compatibility flag. `HERMES_SESSION_ID` selects `harnesses/Hermes.md` when none of those match.
 2. Check config. Missing config → **First run**, then continue. PowerShell: `-ShowConfig`. Hermes: `--show-config`. Done when the config exists, or the user has not yet confirmed it.
 3. Read the detected harness file and run the export command written there. Fill its angle-bracket placeholders. Leave every other flag as written. Done when the command you run is that command.
-4. Done when this turn reports every absolute path and the exporter's message, skipped, and warning counts.
+4. Done when this turn reports every saved absolute path, message, skipped, and warning counts, plus any completeness status and unresolved items reported by the exporter. For OMP, apply the bundle completion gate in `harnesses/Omp.md`.
 
 ## First run
 

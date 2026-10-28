@@ -112,10 +112,131 @@ try {
     )
     $ompResult = @(& $exporter -Harness Omp -SessionPath $ompPath -ConfigPath $configPath)
     $ompExport = ($ompResult | Where-Object { $_ -like 'EXPORTED|*' }) -replace '^EXPORTED\|([^|]+)\|.*$', '$1'
-    Assert-True ($ompExport -like '*\Omp-OmpRepo\OMP_Omp-Test_*.md') 'OMP naming profile mismatch'
+    Assert-True ($ompExport -like '*\Omp-OmpRepo\OMP_Omp-Test_*\conversation.md') 'OMP bundle conversation path mismatch'
     $ompText = Get-Content -LiteralPath $ompExport -Raw -Encoding UTF8
     Assert-True ($ompText -match 'OMP visible' -and $ompText -match 'OMP reply') 'OMP visible messages missing'
     Assert-True ($ompText -notmatch 'secret') 'OMP internal content leaked'
+    $ompBundle = Split-Path -Parent $ompExport
+    $ompManifestPath = Join-Path $ompBundle 'manifest.json'
+    $ompManifest = Get-Content -LiteralPath $ompManifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    Assert-True ($ompManifest.sessionId -eq $ompId -and $ompManifest.status -eq 'complete') 'OMP manifest identity or completion status mismatch'
+    $ompFiles = @($ompResult | Where-Object { $_ -like 'FILE|*' } | ForEach-Object { $_ -replace '^FILE\|', '' })
+    Assert-True ($ompFiles.Count -eq 2 -and @($ompFiles | Where-Object { -not [IO.Path]::IsPathRooted($_) -or -not (Test-Path -LiteralPath $_) }).Count -eq 0) 'OMP bundle file paths missing or not absolute'
+
+    $ompChildRoot = Join-Path $ompDir $ompId
+    $childAId = '77777777-7777-4777-8777-777777777777'
+    $childBId = '88888888-8888-4888-8888-888888888888'
+    $childCId = '99999999-9999-4999-8999-999999999999'
+    $rootTask = [ordered]@{ type = 'message'; timestamp = '2026-08-13T04:00:03Z'; message = [ordered]@{ role = 'assistant'; content = @([ordered]@{ type = 'toolCall'; id = 'call-a'; name = 'task'; arguments = [ordered]@{ tasks = @([ordered]@{ name = 'AgentA'; task = 'inspect A' }, [ordered]@{ name = 'AgentB'; task = 'inspect B' }, [ordered]@{ name = 'AgentC'; task = 'inspect root C' }) } }) } }
+    $rootResult = [ordered]@{ type = 'message'; timestamp = '2026-08-13T04:00:04Z'; message = [ordered]@{ role = 'toolResult'; toolName = 'task'; toolCallId = 'call-a'; details = [ordered]@{ progress = @([ordered]@{ id = $childAId; status = 'completed' }, [ordered]@{ id = 'AgentB'; status = 'completed' }, [ordered]@{ id = 'AgentC'; status = 'completed' }) } } }
+    Write-JsonLines $ompPath @(
+        [ordered]@{ type = 'session'; version = 3; id = $ompId; timestamp = '2026-08-13T04:00:00Z'; cwd = 'C:\Work\OmpRepo' },
+        [ordered]@{ type = 'message'; message = [ordered]@{ role = 'user'; content = 'Root user text' } },
+        [ordered]@{ type = 'message'; message = [ordered]@{ role = 'assistant'; content = @([ordered]@{ type = 'thinking'; thinking = 'private root reasoning' }, [ordered]@{ type = 'text'; text = 'Root assistant text' }) } },
+        $rootTask, $rootResult
+    )
+    $childAPath = Join-Path $ompChildRoot 'AgentA.jsonl'
+    $rootCPath = Join-Path $ompChildRoot 'AgentC.jsonl'
+    $childCPath = Join-Path (Join-Path $ompChildRoot 'AgentA') 'AgentC.jsonl'
+    Write-JsonLines $childAPath @(
+        [ordered]@{ type = 'session'; version = 3; id = $childAId; timestamp = '2026-08-13T04:01:00Z'; cwd = 'C:\Work\OmpRepo'; parentSession = $ompPath },
+        [ordered]@{ type = 'message'; message = [ordered]@{ role = 'user'; content = 'Child A task text' } },
+        [ordered]@{ type = 'message'; message = [ordered]@{ role = 'assistant'; content = @([ordered]@{ type = 'text'; text = 'Child A answer' }); stopReason = 'stop' } },
+        [ordered]@{ type = 'message'; message = [ordered]@{ role = 'assistant'; content = @([ordered]@{ type = 'toolCall'; id = 'call-c'; name = 'task'; arguments = [ordered]@{ tasks = @([ordered]@{ name = 'AgentC'; task = 'inspect C' }) } }) } },
+        [ordered]@{ type = 'message'; message = [ordered]@{ role = 'assistant'; content = @([ordered]@{ type = 'text'; text = 'Delegated task complete' }); stopReason = 'stop' } }
+    )
+    Write-JsonLines $rootCPath @(
+        [ordered]@{ type = 'session'; version = 3; id = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'; timestamp = '2026-08-13T04:02:30Z'; cwd = 'C:\Work\OmpRepo'; parentSession = $ompPath },
+        [ordered]@{ type = 'message'; message = [ordered]@{ role = 'user'; content = 'Root AgentC task' } },
+        [ordered]@{ type = 'message'; message = [ordered]@{ role = 'assistant'; content = @([ordered]@{ type = 'text'; text = 'Root AgentC answer' }); stopReason = 'stop' } }
+    )
+    Write-JsonLines $childCPath @(
+        [ordered]@{ type = 'session'; version = 3; id = $childCId; timestamp = '2026-08-13T04:02:00Z'; cwd = 'C:\Work\OmpRepo'; parentSession = $childAPath },
+        [ordered]@{ type = 'message'; message = [ordered]@{ role = 'user'; content = 'Nested child task' } },
+        [ordered]@{ type = 'message'; message = [ordered]@{ role = 'assistant'; content = @([ordered]@{ type = 'text'; text = 'Nested child answer' }); stopReason = 'stop' } }
+    )
+    $nestedResult = @(& $exporter -Harness Omp -SessionPath $ompPath -ConfigPath $configPath)
+    $nestedExport = ($nestedResult | Where-Object { $_ -like 'EXPORTED|*' }) -replace '^EXPORTED\|([^|]+)\|.*$', '$1'
+    $nestedBundle = Split-Path -Parent $nestedExport
+    $nestedManifest = Get-Content -LiteralPath (Join-Path $nestedBundle 'manifest.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+    $missingChild = @($nestedManifest.subagents | Where-Object { $_.name -eq 'AgentB' })[0]
+    Assert-True ($missingChild.status -eq 'partial' -and -not $missingChild.path -and $nestedManifest.warnings.Count -gt 0) 'OMP missing child was not reported as an unresolved warning'
+    Assert-True ([bool](@($nestedResult) -match 'completeness=partial') -and [bool](@($nestedResult) -match 'SUMMARY\|.*partial=1')) 'OMP partial status was not exposed in CLI output'
+    Assert-True ($nestedManifest.status -eq 'partial' -and @($nestedManifest.subagents).Count -eq 4) 'OMP missing referenced child did not produce partial bundle with saved children'
+    $childAEntry = @($nestedManifest.subagents | Where-Object { $_.id -eq $childAId })[0]
+    $childCEntry = @($nestedManifest.subagents | Where-Object { $_.id -eq $childCId })[0]
+    $rootCEntry = @($nestedManifest.subagents | Where-Object { $_.id -eq 'cccccccc-cccc-4ccc-8ccc-cccccccccccc' })[0]
+    Assert-True ($childAEntry.parentId -eq $ompId -and $childCEntry.parentId -eq $childAId -and $rootCEntry.parentId -eq $ompId) 'OMP nested or duplicate-name parent identity was not preserved'
+    $childAText = Get-Content -LiteralPath (Join-Path $nestedBundle $childAEntry.path) -Raw -Encoding UTF8
+    $childCText = Get-Content -LiteralPath (Join-Path $nestedBundle $childCEntry.path) -Raw -Encoding UTF8
+    $conversationText = Get-Content -LiteralPath $nestedExport -Raw -Encoding UTF8
+    Assert-True ($conversationText -match [regex]::Escape($childAEntry.path) -and $conversationText -match 'Unresolved items') 'OMP subagent index link or unresolved warning missing'
+    Assert-True ($childAText -match 'Parent session ID' -and $childAText -match [regex]::Escape($ompId) -and $childAText -match 'Child A task text' -and $childAText -match 'Child A answer' -and $childCText -match 'Nested child answer') 'OMP child transcript omitted visible content or parent identity'
+    Assert-True ($childAText -notmatch 'private|toolCall|arguments') 'OMP child transcript leaked internal content'
+    $goodAttachment = Join-Path $nestedBundle $childAEntry.path
+    [IO.File]::WriteAllText($childAPath, "{malformed`n", (New-Object Text.UTF8Encoding($false)))
+    $preserveResult = @(& $exporter -Harness Omp -SessionPath $ompPath -ConfigPath $configPath)
+    $preserveExport = ($preserveResult | Where-Object { $_ -like 'EXPORTED|*' }) -replace '^EXPORTED\|([^|]+)\|.*$', '$1'
+    $preserveBundle = Split-Path -Parent $preserveExport
+    Assert-True (Test-Path -LiteralPath $goodAttachment) 'OMP malformed re-export deleted previously saved good attachment'
+    $preservedText = Get-Content -LiteralPath $goodAttachment -Raw -Encoding UTF8
+    Assert-True ($preservedText -match 'Child A answer') 'OMP malformed re-export replaced good attachment content'
+    $damagedManifest = Get-Content -LiteralPath (Join-Path $preserveBundle 'manifest.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+    $damagedNested = @($damagedManifest.subagents | Where-Object id -eq $childCId)[0]
+    Assert-True ($damagedNested.parentId -eq $childAId -and $damagedNested.path -eq $childCEntry.path) 'OMP malformed parent changed nested child identity or attachment'
+    Assert-True ((Get-Content -LiteralPath (Join-Path $preserveBundle $rootCEntry.path) -Raw -Encoding UTF8) -match 'Root AgentC answer') 'OMP malformed parent caused duplicate-name attachment overwrite'
+    Remove-Item -LiteralPath $childAPath
+    $missingResult = @(& $exporter -Harness Omp -SessionPath $ompPath -ConfigPath $configPath)
+    $missingExport = ($missingResult | Where-Object { $_ -like 'EXPORTED|*' }) -replace '^EXPORTED\|([^|]+)\|.*$', '$1'
+    $missingManifest = Get-Content -LiteralPath (Join-Path (Split-Path $missingExport) 'manifest.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+    $missingNested = @($missingManifest.subagents | Where-Object id -eq $childCId)[0]
+    Assert-True ($missingManifest.status -eq 'partial' -and $missingNested.parentId -eq $childAId -and $missingNested.path -eq $childCEntry.path) 'OMP missing parent changed nested child relationship'
+    Assert-True ((Get-Content -LiteralPath $goodAttachment -Raw -Encoding UTF8) -match 'Child A answer') 'OMP missing source lost last good attachment'
+    $renameResult = @(& $exporter -Harness Omp -SessionPath $ompPath -ConfigPath $configPath -Title 'Renamed OMP')
+    $renameExport = ($renameResult | Where-Object { $_ -like 'EXPORTED|*' }) -replace '^EXPORTED\|([^|]+)\|.*$', '$1'
+    Assert-True ($renameExport -like '*\OMP_Renamed-OMP_*\conversation.md') 'OMP title rename did not rename bundle'
+    Assert-True ((Get-ChildItem -LiteralPath (Split-Path -Parent $renameExport) -Recurse -File -Filter '*.md').Count -ge 2) 'OMP title rename lost existing attachments'
+    $sameIdResult = @(& $exporter -Harness Omp -SessionPath $ompPath -ConfigPath $configPath)
+    $sameIdExport = ($sameIdResult | Where-Object { $_ -like 'EXPORTED|*' }) -replace '^EXPORTED\|([^|]+)\|.*$', '$1'
+    Assert-True ($sameIdExport -eq $renameExport) 'OMP ID-based re-export changed the renamed bundle path'
+    $ompCopies = @(Get-ChildItem -LiteralPath $outputRoot -Recurse -File -Filter 'conversation.md' | Where-Object { Select-String -LiteralPath $_.FullName -SimpleMatch "<!-- agent-chat-archive: Omp:$ompId -->" -Quiet })
+    Assert-True ($ompCopies.Count -eq 1) 'OMP ID-based re-export created duplicate bundles'
+
+    $unfinishedId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+    $unfinishedRoot = Join-Path $ompDir 'unfinished.jsonl'
+    Write-JsonLines $unfinishedRoot @(
+        [ordered]@{ type = 'session'; version = 3; id = $unfinishedId; timestamp = '2026-08-13T04:03:00Z'; cwd = 'C:\Work\OmpRepo' },
+        [ordered]@{ type = 'message'; message = [ordered]@{ role = 'user'; content = 'Unfinished root visible prompt' } },
+        [ordered]@{ type = 'message'; message = [ordered]@{ role = 'assistant'; content = @([ordered]@{ type = 'toolCall'; id = 'call-pending'; name = 'task'; arguments = [ordered]@{ tasks = @([ordered]@{ name = 'PendingAgent'; task = 'pending task' }) } }) } },
+        [ordered]@{ type = 'message'; message = [ordered]@{ role = 'toolResult'; toolName = 'task'; toolCallId = 'call-pending'; details = [ordered]@{ progress = @([ordered]@{ id = 'PendingAgent'; status = 'pending' }) } } }
+    )
+    $pendingChildPath = Join-Path (Join-Path $ompDir 'unfinished') 'PendingAgent.jsonl'
+    Write-JsonLines $pendingChildPath @(
+        [ordered]@{ type = 'session'; version = 3; id = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'; timestamp = '2026-08-13T04:04:00Z'; cwd = 'C:\Work\OmpRepo'; parentSession = $unfinishedRoot },
+        [ordered]@{ type = 'message'; message = [ordered]@{ role = 'user'; content = 'Pending child task text' } },
+        [ordered]@{ type = 'message'; message = [ordered]@{ role = 'assistant'; content = @([ordered]@{ type = 'text'; text = 'Pending child partial answer' }) } }
+    )
+    $unfinishedResult = @(& $exporter -Harness Omp -SessionPath $unfinishedRoot -ConfigPath $configPath)
+    $unfinishedExport = ($unfinishedResult | Where-Object { $_ -like 'EXPORTED|*' }) -replace '^EXPORTED\|([^|]+)\|.*$', '$1'
+    $unfinishedManifest = Get-Content -LiteralPath (Join-Path (Split-Path -Parent $unfinishedExport) 'manifest.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+    $pendingEntry = @($unfinishedManifest.subagents | Where-Object { $_.name -eq 'PendingAgent' })[0]
+    Assert-True ($unfinishedManifest.status -eq 'partial' -and $pendingEntry.status -eq 'partial') 'OMP unfinished child was marked complete'
+    Assert-True ($pendingEntry.path -and (Get-Content -LiteralPath (Join-Path (Split-Path -Parent $unfinishedExport) $pendingEntry.path) -Raw -Encoding UTF8) -match 'Pending child task text') 'OMP unfinished first export discarded available child task text'
+
+    $legacyId = '20260813T050000Z_legacy'
+    $legacyOmpPath = Join-Path $ompDir "$legacyId.jsonl"
+    Write-JsonLines $legacyOmpPath @(
+        [ordered]@{ type = 'session'; version = 3; id = $legacyId; timestamp = '2026-08-13T05:00:00Z'; cwd = 'C:\Work\OmpRepo' },
+        [ordered]@{ type = 'message'; message = [ordered]@{ role = 'user'; content = 'Legacy visible text' } }
+    )
+    $legacyFlat = Join-Path $outputRoot 'Omp-OmpRepo\OMP_Legacy_20260813_050000.md'
+    [IO.Directory]::CreateDirectory((Split-Path -Parent $legacyFlat)) | Out-Null
+    [IO.File]::WriteAllText($legacyFlat, "<!-- agent-chat-archive: Omp:$legacyId -->`nLegacy visible text`n", (New-Object Text.UTF8Encoding($false)))
+    $legacyOmpResult = @(& $exporter -Harness Omp -SessionPath $legacyOmpPath -ConfigPath $configPath)
+    $legacyOmpExport = ($legacyOmpResult | Where-Object { $_ -like 'EXPORTED|*' }) -replace '^EXPORTED\|([^|]+)\|.*$', '$1'
+    Assert-True ($legacyOmpExport -like '*\conversation.md' -and (Test-Path -LiteralPath (Split-Path -Parent $legacyOmpExport))) 'OMP legacy flat export did not migrate to bundle'
+    Assert-True (-not (Test-Path -LiteralPath $legacyFlat)) 'OMP legacy flat export remained after successful migration'
+    Assert-True ((Get-Content -LiteralPath $legacyOmpExport -Raw -Encoding UTF8) -match 'Legacy visible text') 'OMP migrated transcript lost visible content'
 
     $claudeId = '55555555-5555-4555-8555-555555555555'
     $subId = '66666666-6666-4666-8666-666666666666'

@@ -69,7 +69,15 @@ Gemini 的 API 與正常匯出視窗都會顯示訊息數、字數及具體警�
 - 歸檔目前的 Codex、Grok Build、Command Code、OMP、Claude Code 或 Hermes 對話。
 - 列出並選擇其他本機 Agent 對話進行歸檔。
 - 只保留可見的使用者與助理訊息；排除系統指令、推理內容、工具呼叫與執行狀態。
-- 再次匯出同一個 Session 時更新既有 Markdown，避免產生重複檔案。
+- 再次匯出同一個 Session 時更新既有歸檔，避免產生重複檔案；OMP 使用任務資料夾，其他環境維持單一 Markdown。
+
+### OMP 任務歸檔（Skill 1.5.0）
+
+OMP 預設將主對話與可取得的 subagent 可見對話一起保存。格式、保存邊界與完整性判定見 [`harnesses/Omp.md`](skills/agent-chat-archive/harnesses/Omp.md#task-bundle)。
+
+主檔提供 subagent 附件索引；manifest 保存 ID、父子關係與匯出狀態。巢狀 agent、失敗與取消的任務也納入發現範圍。缺漏或無法確認完整性時明確回報部分匯出，重新匯出失敗的附件保留上次成功版本。
+
+舊版 OMP 單檔會在任務資料夾成功保存後遷移。來源對話不會自動刪除；歸檔不包含隱藏推理、工具紀錄或外部檔案，也不能還原成可接續執行的 OMP session。
 
 ### 使用
 
