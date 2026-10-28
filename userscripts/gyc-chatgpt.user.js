@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         GYC - ChatGPT
 // @namespace    https://github.com/ReaperTw/AZA-Agent-Chat-Archive
-// @version      1.1.1
-// @description  Grab Your Chat - ChatGPT 端對話匯出器；最後更新於 20261020
+// @version      1.1.6
+// @description  Grab Your Chat - ChatGPT 端對話匯出器；最後更新於 20261028
 // @updateURL    https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-chatgpt.user.js
 // @downloadURL  https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-chatgpt.user.js
 // @match        https://chatgpt.com/*
@@ -19,7 +19,7 @@
     const RETRY_EMPTY_WAIT = 350;
     const FAST_UPWARD_WAIT = 500;
     const FAST_SCROLL_STEP = 2000;
-    const FAST_BASE_WAIT = 500;
+    const FAST_BASE_WAIT = 250;
 
     const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -87,6 +87,7 @@
     function parseApiConversation(payload) {
         const messages = [];
         const warnings = new Set();
+        const notices = new Set();
         const mapping = payload?.mapping;
         if (!mapping || typeof mapping !== 'object' || Array.isArray(mapping)) throw new Error('對話 API 缺少訊息樹');
         if (!payload.current_node) warnings.add('缺少目前分支的終點');
@@ -100,20 +101,39 @@
             const node = mapping[id];
             const message = node.message;
             const role = message?.author?.role;
-            const hidden = message?.metadata?.is_visually_hidden_from_conversation ||
-                (message?.channel && message.channel !== 'final') ||
+            const content = message?.content;
+            const contentType = content?.content_type;
+            if (role === 'assistant' && ['thoughts', 'reasoning_recap'].includes(contentType)) {
+                id = node.parent;
+                continue;
+            }
+            const internal = message?.metadata?.is_visually_hidden_from_conversation ||
+                message?.channel === 'analysis' ||
                 (message?.recipient && message.recipient !== 'all');
+            if (['user', 'assistant'].includes(role) && !internal && message?.channel && message.channel !== 'final') {
+                warnings.add('文字可見性未確認：已略過非 final、非 analysis 的訊息，需與頁面 DOM 核對');
+            }
+            if (message && !['user', 'assistant', 'tool', 'system'].includes(role)) {
+                warnings.add('文字解析未完成：已略過無法識別角色的訊息');
+            }
+            const hidden = internal || (message?.channel && message.channel !== 'final');
             if ((role === 'user' || role === 'assistant') && !hidden) {
-                const content = message.content;
                 const parts = Array.isArray(content?.parts) ? content.parts : [];
                 let omitted = false;
+                let unknown = false;
                 const text = parts.map(part => {
                     if (typeof part === 'string') return part;
                     omitted = true;
+                    if (part && typeof part === 'object' && part.content_type === 'image_asset_pointer') {
+                        notices.add('部分圖片內容未嵌入匯出檔');
+                        return '> [圖片內容未嵌入匯出檔]';
+                    }
+                    unknown = true;
                     return '> [非文字內容；本體未嵌入匯出檔]';
                 }).join('\n\n').trim();
-                if (omitted || (!text && content?.content_type !== 'text')) warnings.add('部分非文字內容未嵌入匯出檔');
-                if (text || omitted || content?.content_type !== 'text') {
+                const unknownContent = contentType !== 'text' && contentType !== 'multimodal_text';
+                if (unknown || unknownContent) warnings.add('部分非文字內容未嵌入匯出檔');
+                if (text || omitted || unknownContent) {
                     messages.push({
                         role, text: text || '> [此訊息內容格式無法解析]',
                         create_time: message.create_time, date: formatApiDate(message.create_time)
@@ -126,26 +146,42 @@
         return {
             title: typeof payload.title === 'string' ? payload.title : 'ChatGPT-Chat',
             messages, incomplete: warnings.size > 0,
-            warning: [...warnings].join('；') || null
+            warning: [...warnings].join('；') || null,
+            notice: [...notices].join('；') || null
         };
     }
 
-    function buildApiMarkdown(parsed, sourceTitle) {
+    function buildMarkdown(parsed, sourceTitle, { source = 'API', chatTime = '', timeMarkers = [] } = {}) {
         const title = sanitizeFileName(sourceTitle || parsed.title);
-        let content = '';
+        let content = `> **匯出來源**：${source}\n\n`;
         let user = 1;
         let model = 1;
+        const emittedTimeMarkers = new Set();
+        const appendTime = (timestamp, unlocated = false) => {
+            content += `> **對話時間${unlocated ? '（未定位）' : ''}**：${timestamp}\n\n`;
+        };
+        if (chatTime && !timeMarkers.some(marker => marker.timestamp === chatTime)) appendTime(chatTime);
         for (const message of parsed.messages) {
-            if (message.date) content += `> **對話時間**：${message.date}\n\n`;
+            for (const marker of timeMarkers) {
+                if (marker.beforeTurnIndex === message.turnIndex && !emittedTimeMarkers.has(marker.key)) {
+                    appendTime(marker.timestamp);
+                    emittedTimeMarkers.add(marker.key);
+                }
+            }
+            if (message.date) appendTime(message.date);
             const heading = message.role === 'user' ? `User ${user++}` : `Model ${model++}`;
             content += `--- [${heading}] ---\n${message.text}\n\n`;
         }
-        if (parsed.incomplete) content += `> **匯出不完整**：${parsed.warning}\n`;
+        for (const marker of timeMarkers) {
+            if (!emittedTimeMarkers.has(marker.key)) appendTime(marker.timestamp, true);
+        }
+        if (parsed.incomplete) content += `> **匯出不完整**：${parsed.warning.replace(/\r?\n/g, '\n> ')}\n`;
+        if (parsed.notice) content += `> **內容提示**：${parsed.notice.replace(/\r?\n/g, '\n> ')}\n`;
         return { filename: title, content: content.trimEnd() + '\n' };
     }
 
     if (typeof module !== 'undefined' && module.exports && typeof document === 'undefined') {
-        module.exports = { parseApiConversation, buildApiMarkdown, formatApiDate, isPersonalChatRoute, getConversationIdFromUrl };
+        module.exports = { parseApiConversation, buildMarkdown, formatApiDate, isPersonalChatRoute, getConversationIdFromUrl };
         return;
     }
 
@@ -338,7 +374,7 @@
         });
 
         const status = document.createElement('div');
-        status.textContent = report.warning || '未發現未解析的訊息空殼';
+        status.textContent = report.warning || report.status || '未發現未解析的訊息空殼';
         Object.assign(status.style, {
             padding: '9px 11px',
             borderRadius: '6px',
@@ -914,48 +950,17 @@
             }
             const warning = warnings.length ? `⚠️ ${warnings.join('\n')}` : '';
 
-            let userIndex = 1;
-            let modelIndex = 1;
-            let output = '';
             const timeMarkers = Array.from(state.timeMarkers.values())
                 .sort((a, b) =>
                     a.beforeTurnIndex - b.beforeTurnIndex ||
                     a.sequence - b.sequence
                 );
-            const emittedTimeMarkers = new Set();
-
-            // 若頂端時間只能從全頁文字取得、沒有可定位的分隔線，仍保留舊版頂端輸出。
-            if (chatTime && !timeMarkers.some(marker => marker.timestamp === chatTime)) {
-                output += `> **對話時間**：${chatTime}\n\n`;
-            }
-
-            for (const message of messages) {
-                for (const marker of timeMarkers) {
-                    if (
-                        marker.beforeTurnIndex === message.turnIndex &&
-                        !emittedTimeMarkers.has(marker.key)
-                    ) {
-                        output += `> **對話時間**：${marker.timestamp}\n\n`;
-                        emittedTimeMarkers.add(marker.key);
-                    }
-                }
-
-                const heading = message.role === 'assistant'
-                    ? `Model ${modelIndex++}`
-                    : `User ${userIndex++}`;
-                output += `--- [${heading}] ---\n${message.text}\n\n`;
-            }
-
-            // 極端虛擬化下若對應 turn 未成功擷取，時間標記仍不可遺失。
-            for (const marker of timeMarkers) {
-                if (!emittedTimeMarkers.has(marker.key)) {
-                    output += `> **對話時間（未定位）**：${marker.timestamp}\n\n`;
-                }
-            }
 
             let title = determineTitle();
             if (warning) title += '_INCOMPLETE';
-            const finalOutput = output.trimEnd() + '\n';
+            const { content: finalOutput } = buildMarkdown({
+                messages, incomplete: Boolean(warning), warning
+            }, title, { source: 'DOM', chatTime, timeMarkers });
             showSaveModal(title, finalOutput, {
                 messageCount: messages.length,
                 warning
@@ -967,7 +972,7 @@
                 const anchor = document.createElement('a');
                 anchor.href = url;
                 anchor.download =
-                    `GPT_${sanitizeFileName(finalTitle)}_${getTimestamp()}.md`;
+                    `GPT_DOM_${sanitizeFileName(finalTitle)}_${getTimestamp()}.md`;
                 document.body.appendChild(anchor);
                 anchor.click();
                 anchor.remove();
@@ -1012,9 +1017,9 @@
             const payload = await fetchConversationApi(id, token);
             const parsed = parseApiConversation(payload);
             if (!parsed.messages.length) throw new Error('API 沒有可匯出的可見訊息');
-            const { filename, content } = buildApiMarkdown(parsed, payload && payload.title);
-            const finalName = `GPT_${sanitizeFileName(filename)}_${getTimestamp()}${parsed.incomplete ? '_INCOMPLETE' : ''}`;
-            showSaveModal(finalName, content, { messageCount: parsed.messages.length, warning: parsed.warning }, (name) => {
+            const { filename, content } = buildMarkdown(parsed, payload && payload.title);
+            const finalName = `GPT_API_${sanitizeFileName(filename)}_${getTimestamp()}${parsed.incomplete ? '_INCOMPLETE' : ''}`;
+            showSaveModal(finalName, content, { messageCount: parsed.messages.length, warning: parsed.warning, status: parsed.notice || '未發現匯出警告' }, (name) => {
                 const blob = new Blob(["\uFEFF" + content], { type: 'text/markdown;charset=utf-8' });
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
@@ -1144,7 +1149,7 @@
                 <path fill="currentColor"
                     d="M22.2819 9.8211a5.9847 5.9847 0 0 0-.5157-4.9108 6.0462 6.0462 0 0 0-6.5098-2.9A6.0651 6.0651 0 0 0 4.9807 4.1818a5.9847 5.9847 0 0 0-3.9977 2.9 6.0462 6.0462 0 0 0 .7427 7.0966 5.98 5.98 0 0 0 .511 4.9107 6.051 6.051 0 0 0 6.5146 2.9001A5.9847 5.9847 0 0 0 13.2599 24a6.0557 6.0557 0 0 0 5.7718-4.2058 5.9894 5.9894 0 0 0 3.9977-2.9001 6.0557 6.0557 0 0 0-.7475-7.0729zm-9.022 12.6081a4.4755 4.4755 0 0 1-2.8764-1.0408l.1419-.0804 4.7783-2.7582a.7948.7948 0 0 0 .3927-.6813v-6.7369l2.02 1.1686a.071.071 0 0 1 .038.052v5.5826a4.504 4.504 0 0 1-4.4945 4.4944zm-9.6607-4.1254a4.4708 4.4708 0 0 1-.5346-3.0137l.142.0852 4.783 2.7582a.7712.7712 0 0 0 .7806 0l5.8428-3.3685v2.3324a.0804.0804 0 0 1-.0332.0615L9.74 19.9502a4.4992 4.4992 0 0 1-6.1408-1.6464zM2.3408 7.8956a4.485 4.485 0 0 1 2.3655-1.9728V11.6a.7664.7664 0 0 0 .3879.6765l5.8144 3.3543-2.0201 1.1685a.0757.0757 0 0 1-.071 0l-4.8303-2.7865A4.504 4.504 0 0 1 2.3408 7.872zm16.5963 3.8558L13.1038 8.364 15.1192 7.2a.0757.0757 0 0 1 .071 0l4.8303 2.7913a4.4944 4.4944 0 0 1-.6765 8.1042v-5.6772a.79.79 0 0 0-.407-.667zm2.0107-3.0231l-.142-.0852-4.7735-2.7818a.7759.7759 0 0 0-.7854 0L9.409 9.2297V6.8974a.0662.0662 0 0 1 .0284-.0615l4.8303-2.7866a4.4992 4.4992 0 0 1 6.6802 4.66zM8.3065 12.863l-2.02-1.1638a.0804.0804 0 0 1-.038-.0567V6.0742a4.4992 4.4992 0 0 1 7.3757-3.4537l-.142.0805L8.704 5.459a.7948.7948 0 0 0-.3927.6813zm1.0976-2.3654 2.602-1.4998 2.6069 1.4998v2.9994l-2.5974 1.4997-2.6067-1.4997Z"/>
             </svg>`;
-        fab.title = 'GYC - ChatGPT 1.1.1';
+        fab.title = 'GYC - ChatGPT 1.1.6';
         fab.setAttribute('aria-label', '開啟 Grab Your Chat - ChatGPT 工具');
         Object.assign(fab.style, {
             width: '56px',

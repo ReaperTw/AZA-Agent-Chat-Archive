@@ -1,5 +1,5 @@
 const assert = require('node:assert/strict');
-const { parseApiConversation, buildApiMarkdown, getConversationIdFromUrl } = require('../userscripts/gyc-chatgpt.user.js');
+const { parseApiConversation, buildMarkdown, getConversationIdFromUrl } = require('../userscripts/gyc-chatgpt.user.js');
 const message = (role, text, extra = {}) => ({ author: { role }, content: { content_type: 'text', parts: [text] }, create_time: 1780000000, ...extra });
 const payload = {
     title: 'Chat', current_node: 'answer', mapping: {
@@ -15,14 +15,100 @@ const payload = {
 const parsed = parseApiConversation(payload);
 assert.deepEqual(parsed.messages.map(m => m.text), ['question', 'visible-answer']);
 assert.equal(parsed.incomplete, false);
-const markdown = buildApiMarkdown(parsed).content;
+const markdown = buildMarkdown(parsed).content;
 assert(!/secret|abandoned/.test(markdown));
 assert(markdown.includes('visible-answer'));
 assert.equal(parsed.messages[0].create_time, 1780000000);
+const apiChain = entries => {
+    const mapping = { root: { parent: null } };
+    let parent = 'root';
+    entries.forEach(([id, msg]) => { mapping[id] = { parent, message: msg }; parent = id; });
+    return { current_node: parent, mapping };
+};
+const internal = (content_type, value) => message('assistant', value, {
+    channel: null, recipient: 'all',
+    content: content_type === 'thoughts' ? { content_type, thoughts: [value] } : { content_type, content: value }
+});
+const reasoning = parseApiConversation(apiChain([
+    ['u1', message('user', 'first question')],
+    ['thoughts', internal('thoughts', 'private thought')],
+    ['a1', message('assistant', 'first answer', { channel: 'final' })],
+    ['recap', internal('reasoning_recap', 'private recap')],
+    ['u2', message('user', 'second question')],
+    ['a2', message('assistant', 'second answer', { channel: 'final' })]
+]));
+assert.deepEqual(reasoning.messages.map(m => m.text), ['first question', 'first answer', 'second question', 'second answer']);
+assert.equal(reasoning.incomplete, false);
+assert.equal(reasoning.warning, null);
+assert(!/private thought|private recap|reasoning|[未不]完整|placeholder/i.test(buildMarkdown(reasoning).content));
+
+const uncertainVisibility = parseApiConversation(apiChain([
+    ['question', message('user', 'question')],
+    ['progress', message('assistant', 'unconfirmed progress', { channel: 'commentary', recipient: 'all' })],
+    ['answer', message('assistant', 'answer', { channel: 'final' })]
+]));
+assert.deepEqual(uncertainVisibility.messages.map(m => m.text), ['question', 'answer']);
+assert(uncertainVisibility.incomplete);
+assert(uncertainVisibility.warning);
+assert(!buildMarkdown(uncertainVisibility).content.includes('unconfirmed progress'));
+const unknownRole = parseApiConversation(apiChain([
+    ['unknown', message('future-role', 'not an assistant answer')],
+    ['answer', message('assistant', 'answer', { channel: 'final' })]
+]));
+assert.deepEqual(unknownRole.messages.map(m => m.text), ['answer']);
+assert(unknownRole.incomplete);
+assert(unknownRole.warning);
+
+const attachmentPart = { content_type: 'image_asset_pointer', asset_pointer: 'asset://omitted' };
+const imageText = parseApiConversation(apiChain([
+    ['user', { ...message('user', ''), content: { content_type: 'multimodal_text', parts: [attachmentPart, 'describe this'] } }],
+    ['answer', message('assistant', 'I cannot see the image.', { channel: 'final' })]
+]));
+const imageMarkdown = buildMarkdown(imageText).content;
+assert.equal(imageText.incomplete, false);
+assert.equal(imageText.warning, null);
+assert(imageText.messages[0].text.includes('describe this'));
+assert(/image|attachment|圖片|附件/i.test(imageText.messages[0].text));
+assert(imageText.notice);
+assert(imageMarkdown.includes(imageText.notice));
+assert(!/匯出不完整|export incomplete/i.test(imageMarkdown));
+
+const imageOnly = parseApiConversation(apiChain([
+    ['user', { ...message('user', ''), content: { content_type: 'multimodal_text', parts: [attachmentPart] } }]
+]));
+assert.equal(imageOnly.incomplete, false);
+assert.equal(imageOnly.warning, null);
+assert(imageOnly.messages[0].text);
+assert(imageOnly.notice);
+
+const unknownPart = parseApiConversation(apiChain([
+    ['user', { ...message('user', ''), content: { content_type: 'multimodal_text', parts: [{ content_type: 'future_part', payload: 'unknown' }] } }]
+]));
+assert(unknownPart.incomplete);
+assert(unknownPart.warning);
+assert(unknownPart.messages[0].text);
+const unknownContent = parseApiConversation(apiChain([
+    ['user', { ...message('user', ''), content: { content_type: 'future_content', payload: 'unknown' } }]
+]));
+assert(unknownContent.incomplete);
+assert(unknownContent.warning);
+assert(unknownContent.messages[0].text);
+
+const brokenWithNotice = parseApiConversation({
+    current_node: 'user',
+    mapping: {
+        user: { parent: 'missing', message: { ...message('user', ''), content: { content_type: 'multimodal_text', parts: [attachmentPart] } } }
+    }
+});
+assert(brokenWithNotice.incomplete);
+assert(brokenWithNotice.warning);
+assert(brokenWithNotice.notice);
+assert(buildMarkdown(brokenWithNotice).content.includes(brokenWithNotice.notice));
+
 
 const broken = parseApiConversation({ current_node: 'a', mapping: { a: { parent: 'missing', message: message('assistant', 'tail') } } });
 assert(broken.incomplete);
-assert(buildApiMarkdown(broken).content.includes(broken.warning));
+assert(buildMarkdown(broken).content.includes(broken.warning));
 const cycle = parseApiConversation({ current_node: 'a', mapping: { a: { parent: 'a', message: message('assistant', 'tail') } } });
 assert(cycle.incomplete);
 assert.equal(cycle.messages.length, 1);
