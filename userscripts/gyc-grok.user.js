@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        GYC - Grok
 // @namespace   https://github.com/ReaperTw/AZA-Agent-Chat-Archive
-// @version      1.4.2
+// @version      1.4.3
 // @description Grab Your Chat - Grok 端對話匯出器；最後更新於 20261029
 // @updateURL   https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-grok.user.js
 // @downloadURL https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-grok.user.js
@@ -1247,7 +1247,7 @@
 
         const fab = document.createElement('button');
         fab.innerText = '𝕏';
-        fab.title = "GYC - Grok - v1.4.2";
+        fab.title = "GYC - Grok - v1.4.3";
         fab.setAttribute('aria-label', '開啟 Grab Your Chat - Grok 工具');
         Object.assign(fab.style, {
             width: '56px',
@@ -1336,6 +1336,7 @@
         };
         const tree = await request(base + '/response-node?includeThreads=true');
         if (!Array.isArray(tree?.responseNodes)) throw new Error('Grok 訊息樹格式已改變；可改用正常匯出');
+        const nodesById = new Map(tree.responseNodes.filter(node => node?.responseId).map(node => [node.responseId, node]));
         const allIds = [...new Set(tree.responseNodes.map(node => node?.responseId).filter(id => typeof id === 'string' && id))];
         const ids = allIds.slice(0, 10000);
         const warnings = [];
@@ -1350,7 +1351,10 @@
             });
             if (!Array.isArray(data?.responses)) throw new Error('Grok 訊息正文格式已改變；可改用正常匯出');
             const parsed = parseLoadResponses(data.responses, chunk);
-            responses.push(...parsed.items);
+            responses.push(...parsed.items.map(item => ({
+                ...nodesById.get(item.responseId || item.id),
+                ...item
+            })));
             missingCount += parsed.missing.length;
         }
         if (missingCount) warnings.push(`${missingCount} 則訊息正文未回傳`);
@@ -1389,15 +1393,16 @@
             if (seen.has(id)) continue;
             seen.add(id);
             const response = byId.get(id);
-            const role = response.sender || response.role;
+            const role = String(response.sender || response.role || '').toLowerCase();
             if (role === 'human' || role === 'user' || role === 'assistant') {
                 let body = typeof response.message === 'string' ? response.message.trim() : '';
                 if (!body) {
                     body = '> [空白或無法解析的訊息正文]';
                     warnings.add('部分訊息正文為空或格式無法解析');
                 }
+                const comparisonBody = body;
                 if (branched) body = '> [分支未確認的訊息，勿視為單一連續對話]\n\n' + body;
-                timeline.push({ type: role === 'assistant' ? 'ai' : 'user', text: body, timestamp: response.createTime });
+                timeline.push({ type: role === 'assistant' ? 'ai' : 'user', text: body, comparisonBody, timestamp: response.createTime });
             } else if (!['tool', 'system', 'reasoning'].includes(role)) {
                 warnings.add('已略過角色無法識別的訊息');
             }
