@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GYC - ChatGPT
 // @namespace    https://github.com/ReaperTw/AZA-Agent-Chat-Archive
-// @version      1.1.6
+// @version      1.1.7
 // @description  Grab Your Chat - ChatGPT 端對話匯出器；最後更新於 20261028
 // @updateURL    https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-chatgpt.user.js
 // @downloadURL  https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-chatgpt.user.js
@@ -110,13 +110,10 @@
             const internal = message?.metadata?.is_visually_hidden_from_conversation ||
                 message?.channel === 'analysis' ||
                 (message?.recipient && message.recipient !== 'all');
-            if (['user', 'assistant'].includes(role) && !internal && message?.channel && message.channel !== 'final') {
-                warnings.add('文字可見性未確認：已略過非 final、非 analysis 的訊息，需與頁面 DOM 核對');
-            }
             if (message && !['user', 'assistant', 'tool', 'system'].includes(role)) {
                 warnings.add('文字解析未完成：已略過無法識別角色的訊息');
             }
-            const hidden = internal || (message?.channel && message.channel !== 'final');
+            const hidden = internal;
             if ((role === 'user' || role === 'assistant') && !hidden) {
                 const parts = Array.isArray(content?.parts) ? content.parts : [];
                 let omitted = false;

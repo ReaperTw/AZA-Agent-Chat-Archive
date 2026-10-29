@@ -42,15 +42,15 @@ assert.equal(reasoning.incomplete, false);
 assert.equal(reasoning.warning, null);
 assert(!/private thought|private recap|reasoning|[未不]完整|placeholder/i.test(buildMarkdown(reasoning).content));
 
-const uncertainVisibility = parseApiConversation(apiChain([
+const commentary = parseApiConversation(apiChain([
     ['question', message('user', 'question')],
     ['progress', message('assistant', 'unconfirmed progress', { channel: 'commentary', recipient: 'all' })],
     ['answer', message('assistant', 'answer', { channel: 'final' })]
 ]));
-assert.deepEqual(uncertainVisibility.messages.map(m => m.text), ['question', 'answer']);
-assert(uncertainVisibility.incomplete);
-assert(uncertainVisibility.warning);
-assert(!buildMarkdown(uncertainVisibility).content.includes('unconfirmed progress'));
+assert.deepEqual(commentary.messages.map(m => m.text), ['question', 'unconfirmed progress', 'answer']);
+assert.equal(commentary.incomplete, false);
+assert.equal(commentary.warning, null);
+assert(buildMarkdown(commentary).content.includes('unconfirmed progress'));
 const unknownRole = parseApiConversation(apiChain([
     ['unknown', message('future-role', 'not an assistant answer')],
     ['answer', message('assistant', 'answer', { channel: 'final' })]
