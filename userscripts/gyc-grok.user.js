@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        GYC - Grok
 // @namespace   https://github.com/ReaperTw/AZA-Agent-Chat-Archive
-// @version      1.4.3
+// @version      1.4.4
 // @description Grab Your Chat - Grok 端對話匯出器；最後更新於 20261029
 // @updateURL   https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-grok.user.js
 // @downloadURL https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-grok.user.js
@@ -261,9 +261,8 @@
     function styleExportTools(container) {
         const fab = container.querySelector('button[aria-label*="Grab Your Chat"]');
         if (!fab) return;
-        fab.textContent = '匯出';
         const style = document.createElement('style');
-        style.textContent = `#${container.id} button{font-family:system-ui,sans-serif!important;font-size:13px!important;font-weight:600!important;border-radius:10px!important;border:1px solid #71809655!important;box-shadow:0 4px 16px #0002!important}#${container.id} button[aria-label*="Grab Your Chat"]{width:66px!important;height:42px!important;font-size:14px!important;background:#202b3c!important;color:#f5f8ff!important;transform:none!important}#${container.id} button:not([aria-label*="Grab Your Chat"]){background:#202b3c!important;color:#f5f8ff!important;padding:10px 15px!important}#${container.id} button:focus-visible{outline:3px solid #89b4ff!important;outline-offset:3px}#${container.id} button:disabled{opacity:.65!important;cursor:wait!important}`;
+        style.textContent = `#${container.id} button:not([aria-label*="Grab Your Chat"]){font-family:system-ui,sans-serif!important;font-size:13px!important;font-weight:600!important;border-radius:10px!important;border:1px solid #71809655!important;box-shadow:0 4px 16px #0002!important;background:#202b3c!important;color:#f5f8ff!important;padding:10px 15px!important}#${container.id} button:focus-visible{outline:3px solid #89b4ff!important;outline-offset:3px}#${container.id} button:disabled{opacity:.65!important;cursor:wait!important}`;
         container.append(style);
     }
 
@@ -1247,7 +1246,7 @@
 
         const fab = document.createElement('button');
         fab.innerText = '𝕏';
-        fab.title = "GYC - Grok - v1.4.3";
+        fab.title = "GYC - Grok - v1.4.4";
         fab.setAttribute('aria-label', '開啟 Grab Your Chat - Grok 工具');
         Object.assign(fab.style, {
             width: '56px',
