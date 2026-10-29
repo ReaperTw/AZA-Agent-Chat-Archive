@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         GYC - Claude
 // @namespace    https://github.com/ReaperTw/AZA-Agent-Chat-Archive
-// @version      1.3.1
-// @description  Grab Your Chat - Claude 端對話匯出器；最後更新於 20261022
+// @version      1.4.2
+// @description  Grab Your Chat - Claude 端對話匯出器；最後更新於 20261029
 // @updateURL    https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-claude.user.js
 // @downloadURL  https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-claude.user.js
 // @match        https://claude.ai/*
@@ -128,6 +128,203 @@
             .replace(new RegExp(`${prefix}BODY_(\\d+)_END`, 'g'), (_, index) => codeBodies[Number(index)]);
         return { body, citations: message.citations == null && !citations.length ? null : citations,
             attachments: message.attachments == null && !attachments.length ? null : attachments };
+    }
+
+    function integrateTranscripts(apiMessages, domMessages) {
+        const comparison = compareTranscripts(apiMessages, domMessages);
+        const entries = [];
+        const progress = new Set((comparison.progress || []).map(item => item.apiIndex));
+        let a = 0, d = 0, next = 0;
+        while (a < apiMessages.length || d < domMessages.length) {
+            if (progress.has(a + 1)) {
+                entries.push({ kind: 'progress', apiIndex: ++a, domIndex: null, api: apiMessages[a - 1], dom: null });
+                continue;
+            }
+            const difference = comparison.differences[next];
+            if (difference && (difference.apiIndex === null || difference.apiIndex === a + 1) &&
+                (difference.domIndex === null || difference.domIndex === d + 1)) {
+                entries.push({ ...difference });
+                if (difference.apiIndex !== null) a++;
+                if (difference.domIndex !== null) d++;
+                next++;
+            } else {
+                entries.push({ kind: 'match', apiIndex: ++a, domIndex: ++d,
+                    api: apiMessages[a - 1], dom: domMessages[d - 1] });
+            }
+        }
+        return { comparison, entries, counts: {
+            matched: entries.filter(item => item.kind === 'match').length,
+            conflicts: entries.filter(item => item.kind === 'text' || item.kind === 'role').length,
+            apiOnly: entries.filter(item => item.kind === 'api-only').length,
+            domOnly: entries.filter(item => item.kind === 'dom-only').length,
+            progress: entries.filter(item => item.kind === 'progress').length
+        } };
+    }
+
+    function buildIntegratedMarkdown(apiMessages, domMessages, { apiAvailable = true, domAvailable = true, notes = [] } = {}) {
+        const result = integrateTranscripts(apiMessages, domMessages);
+        let content = `> **匯出來源**：${[apiAvailable && 'API', domAvailable && 'DOM'].filter(Boolean).join(' + ')}（整合匯出）\n\n`;
+        if (apiAvailable && domAvailable && result.comparison.differences.length) content += `> **正文差異**：${result.comparison.differences.length} 筆；單邊訊息及衝突版本均已保留，未自動覆蓋。\n\n`;
+        if (!apiAvailable || !domAvailable) content += `> **來源取得失敗**：${apiAvailable ? 'DOM' : domAvailable ? 'API' : 'API、DOM'}。\n\n`;
+        let users = 0, models = 0;
+        const body = message => String(message?.text ?? '');
+        const supplement = (message, source) => {
+            if (!message) return '';
+            const lines = [];
+            const timestamp = message.createdAt || message.date || message.time;
+            if (timestamp) lines.push(`> **${source} 時間**：${timestamp}`);
+            if (message.note) lines.push(`**${source} 備註**\n\n${message.note}`);
+            for (const [field, label] of [['citations', '引用'], ['attachments', '附件'], ['process', '處理狀態']]) {
+                if (!Array.isArray(message[field]) || !message[field].length) continue;
+                lines.push(`**${source} ${label}**\n\n\`\`\`json\n${JSON.stringify(message[field], null, 2)}\n\`\`\``);
+            }
+            return lines.length ? `\n\n${lines.join('\n\n')}` : '';
+        };
+        for (const entry of result.entries) {
+            const primary = entry.api || entry.dom;
+            const role = primary.role === 'user' ? `User ${++users}` : `Model ${++models}`;
+            const sources = [entry.api && `API #${entry.apiIndex}`, entry.dom && `DOM #${entry.domIndex}`].filter(Boolean).join(' · ');
+            content += `--- [${role}] ---\n> **訊息來源**：${sources}${entry.kind === 'progress' ? '（前進度）' : ''}\n\n`;
+            if (entry.kind === 'text' || entry.kind === 'role') {
+                content += `> **來源衝突：兩版均保留**${entry.kind === 'role' ? '（角色也不同）' : ''}\n\n`;
+                content += `### API 版本（${entry.api.role}）\n\n${body(entry.api)}\n\n### DOM 版本（${entry.dom.role}）\n\n${body(entry.dom)}`;
+            } else {
+                content += body(primary);
+                if (entry.api && entry.dom && body(entry.api) !== body(entry.dom)) {
+                    content += `\n\n<details>\n<summary>DOM 原文（呈現正文相符）</summary>\n\n${body(entry.dom)}\n\n</details>`;
+                }
+            }
+            content += supplement(entry.api, 'API') + supplement(entry.dom, 'DOM') + '\n\n';
+        }
+        if (notes.length) content += `## 來源紀錄\n\n${notes.map(note => `- ${note}`).join('\n')}\n`;
+        return { ...result, compared: apiAvailable && domAvailable, content: content.trimEnd() + '\n' };
+    }
+
+    function showIntegratedDialog({ id, site, title, apiCount, domCount, integration, errors = {}, notes = [], report = '', onDownload, onApi, onDom, onReport }) {
+        document.getElementById(id)?.remove();
+        const overlay = document.createElement('div');
+        overlay.id = id;
+        overlay.dataset.gycIntegrated = '';
+        const style = document.createElement('style');
+        style.textContent = `
+[data-gyc-integrated]{position:fixed!important;inset:0!important;z-index:2147483646!important;background:rgba(8,12,18,.62);backdrop-filter:blur(6px);display:grid;place-items:center;padding:20px;box-sizing:border-box;font:14px/1.55 system-ui,sans-serif;color-scheme:light dark;color:light-dark(#20262d,#e7edf3)}
+[data-gyc-integrated] *{box-sizing:border-box}
+[data-gyc-integrated] .gyc-panel{width:min(620px,100%);max-height:88vh;overflow:auto;border:1px solid light-dark(#dbe1e7,#34404c);border-radius:20px;background:light-dark(#fff,#171d25);box-shadow:0 24px 80px #0005;padding:28px}
+[data-gyc-integrated] .gyc-heading{display:flex;justify-content:space-between;align-items:start;gap:20px}
+[data-gyc-integrated] h2{font:600 23px/1.3 system-ui;margin:4px 0 8px;letter-spacing:-.4px;color:inherit}
+[data-gyc-integrated] .gyc-eyebrow{font-size:11px;font-weight:700;letter-spacing:1.5px;color:light-dark(#667281,#98a6b7)}
+[data-gyc-integrated] .gyc-title{margin:0 0 22px;color:light-dark(#667281,#a7b3c2);overflow-wrap:anywhere}
+[data-gyc-integrated] button{font:600 13px/1.4 system-ui;border:1px solid light-dark(#d6dee7,#3b4757);border-radius:10px;background:transparent;color:inherit;padding:10px 14px;cursor:pointer;transition:background .15s}
+[data-gyc-integrated] button:hover{background:light-dark(#edf2f7,#273240)}
+[data-gyc-integrated] button:focus-visible,[data-gyc-integrated] summary:focus-visible{outline:3px solid #5b94ff;outline-offset:3px}
+[data-gyc-integrated] .gyc-close{padding:4px 10px;font-size:20px;border:0}
+[data-gyc-integrated] .gyc-stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-bottom:18px}
+[data-gyc-integrated] .gyc-stat{padding:14px 16px;border:1px solid light-dark(#e3e8ef,#303c4b);border-radius:12px;color:light-dark(#6b7785,#9eacbe)}
+[data-gyc-integrated] .gyc-stat strong{display:block;color:light-dark(#20262d,#f0f4f8);font-size:26px;font-weight:600;line-height:1.4}
+[data-gyc-integrated] .gyc-status{padding:14px 16px;border-radius:12px;background:light-dark(#eef8f1,#16372b);color:light-dark(#21663a,#a4e5bb);margin:0 0 18px}
+[data-gyc-integrated] .gyc-warning{background:light-dark(#fff5e5,#423019);color:light-dark(#85500c,#f5cc8f)}
+[data-gyc-integrated] .gyc-status strong{display:block;margin-bottom:3px}
+[data-gyc-integrated] .gyc-actions{display:flex;flex-wrap:wrap;gap:8px;margin:20px 0 0}
+[data-gyc-integrated] .gyc-primary{background:light-dark(#245bc4,#89b4ff);border-color:transparent;color:light-dark(#fff,#12233f)}
+[data-gyc-integrated] .gyc-primary:hover{background:light-dark(#194cae,#a9c9ff)}
+[data-gyc-integrated] details{border-top:1px solid light-dark(#e3e8ef,#303c4b);padding-top:14px;margin-top:16px}
+[data-gyc-integrated] summary{cursor:pointer;font-weight:600}
+[data-gyc-integrated] pre{font:12px/1.65 ui-monospace,monospace;white-space:pre-wrap;overflow-wrap:anywhere;margin:12px 0 0;max-height:240px;overflow:auto;color:inherit}
+[data-gyc-integrated] .gyc-subtle{color:light-dark(#667281,#a7b3c2);font-size:12px;margin:12px 0 0}
+@media(max-width:480px){[data-gyc-integrated]{padding:12px}[data-gyc-integrated] .gyc-panel{padding:20px}[data-gyc-integrated] .gyc-stat{padding:10px}[data-gyc-integrated] .gyc-stat strong{font-size:22px}[data-gyc-integrated] .gyc-actions>button{flex:1 1 auto}}
+`;
+        const el = (tag, className, text) => {
+            const node = document.createElement(tag);
+            if (className) node.className = className;
+            if (text !== undefined) node.textContent = text;
+            return node;
+        };
+        const panel = el('section', 'gyc-panel');
+        panel.setAttribute('role', 'dialog');
+        panel.setAttribute('aria-modal', 'true');
+        panel.setAttribute('aria-label', '整合匯出結果');
+        const previousFocus = document.activeElement;
+        const close = () => { overlay.remove(); previousFocus?.focus?.(); };
+        const top = el('div', 'gyc-heading');
+        const heading = el('div');
+        heading.append(el('div', 'gyc-eyebrow', `GRAB YOUR CHAT / ${site}`), el('h2', '', '對話已整合'));
+        const closeButton = el('button', 'gyc-close', '×');
+        closeButton.setAttribute('aria-label', '關閉整合匯出結果');
+        closeButton.onclick = close;
+        top.append(heading, closeButton);
+        panel.append(top, el('p', 'gyc-title', title));
+        const stats = el('div', 'gyc-stats');
+        for (const [label, value] of [['API 訊息', apiCount ?? '—'], ['頁面訊息', domCount ?? '—'], ['整合訊息', integration.entries.length]]) {
+            const stat = el('div', 'gyc-stat', label);
+            stat.append(el('strong', '', String(value)));
+            stats.append(stat);
+        }
+        panel.append(stats);
+        const unavailable = apiCount === null || domCount === null;
+        const differences = integration.compared ? integration.comparison.differences : [];
+        const status = el('div', `gyc-status${differences.length || unavailable ? ' gyc-warning' : ''}`);
+        if (differences.length || unavailable) status.setAttribute('role', 'alert');
+        const statusTitle = unavailable ? '有來源取得失敗' : differences.length ? `發現 ${differences.length} 筆正文差異` : '兩個來源的正文相符';
+        status.append(el('strong', '', statusTitle));
+        status.append(el('span', '', unavailable ? '請查看下方各來源的實際錯誤。' : differences.length ? '單邊訊息已補入；衝突保留 API 與頁面兩版，不自動覆蓋。' : '相同訊息已合併，來源原文與補充資料一併保留。'));
+        panel.append(status);
+        if (!integration.entries.length) heading.lastChild.textContent = '未取得可匯出訊息';
+        if (integration.counts.progress) panel.append(el('p', 'gyc-subtle', `另保留 ${integration.counts.progress} 則 API 前進度訊息。`));
+        if (Object.keys(errors).length) panel.append(el('pre', '', Object.entries(errors).map(([key, value]) => `${key.toUpperCase()}：${value}`).join('\n')));
+        const disclosure = (label, text, open = false) => {
+            const details = el('details');
+            details.open = open;
+            details.append(el('summary', '', label), el('pre', '', text));
+            panel.append(details);
+            return details;
+        };
+        if (differences.length) {
+            const text = differences.map((item, index) => {
+                const side = (name, message, pos) => message ? `${name} #${pos} (${message.role})\n${prepareComparisonMessage(message, name === 'API' ? 'api' : 'dom').body}` : `${name}：沒有此訊息`;
+                return `差異 ${index + 1}\n${side('API', item.api, item.apiIndex)}\n\n${side('DOM', item.dom, item.domIndex)}`;
+            }).join('\n\n────────────────────\n\n');
+            disclosure('查看正文差異', text, true);
+        }
+        if (notes.length || report) disclosure('來源紀錄與補充資料', [...notes, report].filter(Boolean).join('\n\n'));
+        const actions = el('div', 'gyc-actions');
+        const add = (label, action, primary = false, target = actions) => {
+            if (!action) return;
+            const button = el('button', primary ? 'gyc-primary' : '', label);
+            button.onclick = action;
+            target.append(button);
+        };
+        if (integration.entries.length) add('下載整合 Markdown', onDownload, true);
+        add('下載比對報告', onReport);
+        panel.append(actions);
+        if (onApi || onDom) {
+            const originals = disclosure('另存個別來源', '');
+            originals.lastChild.remove();
+            const row = el('div', 'gyc-actions');
+            add('API 原始匯出', onApi, false, row);
+            add('頁面原始匯出', onDom, false, row);
+            originals.append(row);
+        }
+        overlay.append(style, panel);
+        overlay.addEventListener('click', event => { if (event.target === overlay) close(); });
+        overlay.addEventListener('keydown', event => {
+            if (event.key === 'Escape') { event.preventDefault(); close(); }
+            if (event.key !== 'Tab') return;
+            const focusable = [...panel.querySelectorAll('button,summary')].filter(node => node.getClientRects().length);
+            const first = focusable[0], last = focusable[focusable.length - 1];
+            if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+            else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+        });
+        document.body.append(overlay);
+        (actions.querySelector('button') || closeButton).focus({ preventScroll: true });
+    }
+
+    function styleExportTools(container) {
+        const fab = container.querySelector('button[aria-label*="Grab Your Chat"]');
+        if (!fab) return;
+        fab.textContent = '匯出';
+        const style = document.createElement('style');
+        style.textContent = `#${container.id} button{font-family:system-ui,sans-serif!important;font-size:13px!important;font-weight:600!important;border-radius:10px!important;border:1px solid #71809655!important;box-shadow:0 4px 16px #0002!important}#${container.id} button[aria-label*="Grab Your Chat"]{width:66px!important;height:42px!important;font-size:14px!important;background:#202b3c!important;color:#f5f8ff!important;transform:none!important}#${container.id} button:not([aria-label*="Grab Your Chat"]){background:#202b3c!important;color:#f5f8ff!important;padding:10px 15px!important}#${container.id} button:focus-visible{outline:3px solid #89b4ff!important;outline-offset:3px}#${container.id} button:disabled{opacity:.65!important;cursor:wait!important}`;
+        container.append(style);
     }
 
     function compareTranscripts(apiMessages, domMessages) {
@@ -560,6 +757,8 @@
     const api = {
         compareTranscripts,
         prepareComparisonMessage,
+        integrateTranscripts,
+        buildIntegratedMarkdown,
         mergeDomSnapshot,
         readCookie,
         conversationIdFromPath,
@@ -1102,43 +1301,24 @@
         const report = summary + '\n\n' + (comparison?.differences || []).map((item, index) =>
             `正文差異 ${index + 1}\n${formatDifference(item)}`).join('\n\n--------------------\n\n') +
             '\n\n引用／附件計數\n' + metadata.join('\n') + '\n';
-        root.document.getElementById('claude-export-save-overlay')?.remove();
-        const overlay = root.document.createElement('div');
-        overlay.id = 'claude-export-save-overlay';
-        Object.assign(overlay.style, { position: 'fixed', inset: '0', background: 'rgba(0,0,0,.6)',
-            zIndex: '2147483646', display: 'flex', alignItems: 'center', justifyContent: 'center' });
-        const modal = root.document.createElement('div');
-        Object.assign(modal.style, { background: '#151515', color: '#fff', padding: '24px', borderRadius: '12px',
-            width: '650px', maxWidth: '90vw', maxHeight: '85vh', overflow: 'auto', fontFamily: 'system-ui' });
-        const heading = root.document.createElement('h3');
-        heading.textContent = '綜合匯出結果';
-        const details = root.document.createElement('pre');
-        details.textContent = summary;
-        Object.assign(details.style, { whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' });
-        const buttons = root.document.createElement('div');
-        Object.assign(buttons.style, { display: 'flex', flexWrap: 'wrap', gap: '8px' });
-        const add = (label, action) => {
-            const button = root.document.createElement('button');
-            button.textContent = label;
-            Object.assign(button.style, { padding: '8px 12px', background: '#10a37f', color: '#fff', cursor: 'pointer' });
-            button.onclick = action;
-            buttons.appendChild(button);
-        };
+        const notes = [
+            ...(apiResult?.warnings || []).map(warning => `API：${warning}`),
+            ...(domResult?.warnings || []).map(warning => `DOM：${warning}`)
+        ];
+        const integration = buildIntegratedMarkdown(apiResult?.messages || [], domResult?.messages || [], {
+            apiAvailable: Boolean(apiResult), domAvailable: Boolean(domResult), notes
+        });
         const base = `CLD_${sanitizeFileName(title) || 'Claude-Chat'}_${getTimestamp()}`;
-        if (comparison?.match) {
-            const warnings = [...apiResult.warnings, ...domResult.warnings];
-            const content = buildMarkdown(apiResult.messages, 'API + DOM（呈現正文比對相符；引用與附件未驗證）') +
-                (warnings.length ? `\n> **來源提示**：${warnings.join('；')}\n` : '');
-            add('下載綜合 Markdown', () => downloadResult(`${base}_COMBINED`, content));
-        } else {
-            if (apiResult) add('下載 API Markdown', () => downloadResult(`${base}_API`, apiResult.markdown));
-            if (domResult) add('下載 DOM Markdown', () => downloadResult(`${base}_DOM`, domResult.markdown));
-        }
-        if (comparison) add('下載正文差異與 metadata 報告', () => downloadResult(`${base}_DIFFERENCES`, report));
-        add('關閉', () => overlay.remove());
-        modal.append(heading, details, buttons);
-        overlay.appendChild(modal);
-        root.document.body.appendChild(overlay);
+        showIntegratedDialog({
+            id: 'claude-export-save-overlay', site: 'Claude', title,
+            apiCount: apiResult ? apiResult.messages.length : null,
+            domCount: domResult ? domResult.messages.length : null,
+            integration, errors, notes, report,
+            onDownload: () => downloadResult(`${base}_COMBINED`, integration.content),
+            onApi: apiResult ? () => downloadResult(`${base}_API`, apiResult.markdown) : null,
+            onDom: domResult ? () => downloadResult(`${base}_DOM`, domResult.markdown) : null,
+            onReport: () => downloadResult(`${base}_DIFFERENCES`, report)
+        });
     }
 
     function processDomExport(button) {
@@ -1287,7 +1467,7 @@
 
         const fab = root.document.createElement('button');
         fab.textContent = '✳';
-        fab.title = 'GYC - Claude - v1.3.1';
+        fab.title = "GYC - Claude - v1.4.2";
         fab.setAttribute('aria-label', '開啟 Grab Your Chat - Claude 工具');
         Object.assign(fab.style, {
             width: '56px',
@@ -1328,6 +1508,7 @@
 
         container.append(menu, fab);
         root.document.body.appendChild(container);
+        styleExportTools(container);
     }
 
     const observer = new MutationObserver(createButton);
