@@ -6,7 +6,7 @@ function compareEvidence(evidence) {
     if (!['chatgpt', 'gemini', 'grok', 'claude'].includes(evidence?.provider)) {
         throw new Error('provider must be chatgpt, gemini, grok or claude');
     }
-    const modes = evidence.provider === 'claude' ? ['api', 'dom'] : ['api', 'normal', 'dom'];
+    const modes = ['api', 'normal', 'dom'];
     const normalize = text => text.replace(/\r\n?/g, '\n').replace(/\u00a0/g, ' ').trim();
     for (const mode of modes) {
         const capture = evidence[mode];

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GYC - Claude
 // @namespace    https://github.com/ReaperTw/AZA-Agent-Chat-Archive
-// @version      1.2.4
+// @version      1.3.1
 // @description  Grab Your Chat - Claude 端對話匯出器；最後更新於 20261022
 // @updateURL    https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-claude.user.js
 // @downloadURL  https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-claude.user.js
@@ -13,8 +13,177 @@
 (function (root) {
     'use strict';
 
-    // Claude recycles off-screen turns. Full export reads the same-origin conversation API.
-    // ponytail: no slow scroll export until a stepped scrollTop sweep is measured against aria-setsize.
+    // Vendored marked 12.0.2; MIT license:
+    // # License information
+    // 
+    // ## Contribution License Agreement
+    // 
+    // If you contribute code to this project, you are implicitly allowing your code
+    // to be distributed under the MIT license. You are also implicitly verifying that
+    // all code is your original work. `</legalese>`
+    // 
+    // ## Marked
+    // 
+    // Copyright (c) 2018+, MarkedJS (https://github.com/markedjs/)
+    // Copyright (c) 2011-2018, Christopher Jeffrey (https://github.com/chjj/)
+    // 
+    // Permission is hereby granted, free of charge, to any person obtaining a copy
+    // of this software and associated documentation files (the "Software"), to deal
+    // in the Software without restriction, including without limitation the rights
+    // to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+    // copies of the Software, and to permit persons to whom the Software is
+    // furnished to do so, subject to the following conditions:
+    // 
+    // The above copyright notice and this permission notice shall be included in
+    // all copies or substantial portions of the Software.
+    // 
+    // THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    // IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    // FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+    // AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    // LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+    // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+    // THE SOFTWARE.
+    // 
+    // ## Markdown
+    // 
+    // Copyright © 2004, John Gruber
+    // http://daringfireball.net/
+    // All rights reserved.
+    // 
+    // Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
+    // 
+    // * Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
+    // * Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer in the documentation and/or other materials provided with the distribution.
+    // * Neither the name “Markdown” nor the names of its contributors may be used to endorse or promote products derived from this software without specific prior written permission.
+    // 
+    // This software is provided by the copyright holders and contributors “as is” and any express or implied warranties, including, but not limited to, the implied warranties of merchantability and fitness for a particular purpose are disclaimed. In no event shall the copyright owner or contributors be liable for any direct, indirect, incidental, special, exemplary, or consequential damages (including, but not limited to, procurement of substitute goods or services; loss of use, data, or profits; or business interruption) however caused and on any theory of liability, whether in contract, strict liability, or tort (including negligence or otherwise) arising in any way out of the use of this software, even if advised of the possibility of such damage.
+    const markdown = (() => {
+        const exports = {}; const module = { exports };
+        /**
+         * marked v12.0.2 - a markdown parser
+         * Copyright (c) 2011-2024, Christopher Jeffrey. (MIT Licensed)
+         * https://github.com/markedjs/marked
+         */
+        !function(e,t){"object"==typeof exports&&"undefined"!=typeof module?t(exports):"function"==typeof define&&define.amd?define(["exports"],t):t((e="undefined"!=typeof globalThis?globalThis:e||self).marked={})}(this,(function(e){"use strict";function t(){return{async:!1,breaks:!1,extensions:null,gfm:!0,hooks:null,pedantic:!1,renderer:null,silent:!1,tokenizer:null,walkTokens:null}}function n(t){e.defaults=t}e.defaults={async:!1,breaks:!1,extensions:null,gfm:!0,hooks:null,pedantic:!1,renderer:null,silent:!1,tokenizer:null,walkTokens:null};const s=/[&<>"']/,r=new RegExp(s.source,"g"),i=/[<>"']|&(?!(#\d{1,7}|#[Xx][a-fA-F0-9]{1,6}|\w+);)/,l=new RegExp(i.source,"g"),o={"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"},a=e=>o[e];function c(e,t){if(t){if(s.test(e))return e.replace(r,a)}else if(i.test(e))return e.replace(l,a);return e}const h=/&(#(?:\d+)|(?:#x[0-9A-Fa-f]+)|(?:\w+));?/gi;function p(e){return e.replace(h,((e,t)=>"colon"===(t=t.toLowerCase())?":":"#"===t.charAt(0)?"x"===t.charAt(1)?String.fromCharCode(parseInt(t.substring(2),16)):String.fromCharCode(+t.substring(1)):""))}const u=/(^|[^\[])\^/g;function k(e,t){let n="string"==typeof e?e:e.source;t=t||"";const s={replace:(e,t)=>{let r="string"==typeof t?t:t.source;return r=r.replace(u,"$1"),n=n.replace(e,r),s},getRegex:()=>new RegExp(n,t)};return s}function g(e){try{e=encodeURI(e).replace(/%25/g,"%")}catch(e){return null}return e}const f={exec:()=>null};function d(e,t){const n=e.replace(/\|/g,((e,t,n)=>{let s=!1,r=t;for(;--r>=0&&"\\"===n[r];)s=!s;return s?"|":" |"})).split(/ \|/);let s=0;if(n[0].trim()||n.shift(),n.length>0&&!n[n.length-1].trim()&&n.pop(),t)if(n.length>t)n.splice(t);else for(;n.length<t;)n.push("");for(;s<n.length;s++)n[s]=n[s].trim().replace(/\\\|/g,"|");return n}function x(e,t,n){const s=e.length;if(0===s)return"";let r=0;for(;r<s;){const i=e.charAt(s-r-1);if(i!==t||n){if(i===t||!n)break;r++}else r++}return e.slice(0,s-r)}function b(e,t,n,s){const r=t.href,i=t.title?c(t.title):null,l=e[1].replace(/\\([\[\]])/g,"$1");if("!"!==e[0].charAt(0)){s.state.inLink=!0;const e={type:"link",raw:n,href:r,title:i,text:l,tokens:s.inlineTokens(l)};return s.state.inLink=!1,e}return{type:"image",raw:n,href:r,title:i,text:c(l)}}class w{options;rules;lexer;constructor(t){this.options=t||e.defaults}space(e){const t=this.rules.block.newline.exec(e);if(t&&t[0].length>0)return{type:"space",raw:t[0]}}code(e){const t=this.rules.block.code.exec(e);if(t){const e=t[0].replace(/^ {1,4}/gm,"");return{type:"code",raw:t[0],codeBlockStyle:"indented",text:this.options.pedantic?e:x(e,"\n")}}}fences(e){const t=this.rules.block.fences.exec(e);if(t){const e=t[0],n=function(e,t){const n=e.match(/^(\s+)(?:```)/);if(null===n)return t;const s=n[1];return t.split("\n").map((e=>{const t=e.match(/^\s+/);if(null===t)return e;const[n]=t;return n.length>=s.length?e.slice(s.length):e})).join("\n")}(e,t[3]||"");return{type:"code",raw:e,lang:t[2]?t[2].trim().replace(this.rules.inline.anyPunctuation,"$1"):t[2],text:n}}}heading(e){const t=this.rules.block.heading.exec(e);if(t){let e=t[2].trim();if(/#$/.test(e)){const t=x(e,"#");this.options.pedantic?e=t.trim():t&&!/ $/.test(t)||(e=t.trim())}return{type:"heading",raw:t[0],depth:t[1].length,text:e,tokens:this.lexer.inline(e)}}}hr(e){const t=this.rules.block.hr.exec(e);if(t)return{type:"hr",raw:t[0]}}blockquote(e){const t=this.rules.block.blockquote.exec(e);if(t){let e=t[0].replace(/\n {0,3}((?:=+|-+) *)(?=\n|$)/g,"\n    $1");e=x(e.replace(/^ *>[ \t]?/gm,""),"\n");const n=this.lexer.state.top;this.lexer.state.top=!0;const s=this.lexer.blockTokens(e);return this.lexer.state.top=n,{type:"blockquote",raw:t[0],tokens:s,text:e}}}list(e){let t=this.rules.block.list.exec(e);if(t){let n=t[1].trim();const s=n.length>1,r={type:"list",raw:"",ordered:s,start:s?+n.slice(0,-1):"",loose:!1,items:[]};n=s?`\\d{1,9}\\${n.slice(-1)}`:`\\${n}`,this.options.pedantic&&(n=s?n:"[*+-]");const i=new RegExp(`^( {0,3}${n})((?:[\t ][^\\n]*)?(?:\\n|$))`);let l="",o="",a=!1;for(;e;){let n=!1;if(!(t=i.exec(e)))break;if(this.rules.block.hr.test(e))break;l=t[0],e=e.substring(l.length);let s=t[2].split("\n",1)[0].replace(/^\t+/,(e=>" ".repeat(3*e.length))),c=e.split("\n",1)[0],h=0;this.options.pedantic?(h=2,o=s.trimStart()):(h=t[2].search(/[^ ]/),h=h>4?1:h,o=s.slice(h),h+=t[1].length);let p=!1;if(!s&&/^ *$/.test(c)&&(l+=c+"\n",e=e.substring(c.length+1),n=!0),!n){const t=new RegExp(`^ {0,${Math.min(3,h-1)}}(?:[*+-]|\\d{1,9}[.)])((?:[ \t][^\\n]*)?(?:\\n|$))`),n=new RegExp(`^ {0,${Math.min(3,h-1)}}((?:- *){3,}|(?:_ *){3,}|(?:\\* *){3,})(?:\\n+|$)`),r=new RegExp(`^ {0,${Math.min(3,h-1)}}(?:\`\`\`|~~~)`),i=new RegExp(`^ {0,${Math.min(3,h-1)}}#`);for(;e;){const a=e.split("\n",1)[0];if(c=a,this.options.pedantic&&(c=c.replace(/^ {1,4}(?=( {4})*[^ ])/g,"  ")),r.test(c))break;if(i.test(c))break;if(t.test(c))break;if(n.test(e))break;if(c.search(/[^ ]/)>=h||!c.trim())o+="\n"+c.slice(h);else{if(p)break;if(s.search(/[^ ]/)>=4)break;if(r.test(s))break;if(i.test(s))break;if(n.test(s))break;o+="\n"+c}p||c.trim()||(p=!0),l+=a+"\n",e=e.substring(a.length+1),s=c.slice(h)}}r.loose||(a?r.loose=!0:/\n *\n *$/.test(l)&&(a=!0));let u,k=null;this.options.gfm&&(k=/^\[[ xX]\] /.exec(o),k&&(u="[ ] "!==k[0],o=o.replace(/^\[[ xX]\] +/,""))),r.items.push({type:"list_item",raw:l,task:!!k,checked:u,loose:!1,text:o,tokens:[]}),r.raw+=l}r.items[r.items.length-1].raw=l.trimEnd(),r.items[r.items.length-1].text=o.trimEnd(),r.raw=r.raw.trimEnd();for(let e=0;e<r.items.length;e++)if(this.lexer.state.top=!1,r.items[e].tokens=this.lexer.blockTokens(r.items[e].text,[]),!r.loose){const t=r.items[e].tokens.filter((e=>"space"===e.type)),n=t.length>0&&t.some((e=>/\n.*\n/.test(e.raw)));r.loose=n}if(r.loose)for(let e=0;e<r.items.length;e++)r.items[e].loose=!0;return r}}html(e){const t=this.rules.block.html.exec(e);if(t){return{type:"html",block:!0,raw:t[0],pre:"pre"===t[1]||"script"===t[1]||"style"===t[1],text:t[0]}}}def(e){const t=this.rules.block.def.exec(e);if(t){const e=t[1].toLowerCase().replace(/\s+/g," "),n=t[2]?t[2].replace(/^<(.*)>$/,"$1").replace(this.rules.inline.anyPunctuation,"$1"):"",s=t[3]?t[3].substring(1,t[3].length-1).replace(this.rules.inline.anyPunctuation,"$1"):t[3];return{type:"def",tag:e,raw:t[0],href:n,title:s}}}table(e){const t=this.rules.block.table.exec(e);if(!t)return;if(!/[:|]/.test(t[2]))return;const n=d(t[1]),s=t[2].replace(/^\||\| *$/g,"").split("|"),r=t[3]&&t[3].trim()?t[3].replace(/\n[ \t]*$/,"").split("\n"):[],i={type:"table",raw:t[0],header:[],align:[],rows:[]};if(n.length===s.length){for(const e of s)/^ *-+: *$/.test(e)?i.align.push("right"):/^ *:-+: *$/.test(e)?i.align.push("center"):/^ *:-+ *$/.test(e)?i.align.push("left"):i.align.push(null);for(const e of n)i.header.push({text:e,tokens:this.lexer.inline(e)});for(const e of r)i.rows.push(d(e,i.header.length).map((e=>({text:e,tokens:this.lexer.inline(e)}))));return i}}lheading(e){const t=this.rules.block.lheading.exec(e);if(t)return{type:"heading",raw:t[0],depth:"="===t[2].charAt(0)?1:2,text:t[1],tokens:this.lexer.inline(t[1])}}paragraph(e){const t=this.rules.block.paragraph.exec(e);if(t){const e="\n"===t[1].charAt(t[1].length-1)?t[1].slice(0,-1):t[1];return{type:"paragraph",raw:t[0],text:e,tokens:this.lexer.inline(e)}}}text(e){const t=this.rules.block.text.exec(e);if(t)return{type:"text",raw:t[0],text:t[0],tokens:this.lexer.inline(t[0])}}escape(e){const t=this.rules.inline.escape.exec(e);if(t)return{type:"escape",raw:t[0],text:c(t[1])}}tag(e){const t=this.rules.inline.tag.exec(e);if(t)return!this.lexer.state.inLink&&/^<a /i.test(t[0])?this.lexer.state.inLink=!0:this.lexer.state.inLink&&/^<\/a>/i.test(t[0])&&(this.lexer.state.inLink=!1),!this.lexer.state.inRawBlock&&/^<(pre|code|kbd|script)(\s|>)/i.test(t[0])?this.lexer.state.inRawBlock=!0:this.lexer.state.inRawBlock&&/^<\/(pre|code|kbd|script)(\s|>)/i.test(t[0])&&(this.lexer.state.inRawBlock=!1),{type:"html",raw:t[0],inLink:this.lexer.state.inLink,inRawBlock:this.lexer.state.inRawBlock,block:!1,text:t[0]}}link(e){const t=this.rules.inline.link.exec(e);if(t){const e=t[2].trim();if(!this.options.pedantic&&/^</.test(e)){if(!/>$/.test(e))return;const t=x(e.slice(0,-1),"\\");if((e.length-t.length)%2==0)return}else{const e=function(e,t){if(-1===e.indexOf(t[1]))return-1;let n=0;for(let s=0;s<e.length;s++)if("\\"===e[s])s++;else if(e[s]===t[0])n++;else if(e[s]===t[1]&&(n--,n<0))return s;return-1}(t[2],"()");if(e>-1){const n=(0===t[0].indexOf("!")?5:4)+t[1].length+e;t[2]=t[2].substring(0,e),t[0]=t[0].substring(0,n).trim(),t[3]=""}}let n=t[2],s="";if(this.options.pedantic){const e=/^([^'"]*[^\s])\s+(['"])(.*)\2/.exec(n);e&&(n=e[1],s=e[3])}else s=t[3]?t[3].slice(1,-1):"";return n=n.trim(),/^</.test(n)&&(n=this.options.pedantic&&!/>$/.test(e)?n.slice(1):n.slice(1,-1)),b(t,{href:n?n.replace(this.rules.inline.anyPunctuation,"$1"):n,title:s?s.replace(this.rules.inline.anyPunctuation,"$1"):s},t[0],this.lexer)}}reflink(e,t){let n;if((n=this.rules.inline.reflink.exec(e))||(n=this.rules.inline.nolink.exec(e))){const e=t[(n[2]||n[1]).replace(/\s+/g," ").toLowerCase()];if(!e){const e=n[0].charAt(0);return{type:"text",raw:e,text:e}}return b(n,e,n[0],this.lexer)}}emStrong(e,t,n=""){let s=this.rules.inline.emStrongLDelim.exec(e);if(!s)return;if(s[3]&&n.match(/[\p{L}\p{N}]/u))return;if(!(s[1]||s[2]||"")||!n||this.rules.inline.punctuation.exec(n)){const n=[...s[0]].length-1;let r,i,l=n,o=0;const a="*"===s[0][0]?this.rules.inline.emStrongRDelimAst:this.rules.inline.emStrongRDelimUnd;for(a.lastIndex=0,t=t.slice(-1*e.length+n);null!=(s=a.exec(t));){if(r=s[1]||s[2]||s[3]||s[4]||s[5]||s[6],!r)continue;if(i=[...r].length,s[3]||s[4]){l+=i;continue}if((s[5]||s[6])&&n%3&&!((n+i)%3)){o+=i;continue}if(l-=i,l>0)continue;i=Math.min(i,i+l+o);const t=[...s[0]][0].length,a=e.slice(0,n+s.index+t+i);if(Math.min(n,i)%2){const e=a.slice(1,-1);return{type:"em",raw:a,text:e,tokens:this.lexer.inlineTokens(e)}}const c=a.slice(2,-2);return{type:"strong",raw:a,text:c,tokens:this.lexer.inlineTokens(c)}}}}codespan(e){const t=this.rules.inline.code.exec(e);if(t){let e=t[2].replace(/\n/g," ");const n=/[^ ]/.test(e),s=/^ /.test(e)&&/ $/.test(e);return n&&s&&(e=e.substring(1,e.length-1)),e=c(e,!0),{type:"codespan",raw:t[0],text:e}}}br(e){const t=this.rules.inline.br.exec(e);if(t)return{type:"br",raw:t[0]}}del(e){const t=this.rules.inline.del.exec(e);if(t)return{type:"del",raw:t[0],text:t[2],tokens:this.lexer.inlineTokens(t[2])}}autolink(e){const t=this.rules.inline.autolink.exec(e);if(t){let e,n;return"@"===t[2]?(e=c(t[1]),n="mailto:"+e):(e=c(t[1]),n=e),{type:"link",raw:t[0],text:e,href:n,tokens:[{type:"text",raw:e,text:e}]}}}url(e){let t;if(t=this.rules.inline.url.exec(e)){let e,n;if("@"===t[2])e=c(t[0]),n="mailto:"+e;else{let s;do{s=t[0],t[0]=this.rules.inline._backpedal.exec(t[0])?.[0]??""}while(s!==t[0]);e=c(t[0]),n="www."===t[1]?"http://"+t[0]:t[0]}return{type:"link",raw:t[0],text:e,href:n,tokens:[{type:"text",raw:e,text:e}]}}}inlineText(e){const t=this.rules.inline.text.exec(e);if(t){let e;return e=this.lexer.state.inRawBlock?t[0]:c(t[0]),{type:"text",raw:t[0],text:e}}}}const m=/^ {0,3}((?:-[\t ]*){3,}|(?:_[ \t]*){3,}|(?:\*[ \t]*){3,})(?:\n+|$)/,y=/(?:[*+-]|\d{1,9}[.)])/,$=k(/^(?!bull |blockCode|fences|blockquote|heading|html)((?:.|\n(?!\s*?\n|bull |blockCode|fences|blockquote|heading|html))+?)\n {0,3}(=+|-+) *(?:\n+|$)/).replace(/bull/g,y).replace(/blockCode/g,/ {4}/).replace(/fences/g,/ {0,3}(?:`{3,}|~{3,})/).replace(/blockquote/g,/ {0,3}>/).replace(/heading/g,/ {0,3}#{1,6}/).replace(/html/g,/ {0,3}<[^\n>]+>\n/).getRegex(),z=/^([^\n]+(?:\n(?!hr|heading|lheading|blockquote|fences|list|html|table| +\n)[^\n]+)*)/,T=/(?!\s*\])(?:\\.|[^\[\]\\])+/,R=k(/^ {0,3}\[(label)\]: *(?:\n *)?([^<\s][^\s]*|<.*?>)(?:(?: +(?:\n *)?| *\n *)(title))? *(?:\n+|$)/).replace("label",T).replace("title",/(?:"(?:\\"?|[^"\\])*"|'[^'\n]*(?:\n[^'\n]+)*\n?'|\([^()]*\))/).getRegex(),_=k(/^( {0,3}bull)([ \t][^\n]+?)?(?:\n|$)/).replace(/bull/g,y).getRegex(),A="address|article|aside|base|basefont|blockquote|body|caption|center|col|colgroup|dd|details|dialog|dir|div|dl|dt|fieldset|figcaption|figure|footer|form|frame|frameset|h[1-6]|head|header|hr|html|iframe|legend|li|link|main|menu|menuitem|meta|nav|noframes|ol|optgroup|option|p|param|search|section|summary|table|tbody|td|tfoot|th|thead|title|tr|track|ul",S=/<!--(?:-?>|[\s\S]*?(?:-->|$))/,I=k("^ {0,3}(?:<(script|pre|style|textarea)[\\s>][\\s\\S]*?(?:</\\1>[^\\n]*\\n+|$)|comment[^\\n]*(\\n+|$)|<\\?[\\s\\S]*?(?:\\?>\\n*|$)|<![A-Z][\\s\\S]*?(?:>\\n*|$)|<!\\[CDATA\\[[\\s\\S]*?(?:\\]\\]>\\n*|$)|</?(tag)(?: +|\\n|/?>)[\\s\\S]*?(?:(?:\\n *)+\\n|$)|<(?!script|pre|style|textarea)([a-z][\\w-]*)(?:attribute)*? */?>(?=[ \\t]*(?:\\n|$))[\\s\\S]*?(?:(?:\\n *)+\\n|$)|</(?!script|pre|style|textarea)[a-z][\\w-]*\\s*>(?=[ \\t]*(?:\\n|$))[\\s\\S]*?(?:(?:\\n *)+\\n|$))","i").replace("comment",S).replace("tag",A).replace("attribute",/ +[a-zA-Z:_][\w.:-]*(?: *= *"[^"\n]*"| *= *'[^'\n]*'| *= *[^\s"'=<>`]+)?/).getRegex(),E=k(z).replace("hr",m).replace("heading"," {0,3}#{1,6}(?:\\s|$)").replace("|lheading","").replace("|table","").replace("blockquote"," {0,3}>").replace("fences"," {0,3}(?:`{3,}(?=[^`\\n]*\\n)|~{3,})[^\\n]*\\n").replace("list"," {0,3}(?:[*+-]|1[.)]) ").replace("html","</?(?:tag)(?: +|\\n|/?>)|<(?:script|pre|style|textarea|!--)").replace("tag",A).getRegex(),q={blockquote:k(/^( {0,3}> ?(paragraph|[^\n]*)(?:\n|$))+/).replace("paragraph",E).getRegex(),code:/^( {4}[^\n]+(?:\n(?: *(?:\n|$))*)?)+/,def:R,fences:/^ {0,3}(`{3,}(?=[^`\n]*(?:\n|$))|~{3,})([^\n]*)(?:\n|$)(?:|([\s\S]*?)(?:\n|$))(?: {0,3}\1[~`]* *(?=\n|$)|$)/,heading:/^ {0,3}(#{1,6})(?=\s|$)(.*)(?:\n+|$)/,hr:m,html:I,lheading:$,list:_,newline:/^(?: *(?:\n|$))+/,paragraph:E,table:f,text:/^[^\n]+/},Z=k("^ *([^\\n ].*)\\n {0,3}((?:\\| *)?:?-+:? *(?:\\| *:?-+:? *)*(?:\\| *)?)(?:\\n((?:(?! *\\n|hr|heading|blockquote|code|fences|list|html).*(?:\\n|$))*)\\n*|$)").replace("hr",m).replace("heading"," {0,3}#{1,6}(?:\\s|$)").replace("blockquote"," {0,3}>").replace("code"," {4}[^\\n]").replace("fences"," {0,3}(?:`{3,}(?=[^`\\n]*\\n)|~{3,})[^\\n]*\\n").replace("list"," {0,3}(?:[*+-]|1[.)]) ").replace("html","</?(?:tag)(?: +|\\n|/?>)|<(?:script|pre|style|textarea|!--)").replace("tag",A).getRegex(),L={...q,table:Z,paragraph:k(z).replace("hr",m).replace("heading"," {0,3}#{1,6}(?:\\s|$)").replace("|lheading","").replace("table",Z).replace("blockquote"," {0,3}>").replace("fences"," {0,3}(?:`{3,}(?=[^`\\n]*\\n)|~{3,})[^\\n]*\\n").replace("list"," {0,3}(?:[*+-]|1[.)]) ").replace("html","</?(?:tag)(?: +|\\n|/?>)|<(?:script|pre|style|textarea|!--)").replace("tag",A).getRegex()},P={...q,html:k("^ *(?:comment *(?:\\n|\\s*$)|<(tag)[\\s\\S]+?</\\1> *(?:\\n{2,}|\\s*$)|<tag(?:\"[^\"]*\"|'[^']*'|\\s[^'\"/>\\s]*)*?/?> *(?:\\n{2,}|\\s*$))").replace("comment",S).replace(/tag/g,"(?!(?:a|em|strong|small|s|cite|q|dfn|abbr|data|time|code|var|samp|kbd|sub|sup|i|b|u|mark|ruby|rt|rp|bdi|bdo|span|br|wbr|ins|del|img)\\b)\\w+(?!:|[^\\w\\s@]*@)\\b").getRegex(),def:/^ *\[([^\]]+)\]: *<?([^\s>]+)>?(?: +(["(][^\n]+[")]))? *(?:\n+|$)/,heading:/^(#{1,6})(.*)(?:\n+|$)/,fences:f,lheading:/^(.+?)\n {0,3}(=+|-+) *(?:\n+|$)/,paragraph:k(z).replace("hr",m).replace("heading"," *#{1,6} *[^\n]").replace("lheading",$).replace("|table","").replace("blockquote"," {0,3}>").replace("|fences","").replace("|list","").replace("|html","").replace("|tag","").getRegex()},Q=/^\\([!"#$%&'()*+,\-./:;<=>?@\[\]\\^_`{|}~])/,v=/^( {2,}|\\)\n(?!\s*$)/,B="\\p{P}\\p{S}",C=k(/^((?![*_])[\spunctuation])/,"u").replace(/punctuation/g,B).getRegex(),M=k(/^(?:\*+(?:((?!\*)[punct])|[^\s*]))|^_+(?:((?!_)[punct])|([^\s_]))/,"u").replace(/punct/g,B).getRegex(),O=k("^[^_*]*?__[^_*]*?\\*[^_*]*?(?=__)|[^*]+(?=[^*])|(?!\\*)[punct](\\*+)(?=[\\s]|$)|[^punct\\s](\\*+)(?!\\*)(?=[punct\\s]|$)|(?!\\*)[punct\\s](\\*+)(?=[^punct\\s])|[\\s](\\*+)(?!\\*)(?=[punct])|(?!\\*)[punct](\\*+)(?!\\*)(?=[punct])|[^punct\\s](\\*+)(?=[^punct\\s])","gu").replace(/punct/g,B).getRegex(),D=k("^[^_*]*?\\*\\*[^_*]*?_[^_*]*?(?=\\*\\*)|[^_]+(?=[^_])|(?!_)[punct](_+)(?=[\\s]|$)|[^punct\\s](_+)(?!_)(?=[punct\\s]|$)|(?!_)[punct\\s](_+)(?=[^punct\\s])|[\\s](_+)(?!_)(?=[punct])|(?!_)[punct](_+)(?!_)(?=[punct])","gu").replace(/punct/g,B).getRegex(),j=k(/\\([punct])/,"gu").replace(/punct/g,B).getRegex(),H=k(/^<(scheme:[^\s\x00-\x1f<>]*|email)>/).replace("scheme",/[a-zA-Z][a-zA-Z0-9+.-]{1,31}/).replace("email",/[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+(@)[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+(?![-_])/).getRegex(),U=k(S).replace("(?:--\x3e|$)","--\x3e").getRegex(),X=k("^comment|^</[a-zA-Z][\\w:-]*\\s*>|^<[a-zA-Z][\\w-]*(?:attribute)*?\\s*/?>|^<\\?[\\s\\S]*?\\?>|^<![a-zA-Z]+\\s[\\s\\S]*?>|^<!\\[CDATA\\[[\\s\\S]*?\\]\\]>").replace("comment",U).replace("attribute",/\s+[a-zA-Z:_][\w.:-]*(?:\s*=\s*"[^"]*"|\s*=\s*'[^']*'|\s*=\s*[^\s"'=<>`]+)?/).getRegex(),F=/(?:\[(?:\\.|[^\[\]\\])*\]|\\.|`[^`]*`|[^\[\]\\`])*?/,N=k(/^!?\[(label)\]\(\s*(href)(?:\s+(title))?\s*\)/).replace("label",F).replace("href",/<(?:\\.|[^\n<>\\])+>|[^\s\x00-\x1f]*/).replace("title",/"(?:\\"?|[^"\\])*"|'(?:\\'?|[^'\\])*'|\((?:\\\)?|[^)\\])*\)/).getRegex(),G=k(/^!?\[(label)\]\[(ref)\]/).replace("label",F).replace("ref",T).getRegex(),J=k(/^!?\[(ref)\](?:\[\])?/).replace("ref",T).getRegex(),K={_backpedal:f,anyPunctuation:j,autolink:H,blockSkip:/\[[^[\]]*?\]\([^\(\)]*?\)|`[^`]*?`|<[^<>]*?>/g,br:v,code:/^(`+)([^`]|[^`][\s\S]*?[^`])\1(?!`)/,del:f,emStrongLDelim:M,emStrongRDelimAst:O,emStrongRDelimUnd:D,escape:Q,link:N,nolink:J,punctuation:C,reflink:G,reflinkSearch:k("reflink|nolink(?!\\()","g").replace("reflink",G).replace("nolink",J).getRegex(),tag:X,text:/^(`+|[^`])(?:(?= {2,}\n)|[\s\S]*?(?:(?=[\\<!\[`*_]|\b_|$)|[^ ](?= {2,}\n)))/,url:f},V={...K,link:k(/^!?\[(label)\]\((.*?)\)/).replace("label",F).getRegex(),reflink:k(/^!?\[(label)\]\s*\[([^\]]*)\]/).replace("label",F).getRegex()},W={...K,escape:k(Q).replace("])","~|])").getRegex(),url:k(/^((?:ftp|https?):\/\/|www\.)(?:[a-zA-Z0-9\-]+\.?)+[^\s<]*|^email/,"i").replace("email",/[A-Za-z0-9._+-]+(@)[a-zA-Z0-9-_]+(?:\.[a-zA-Z0-9-_]*[a-zA-Z0-9])+(?![-_])/).getRegex(),_backpedal:/(?:[^?!.,:;*_'"~()&]+|\([^)]*\)|&(?![a-zA-Z0-9]+;$)|[?!.,:;*_'"~)]+(?!$))+/,del:/^(~~?)(?=[^\s~])([\s\S]*?[^\s~])\1(?=[^~]|$)/,text:/^([`~]+|[^`~])(?:(?= {2,}\n)|(?=[a-zA-Z0-9.!#$%&'*+\/=?_`{\|}~-]+@)|[\s\S]*?(?:(?=[\\<!\[`*~_]|\b_|https?:\/\/|ftp:\/\/|www\.|$)|[^ ](?= {2,}\n)|[^a-zA-Z0-9.!#$%&'*+\/=?_`{\|}~-](?=[a-zA-Z0-9.!#$%&'*+\/=?_`{\|}~-]+@)))/},Y={...W,br:k(v).replace("{2,}","*").getRegex(),text:k(W.text).replace("\\b_","\\b_| {2,}\\n").replace(/\{2,\}/g,"*").getRegex()},ee={normal:q,gfm:L,pedantic:P},te={normal:K,gfm:W,breaks:Y,pedantic:V};class ne{tokens;options;state;tokenizer;inlineQueue;constructor(t){this.tokens=[],this.tokens.links=Object.create(null),this.options=t||e.defaults,this.options.tokenizer=this.options.tokenizer||new w,this.tokenizer=this.options.tokenizer,this.tokenizer.options=this.options,this.tokenizer.lexer=this,this.inlineQueue=[],this.state={inLink:!1,inRawBlock:!1,top:!0};const n={block:ee.normal,inline:te.normal};this.options.pedantic?(n.block=ee.pedantic,n.inline=te.pedantic):this.options.gfm&&(n.block=ee.gfm,this.options.breaks?n.inline=te.breaks:n.inline=te.gfm),this.tokenizer.rules=n}static get rules(){return{block:ee,inline:te}}static lex(e,t){return new ne(t).lex(e)}static lexInline(e,t){return new ne(t).inlineTokens(e)}lex(e){e=e.replace(/\r\n|\r/g,"\n"),this.blockTokens(e,this.tokens);for(let e=0;e<this.inlineQueue.length;e++){const t=this.inlineQueue[e];this.inlineTokens(t.src,t.tokens)}return this.inlineQueue=[],this.tokens}blockTokens(e,t=[]){let n,s,r,i;for(e=this.options.pedantic?e.replace(/\t/g,"    ").replace(/^ +$/gm,""):e.replace(/^( *)(\t+)/gm,((e,t,n)=>t+"    ".repeat(n.length)));e;)if(!(this.options.extensions&&this.options.extensions.block&&this.options.extensions.block.some((s=>!!(n=s.call({lexer:this},e,t))&&(e=e.substring(n.raw.length),t.push(n),!0)))))if(n=this.tokenizer.space(e))e=e.substring(n.raw.length),1===n.raw.length&&t.length>0?t[t.length-1].raw+="\n":t.push(n);else if(n=this.tokenizer.code(e))e=e.substring(n.raw.length),s=t[t.length-1],!s||"paragraph"!==s.type&&"text"!==s.type?t.push(n):(s.raw+="\n"+n.raw,s.text+="\n"+n.text,this.inlineQueue[this.inlineQueue.length-1].src=s.text);else if(n=this.tokenizer.fences(e))e=e.substring(n.raw.length),t.push(n);else if(n=this.tokenizer.heading(e))e=e.substring(n.raw.length),t.push(n);else if(n=this.tokenizer.hr(e))e=e.substring(n.raw.length),t.push(n);else if(n=this.tokenizer.blockquote(e))e=e.substring(n.raw.length),t.push(n);else if(n=this.tokenizer.list(e))e=e.substring(n.raw.length),t.push(n);else if(n=this.tokenizer.html(e))e=e.substring(n.raw.length),t.push(n);else if(n=this.tokenizer.def(e))e=e.substring(n.raw.length),s=t[t.length-1],!s||"paragraph"!==s.type&&"text"!==s.type?this.tokens.links[n.tag]||(this.tokens.links[n.tag]={href:n.href,title:n.title}):(s.raw+="\n"+n.raw,s.text+="\n"+n.raw,this.inlineQueue[this.inlineQueue.length-1].src=s.text);else if(n=this.tokenizer.table(e))e=e.substring(n.raw.length),t.push(n);else if(n=this.tokenizer.lheading(e))e=e.substring(n.raw.length),t.push(n);else{if(r=e,this.options.extensions&&this.options.extensions.startBlock){let t=1/0;const n=e.slice(1);let s;this.options.extensions.startBlock.forEach((e=>{s=e.call({lexer:this},n),"number"==typeof s&&s>=0&&(t=Math.min(t,s))})),t<1/0&&t>=0&&(r=e.substring(0,t+1))}if(this.state.top&&(n=this.tokenizer.paragraph(r)))s=t[t.length-1],i&&"paragraph"===s.type?(s.raw+="\n"+n.raw,s.text+="\n"+n.text,this.inlineQueue.pop(),this.inlineQueue[this.inlineQueue.length-1].src=s.text):t.push(n),i=r.length!==e.length,e=e.substring(n.raw.length);else if(n=this.tokenizer.text(e))e=e.substring(n.raw.length),s=t[t.length-1],s&&"text"===s.type?(s.raw+="\n"+n.raw,s.text+="\n"+n.text,this.inlineQueue.pop(),this.inlineQueue[this.inlineQueue.length-1].src=s.text):t.push(n);else if(e){const t="Infinite loop on byte: "+e.charCodeAt(0);if(this.options.silent){console.error(t);break}throw new Error(t)}}return this.state.top=!0,t}inline(e,t=[]){return this.inlineQueue.push({src:e,tokens:t}),t}inlineTokens(e,t=[]){let n,s,r,i,l,o,a=e;if(this.tokens.links){const e=Object.keys(this.tokens.links);if(e.length>0)for(;null!=(i=this.tokenizer.rules.inline.reflinkSearch.exec(a));)e.includes(i[0].slice(i[0].lastIndexOf("[")+1,-1))&&(a=a.slice(0,i.index)+"["+"a".repeat(i[0].length-2)+"]"+a.slice(this.tokenizer.rules.inline.reflinkSearch.lastIndex))}for(;null!=(i=this.tokenizer.rules.inline.blockSkip.exec(a));)a=a.slice(0,i.index)+"["+"a".repeat(i[0].length-2)+"]"+a.slice(this.tokenizer.rules.inline.blockSkip.lastIndex);for(;null!=(i=this.tokenizer.rules.inline.anyPunctuation.exec(a));)a=a.slice(0,i.index)+"++"+a.slice(this.tokenizer.rules.inline.anyPunctuation.lastIndex);for(;e;)if(l||(o=""),l=!1,!(this.options.extensions&&this.options.extensions.inline&&this.options.extensions.inline.some((s=>!!(n=s.call({lexer:this},e,t))&&(e=e.substring(n.raw.length),t.push(n),!0)))))if(n=this.tokenizer.escape(e))e=e.substring(n.raw.length),t.push(n);else if(n=this.tokenizer.tag(e))e=e.substring(n.raw.length),s=t[t.length-1],s&&"text"===n.type&&"text"===s.type?(s.raw+=n.raw,s.text+=n.text):t.push(n);else if(n=this.tokenizer.link(e))e=e.substring(n.raw.length),t.push(n);else if(n=this.tokenizer.reflink(e,this.tokens.links))e=e.substring(n.raw.length),s=t[t.length-1],s&&"text"===n.type&&"text"===s.type?(s.raw+=n.raw,s.text+=n.text):t.push(n);else if(n=this.tokenizer.emStrong(e,a,o))e=e.substring(n.raw.length),t.push(n);else if(n=this.tokenizer.codespan(e))e=e.substring(n.raw.length),t.push(n);else if(n=this.tokenizer.br(e))e=e.substring(n.raw.length),t.push(n);else if(n=this.tokenizer.del(e))e=e.substring(n.raw.length),t.push(n);else if(n=this.tokenizer.autolink(e))e=e.substring(n.raw.length),t.push(n);else if(this.state.inLink||!(n=this.tokenizer.url(e))){if(r=e,this.options.extensions&&this.options.extensions.startInline){let t=1/0;const n=e.slice(1);let s;this.options.extensions.startInline.forEach((e=>{s=e.call({lexer:this},n),"number"==typeof s&&s>=0&&(t=Math.min(t,s))})),t<1/0&&t>=0&&(r=e.substring(0,t+1))}if(n=this.tokenizer.inlineText(r))e=e.substring(n.raw.length),"_"!==n.raw.slice(-1)&&(o=n.raw.slice(-1)),l=!0,s=t[t.length-1],s&&"text"===s.type?(s.raw+=n.raw,s.text+=n.text):t.push(n);else if(e){const t="Infinite loop on byte: "+e.charCodeAt(0);if(this.options.silent){console.error(t);break}throw new Error(t)}}else e=e.substring(n.raw.length),t.push(n);return t}}class se{options;constructor(t){this.options=t||e.defaults}code(e,t,n){const s=(t||"").match(/^\S*/)?.[0];return e=e.replace(/\n$/,"")+"\n",s?'<pre><code class="language-'+c(s)+'">'+(n?e:c(e,!0))+"</code></pre>\n":"<pre><code>"+(n?e:c(e,!0))+"</code></pre>\n"}blockquote(e){return`<blockquote>\n${e}</blockquote>\n`}html(e,t){return e}heading(e,t,n){return`<h${t}>${e}</h${t}>\n`}hr(){return"<hr>\n"}list(e,t,n){const s=t?"ol":"ul";return"<"+s+(t&&1!==n?' start="'+n+'"':"")+">\n"+e+"</"+s+">\n"}listitem(e,t,n){return`<li>${e}</li>\n`}checkbox(e){return"<input "+(e?'checked="" ':"")+'disabled="" type="checkbox">'}paragraph(e){return`<p>${e}</p>\n`}table(e,t){return t&&(t=`<tbody>${t}</tbody>`),"<table>\n<thead>\n"+e+"</thead>\n"+t+"</table>\n"}tablerow(e){return`<tr>\n${e}</tr>\n`}tablecell(e,t){const n=t.header?"th":"td";return(t.align?`<${n} align="${t.align}">`:`<${n}>`)+e+`</${n}>\n`}strong(e){return`<strong>${e}</strong>`}em(e){return`<em>${e}</em>`}codespan(e){return`<code>${e}</code>`}br(){return"<br>"}del(e){return`<del>${e}</del>`}link(e,t,n){const s=g(e);if(null===s)return n;let r='<a href="'+(e=s)+'"';return t&&(r+=' title="'+t+'"'),r+=">"+n+"</a>",r}image(e,t,n){const s=g(e);if(null===s)return n;let r=`<img src="${e=s}" alt="${n}"`;return t&&(r+=` title="${t}"`),r+=">",r}text(e){return e}}class re{strong(e){return e}em(e){return e}codespan(e){return e}del(e){return e}html(e){return e}text(e){return e}link(e,t,n){return""+n}image(e,t,n){return""+n}br(){return""}}class ie{options;renderer;textRenderer;constructor(t){this.options=t||e.defaults,this.options.renderer=this.options.renderer||new se,this.renderer=this.options.renderer,this.renderer.options=this.options,this.textRenderer=new re}static parse(e,t){return new ie(t).parse(e)}static parseInline(e,t){return new ie(t).parseInline(e)}parse(e,t=!0){let n="";for(let s=0;s<e.length;s++){const r=e[s];if(this.options.extensions&&this.options.extensions.renderers&&this.options.extensions.renderers[r.type]){const e=r,t=this.options.extensions.renderers[e.type].call({parser:this},e);if(!1!==t||!["space","hr","heading","code","table","blockquote","list","html","paragraph","text"].includes(e.type)){n+=t||"";continue}}switch(r.type){case"space":continue;case"hr":n+=this.renderer.hr();continue;case"heading":{const e=r;n+=this.renderer.heading(this.parseInline(e.tokens),e.depth,p(this.parseInline(e.tokens,this.textRenderer)));continue}case"code":{const e=r;n+=this.renderer.code(e.text,e.lang,!!e.escaped);continue}case"table":{const e=r;let t="",s="";for(let t=0;t<e.header.length;t++)s+=this.renderer.tablecell(this.parseInline(e.header[t].tokens),{header:!0,align:e.align[t]});t+=this.renderer.tablerow(s);let i="";for(let t=0;t<e.rows.length;t++){const n=e.rows[t];s="";for(let t=0;t<n.length;t++)s+=this.renderer.tablecell(this.parseInline(n[t].tokens),{header:!1,align:e.align[t]});i+=this.renderer.tablerow(s)}n+=this.renderer.table(t,i);continue}case"blockquote":{const e=r,t=this.parse(e.tokens);n+=this.renderer.blockquote(t);continue}case"list":{const e=r,t=e.ordered,s=e.start,i=e.loose;let l="";for(let t=0;t<e.items.length;t++){const n=e.items[t],s=n.checked,r=n.task;let o="";if(n.task){const e=this.renderer.checkbox(!!s);i?n.tokens.length>0&&"paragraph"===n.tokens[0].type?(n.tokens[0].text=e+" "+n.tokens[0].text,n.tokens[0].tokens&&n.tokens[0].tokens.length>0&&"text"===n.tokens[0].tokens[0].type&&(n.tokens[0].tokens[0].text=e+" "+n.tokens[0].tokens[0].text)):n.tokens.unshift({type:"text",text:e+" "}):o+=e+" "}o+=this.parse(n.tokens,i),l+=this.renderer.listitem(o,r,!!s)}n+=this.renderer.list(l,t,s);continue}case"html":{const e=r;n+=this.renderer.html(e.text,e.block);continue}case"paragraph":{const e=r;n+=this.renderer.paragraph(this.parseInline(e.tokens));continue}case"text":{let i=r,l=i.tokens?this.parseInline(i.tokens):i.text;for(;s+1<e.length&&"text"===e[s+1].type;)i=e[++s],l+="\n"+(i.tokens?this.parseInline(i.tokens):i.text);n+=t?this.renderer.paragraph(l):l;continue}default:{const e='Token with "'+r.type+'" type was not found.';if(this.options.silent)return console.error(e),"";throw new Error(e)}}}return n}parseInline(e,t){t=t||this.renderer;let n="";for(let s=0;s<e.length;s++){const r=e[s];if(this.options.extensions&&this.options.extensions.renderers&&this.options.extensions.renderers[r.type]){const e=this.options.extensions.renderers[r.type].call({parser:this},r);if(!1!==e||!["escape","html","link","image","strong","em","codespan","br","del","text"].includes(r.type)){n+=e||"";continue}}switch(r.type){case"escape":{const e=r;n+=t.text(e.text);break}case"html":{const e=r;n+=t.html(e.text);break}case"link":{const e=r;n+=t.link(e.href,e.title,this.parseInline(e.tokens,t));break}case"image":{const e=r;n+=t.image(e.href,e.title,e.text);break}case"strong":{const e=r;n+=t.strong(this.parseInline(e.tokens,t));break}case"em":{const e=r;n+=t.em(this.parseInline(e.tokens,t));break}case"codespan":{const e=r;n+=t.codespan(e.text);break}case"br":n+=t.br();break;case"del":{const e=r;n+=t.del(this.parseInline(e.tokens,t));break}case"text":{const e=r;n+=t.text(e.text);break}default:{const e='Token with "'+r.type+'" type was not found.';if(this.options.silent)return console.error(e),"";throw new Error(e)}}}return n}}class le{options;constructor(t){this.options=t||e.defaults}static passThroughHooks=new Set(["preprocess","postprocess","processAllTokens"]);preprocess(e){return e}postprocess(e){return e}processAllTokens(e){return e}}class oe{defaults={async:!1,breaks:!1,extensions:null,gfm:!0,hooks:null,pedantic:!1,renderer:null,silent:!1,tokenizer:null,walkTokens:null};options=this.setOptions;parse=this.#e(ne.lex,ie.parse);parseInline=this.#e(ne.lexInline,ie.parseInline);Parser=ie;Renderer=se;TextRenderer=re;Lexer=ne;Tokenizer=w;Hooks=le;constructor(...e){this.use(...e)}walkTokens(e,t){let n=[];for(const s of e)switch(n=n.concat(t.call(this,s)),s.type){case"table":{const e=s;for(const s of e.header)n=n.concat(this.walkTokens(s.tokens,t));for(const s of e.rows)for(const e of s)n=n.concat(this.walkTokens(e.tokens,t));break}case"list":{const e=s;n=n.concat(this.walkTokens(e.items,t));break}default:{const e=s;this.defaults.extensions?.childTokens?.[e.type]?this.defaults.extensions.childTokens[e.type].forEach((s=>{const r=e[s].flat(1/0);n=n.concat(this.walkTokens(r,t))})):e.tokens&&(n=n.concat(this.walkTokens(e.tokens,t)))}}return n}use(...e){const t=this.defaults.extensions||{renderers:{},childTokens:{}};return e.forEach((e=>{const n={...e};if(n.async=this.defaults.async||n.async||!1,e.extensions&&(e.extensions.forEach((e=>{if(!e.name)throw new Error("extension name required");if("renderer"in e){const n=t.renderers[e.name];t.renderers[e.name]=n?function(...t){let s=e.renderer.apply(this,t);return!1===s&&(s=n.apply(this,t)),s}:e.renderer}if("tokenizer"in e){if(!e.level||"block"!==e.level&&"inline"!==e.level)throw new Error("extension level must be 'block' or 'inline'");const n=t[e.level];n?n.unshift(e.tokenizer):t[e.level]=[e.tokenizer],e.start&&("block"===e.level?t.startBlock?t.startBlock.push(e.start):t.startBlock=[e.start]:"inline"===e.level&&(t.startInline?t.startInline.push(e.start):t.startInline=[e.start]))}"childTokens"in e&&e.childTokens&&(t.childTokens[e.name]=e.childTokens)})),n.extensions=t),e.renderer){const t=this.defaults.renderer||new se(this.defaults);for(const n in e.renderer){if(!(n in t))throw new Error(`renderer '${n}' does not exist`);if("options"===n)continue;const s=n,r=e.renderer[s],i=t[s];t[s]=(...e)=>{let n=r.apply(t,e);return!1===n&&(n=i.apply(t,e)),n||""}}n.renderer=t}if(e.tokenizer){const t=this.defaults.tokenizer||new w(this.defaults);for(const n in e.tokenizer){if(!(n in t))throw new Error(`tokenizer '${n}' does not exist`);if(["options","rules","lexer"].includes(n))continue;const s=n,r=e.tokenizer[s],i=t[s];t[s]=(...e)=>{let n=r.apply(t,e);return!1===n&&(n=i.apply(t,e)),n}}n.tokenizer=t}if(e.hooks){const t=this.defaults.hooks||new le;for(const n in e.hooks){if(!(n in t))throw new Error(`hook '${n}' does not exist`);if("options"===n)continue;const s=n,r=e.hooks[s],i=t[s];le.passThroughHooks.has(n)?t[s]=e=>{if(this.defaults.async)return Promise.resolve(r.call(t,e)).then((e=>i.call(t,e)));const n=r.call(t,e);return i.call(t,n)}:t[s]=(...e)=>{let n=r.apply(t,e);return!1===n&&(n=i.apply(t,e)),n}}n.hooks=t}if(e.walkTokens){const t=this.defaults.walkTokens,s=e.walkTokens;n.walkTokens=function(e){let n=[];return n.push(s.call(this,e)),t&&(n=n.concat(t.call(this,e))),n}}this.defaults={...this.defaults,...n}})),this}setOptions(e){return this.defaults={...this.defaults,...e},this}lexer(e,t){return ne.lex(e,t??this.defaults)}parser(e,t){return ie.parse(e,t??this.defaults)}#e(e,t){return(n,s)=>{const r={...s},i={...this.defaults,...r};!0===this.defaults.async&&!1===r.async&&(i.silent||console.warn("marked(): The async option was set to true by an extension. The async: false option sent to parse will be ignored."),i.async=!0);const l=this.#t(!!i.silent,!!i.async);if(null==n)return l(new Error("marked(): input parameter is undefined or null"));if("string"!=typeof n)return l(new Error("marked(): input parameter is of type "+Object.prototype.toString.call(n)+", string expected"));if(i.hooks&&(i.hooks.options=i),i.async)return Promise.resolve(i.hooks?i.hooks.preprocess(n):n).then((t=>e(t,i))).then((e=>i.hooks?i.hooks.processAllTokens(e):e)).then((e=>i.walkTokens?Promise.all(this.walkTokens(e,i.walkTokens)).then((()=>e)):e)).then((e=>t(e,i))).then((e=>i.hooks?i.hooks.postprocess(e):e)).catch(l);try{i.hooks&&(n=i.hooks.preprocess(n));let s=e(n,i);i.hooks&&(s=i.hooks.processAllTokens(s)),i.walkTokens&&this.walkTokens(s,i.walkTokens);let r=t(s,i);return i.hooks&&(r=i.hooks.postprocess(r)),r}catch(e){return l(e)}}}#t(e,t){return n=>{if(n.message+="\nPlease report this to https://github.com/markedjs/marked.",e){const e="<p>An error occurred:</p><pre>"+c(n.message+"",!0)+"</pre>";return t?Promise.resolve(e):e}if(t)return Promise.reject(n);throw n}}}const ae=new oe;function ce(e,t){return ae.parse(e,t)}ce.options=ce.setOptions=function(e){return ae.setOptions(e),ce.defaults=ae.defaults,n(ce.defaults),ce},ce.getDefaults=t,ce.defaults=e.defaults,ce.use=function(...e){return ae.use(...e),ce.defaults=ae.defaults,n(ce.defaults),ce},ce.walkTokens=function(e,t){return ae.walkTokens(e,t)},ce.parseInline=ae.parseInline,ce.Parser=ie,ce.parser=ie.parse,ce.Renderer=se,ce.TextRenderer=re,ce.Lexer=ne,ce.lexer=ne.lex,ce.Tokenizer=w,ce.Hooks=le,ce.parse=ce;const he=ce.options,pe=ce.setOptions,ue=ce.use,ke=ce.walkTokens,ge=ce.parseInline,fe=ce,de=ie.parse,xe=ne.lex;e.Hooks=le,e.Lexer=ne,e.Marked=oe,e.Parser=ie,e.Renderer=se,e.TextRenderer=re,e.Tokenizer=w,e.getDefaults=t,e.lexer=xe,e.marked=ce,e.options=he,e.parse=fe,e.parseInline=ge,e.parser=de,e.setOptions=pe,e.use=ue,e.walkTokens=ke}));
+        
+        return module.exports;
+    })();
+
+    function prepareComparisonMessage(message, source) {
+        const citations = (message.citations ?? []).slice();
+        const attachments = (message.attachments ?? []).slice();
+        const normalizeLiteral = text => String(text ?? '').replace(/\r\n?/g, '\n').replace(/\u00a0/g, ' ').trim();
+        const normalize = text => normalizeLiteral(text).replace(/[ \t]+\n/g, '\n').replace(/\n(?:[ \t]*\n)+/g, '\n');
+        if (message.role === 'user') {
+            return { body: normalizeLiteral(message.comparisonBody ?? message.text), citations: message.citations ?? null, attachments: message.attachments ?? null };
+        }
+        if (source === 'dom') {
+            let body = normalize(message.comparisonBody ?? message.text);
+            for (const [index, value] of (message.comparisonCode?.values ?? []).entries()) {
+                body = body.replaceAll(`${message.comparisonCode.prefix}${index}_END`, value);
+            }
+            return { body, citations: message.citations ?? null, attachments: message.attachments ?? null };
+        }
+
+        const text = String(message.comparisonBody ?? message.text ?? '');
+        let prefix = 'GYC_CODE_';
+        while (text.includes(prefix)) prefix += '_';
+
+        const decode = text => String(text ?? '').replace(/&(#x[\da-f]+|#\d+|amp|lt|gt|quot|apos|nbsp|#39);/gi, (entity, name) => {
+            if (name[0] === '#') {
+                const number = name[1].toLowerCase() === 'x' ? parseInt(name.slice(2), 16) : parseInt(name.slice(1), 10);
+                return Number.isFinite(number) && number <= 0x10ffff ? String.fromCodePoint(number) : entity;
+            }
+            return { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ' }[name.toLowerCase()] ?? entity;
+        });
+        const codeBodies = [];
+        const keepCode = value => {
+            const key = `${prefix}BODY_${codeBodies.length}_END`;
+            codeBodies.push(value);
+            return key;
+        };
+        const inline = tokens => (tokens ?? []).map(token => {
+            if (token.tokens) return inline(token.tokens);
+            if (token.type === 'br') return '\n';
+            if (token.type === 'codespan') return keepCode(decode(token.text));
+            if (token.type === 'image') {
+                attachments.push({ type: 'image', alt: decode(token.text), url: token.href });
+                return '';
+            }
+            return decode(token.text ?? token.raw ?? '');
+        }).join('');
+        const blocks = tokens => (tokens ?? []).map(token => {
+            switch (token.type) {
+                case 'space': case 'def': case 'hr': return '';
+                case 'list': return token.items.map(item => blocks(item.tokens)).join('\n');
+                case 'blockquote': return blocks(token.tokens);
+                case 'table': return [token.header, ...token.rows].map(row => row.map(cell => inline(cell.tokens)).join('\t')).join('\n');
+                case 'code': return keepCode(token.text);
+                case 'html': return token.text;
+                default: return token.tokens ? inline(token.tokens) : decode(token.text ?? token.raw ?? '');
+            }
+        }).filter(Boolean).join('\n');
+        const body = normalize(blocks(markdown.lexer(text)))
+            .replace(new RegExp(`${prefix}BODY_(\\d+)_END`, 'g'), (_, index) => codeBodies[Number(index)]);
+        return { body, citations: message.citations == null && !citations.length ? null : citations,
+            attachments: message.attachments == null && !attachments.length ? null : attachments };
+    }
+
+    function compareTranscripts(apiMessages, domMessages) {
+        const api = apiMessages.map(message => ({ role: message.role, text: prepareComparisonMessage(message, 'api').body }));
+        const dom = domMessages.map(message => ({ role: message.role, text: prepareComparisonMessage(message, 'dom').body }));
+        const equal = (a, b) => a.role === b.role && a.text === b.text;
+        const differences = [];
+        const progress = [];
+        let i = 0;
+        let j = 0;
+        const add = (kind, ai, di) => differences.push({
+            apiIndex: ai === null ? null : ai + 1,
+            domIndex: di === null ? null : di + 1,
+            kind,
+            api: ai === null ? null : apiMessages[ai],
+            dom: di === null ? null : domMessages[di]
+        });
+        while (i < api.length || j < dom.length) {
+            if (i === api.length) { add('dom-only', null, j++); continue; }
+            if (j === dom.length) { add('api-only', i++, null); continue; }
+            if (equal(api[i], dom[j])) { i++; j++; continue; }
+            if (apiMessages[i].role === 'assistant' && apiMessages[i].channel === 'commentary') {
+                let next = i + 1;
+                while (next < api.length && apiMessages[next].role === 'assistant' && apiMessages[next].channel === 'commentary') next++;
+                if (next < api.length && apiMessages[next].role === 'assistant' && apiMessages[next].channel === 'final' && equal(api[next], dom[j])) {
+                    while (i < next) { progress.push({ apiIndex: i + 1, api: apiMessages[i] }); i++; }
+                    continue;
+                }
+            }
+            // Preserve every unmatched message while right-aligning unequal runs of the
+            // same role; an API progress message can precede an unequal final answer.
+            const apiRun = api.slice(i).findIndex(message => message.role !== api[i].role);
+            const domRun = dom.slice(j).findIndex(message => message.role !== dom[j].role);
+            const apiCount = apiRun < 0 ? api.length - i : apiRun;
+            const domCount = domRun < 0 ? dom.length - j : domRun;
+            if (api[i].role === dom[j].role && apiCount > domCount) { add('api-only', i++, null); continue; }
+            if (api[i].role === dom[j].role && domCount > apiCount) { add('dom-only', null, j++); continue; }
+            // ponytail: bounded lookahead limits alignment to 50 rows; use linear-space LCS for larger gaps.
+            let best = null;
+            for (let a = i; a < Math.min(api.length, i + 51); a++) {
+                for (let d = j; d < Math.min(dom.length, j + 51); d++) {
+                    if (a === i && d === j) continue;
+                    if (equal(api[a], dom[d]) && (!best || a - i + d - j < best.cost)) {
+                        best = { a, d, cost: a - i + d - j };
+                    }
+                }
+            }
+            if (best && (best.a === i || best.d === j)) {
+                while (i < best.a) add('api-only', i++, null);
+                while (j < best.d) add('dom-only', null, j++);
+            } else {
+                add(api[i].role === dom[j].role ? 'text' : 'role', i++, j++);
+            }
+        }
+        return { match: differences.length === 0, differences, ...(progress.length ? { progress } : {}) };
+    }
 
     function sanitizeFileName(str) {
         if (!str) return '';
@@ -297,23 +466,35 @@
             const role = mapRole(message.sender, warnings, seenSenders);
             if (!role) continue;
             const parts = [];
+            const comparisonParts = [];
+            const process = [];
             const attachment = describeAttachments(message);
             if (attachment) parts.push(attachment);
             const blocks = contentBlocks(message);
-            for (const block of blocks) {
+            const lastTool = blocks.findLastIndex(block => block.type === 'tool_use' || block.type === 'tool_result');
+            const hasFinalText = blocks.slice(lastTool + 1).some(block => block.type === 'text');
+            for (const [index, block] of blocks.entries()) {
                 const rendered = renderBlock(block, artifacts, info, warnings);
                 if (rendered) parts.push(rendered);
+                if (rendered && block.type === 'text' && index < lastTool && hasFinalText) process.push(rendered);
+                else if (rendered && !['image', 'document'].includes(block.type)) comparisonParts.push(rendered);
             }
             if (!blocks.length && typeof message.text === 'string' && message.text.trim()) {
                 parts.push(message.text.trim());
+                comparisonParts.push(message.text.trim());
             }
             const text = cleanContent(parts.join('\n\n'));
             if (!text) continue;
             const item = {
                 role,
                 text,
+                comparisonBody: cleanContent(comparisonParts.join('\n\n')),
+                process,
                 createdAt: message.created_at || '',
-                note: ''
+                note: '',
+                citations: blocks.filter(block => block.type === 'text').flatMap(block => block.citations || []),
+                attachments: [...(message.files || []), ...(message.attachments || []),
+                    ...blocks.filter(block => block?.type === 'image' || block?.type === 'document')]
             };
             if (message.truncated) {
                 truncated++;
@@ -331,9 +512,9 @@
     }
 
 
-    function buildMarkdown(messages) {
+    function buildMarkdown(messages, source = 'API') {
         if (!messages?.length) return '';
-        let output = '> **匯出來源**：API\n\n';
+        let output = `> **匯出來源**：${source}\n\n`;
         let userIndex = 1;
         let modelIndex = 1;
         let previousDay = '';
@@ -377,6 +558,9 @@
     }
 
     const api = {
+        compareTranscripts,
+        prepareComparisonMessage,
+        mergeDomSnapshot,
         readCookie,
         conversationIdFromPath,
         exportConversation,
@@ -576,7 +760,7 @@
     }
 
     function statusFromInfo(info) {
-        const bits = ['未發現未解析的訊息空殼'];
+        const bits = ['API 目前分支已讀取'];
         if (info.interrupted) bits.push(`${info.interrupted} 則回應在完成前被停止`);
         return bits.join('。');
     }
@@ -585,7 +769,7 @@
         const fromCookie = readCookie(root.document.cookie, 'lastActiveOrg');
         if (fromCookie) return fromCookie;
         try {
-            const response = await fetch('/api/organizations', { credentials: 'include' });
+            const response = await fetch('/api/organizations', { credentials: 'include', signal: AbortSignal.timeout(30000) });
             if (!response.ok) return '';
             const data = await response.json();
             const list = Array.isArray(data) ? data : (data.organizations || []);
@@ -629,7 +813,8 @@
         try {
             response = await fetch(url, {
                 credentials: 'include',
-                headers: { 'Content-Type': 'application/json' }
+                headers: { 'Content-Type': 'application/json' },
+                signal: AbortSignal.timeout(30000)
             });
         } catch (error) {
             throw new Error(`連不到 Claude：${error.message}。請確認網路後重試`);
@@ -715,6 +900,298 @@
     }
 
 
+    const USER_SELECTOR = '[data-testid="user-message"], [data-testid="user-human-turn"], [class~="group/message-row"].items-end';
+    const ASSISTANT_SELECTOR = '.font-claude-response, .font-claude-message, [data-testid="assistant-message"]';
+    const MESSAGE_SELECTOR = `${USER_SELECTOR}, ${ASSISTANT_SELECTOR}`;
+    const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+    function findConversationScroller() {
+        const nodes = [...root.document.querySelectorAll(MESSAGE_SELECTOR)];
+        const candidates = [...root.document.querySelectorAll('[data-autoscroll-container], main, div')]
+            .filter(element => {
+                const style = root.getComputedStyle(element);
+                return element.clientHeight >= 100 && element.scrollHeight > element.clientHeight + 10 &&
+                    (style.overflowY === 'auto' || style.overflowY === 'scroll');
+            })
+            .map(element => ({ element, count: nodes.filter(node => element.contains(node)).length }))
+            .filter(item => item.count || item.element.hasAttribute('data-autoscroll-container'))
+            .sort((a, b) => b.count - a.count || a.element.clientHeight - b.element.clientHeight);
+        if (candidates.length) return candidates[0].element;
+        if (nodes.length && root.document.scrollingElement) return root.document.scrollingElement;
+        throw new Error('DOM 找不到對話訊息或捲動容器');
+    }
+
+    function getScrollBounds(scroller) {
+        const size = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
+        return root.getComputedStyle(scroller).flexDirection === 'column-reverse'
+            ? { top: -size, bottom: 0 } : { top: 0, bottom: size };
+    }
+
+    function domSnapshot(scroller) {
+        const nodes = [...scroller.querySelectorAll(MESSAGE_SELECTOR)]
+            .filter(node => !node.parentElement?.closest(MESSAGE_SELECTOR) &&
+                node.getClientRects().length && root.getComputedStyle(node).visibility !== 'hidden')
+            .sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top);
+        return nodes.map(node => {
+            const role = node.matches(USER_SELECTOR) ? 'user' : 'assistant';
+            const envelope = node.closest('[data-index], [data-message-id], [aria-posinset]') || node;
+            const index = envelope.getAttribute('data-index') ?? envelope.getAttribute('aria-posinset');
+            const id = envelope.getAttribute('data-message-id');
+            const process = [...node.querySelectorAll('[data-cds="TurnStatus"]')].map(item => item.innerText.trim()).filter(Boolean);
+            const citations = [...node.querySelectorAll('a[class~="group/tag"]')].map(item => ({ label: item.innerText, url: item.href }));
+            const clone = node.cloneNode(true);
+            clone.querySelectorAll('a[class~="group/tag"], [data-cds="MessageActions"], [data-cds-icon-only], [data-cds="TurnStatus"], [data-testid="thinking"], [data-testid="thinking-block"], [data-testid="tool-use"], [data-testid="tool-result"], [data-testid="user-message-actions"], [data-testid="file-thumbnail"], .sr-only, [hidden], [aria-hidden="true"]').forEach(item => item.remove());
+            Object.assign(clone.style, { position: 'fixed', left: '-10000px', top: '0',
+                width: `${node.getBoundingClientRect().width}px`, opacity: '0', pointerEvents: 'none' });
+            node.parentElement.appendChild(clone);
+            let text;
+            let comparisonBody;
+            let prefix = 'GYC_DOM_CODE_';
+            while ((node.textContent || '').includes(prefix)) prefix += '_';
+            const values = [];
+            const outputCode = [];
+            try {
+                if (role === 'assistant') {
+                    const elements = [...clone.querySelectorAll('pre, code')]
+                        .filter(element => element.tagName !== 'CODE' || !element.closest('pre'));
+                    for (const element of elements) {
+                        const code = element.tagName === 'PRE' ? element.querySelector('code') : element;
+                        if (!code) continue;
+                        const value = (code.textContent || '').replace(/\r\n?/g, '\n');
+                        values.push(element.tagName === 'PRE' ? value.replace(/\n$/, '') : value);
+                        const fence = fenceFor(value);
+                        outputCode.push(element.tagName === 'PRE' ? `${fence}\n${value.replace(/\n$/, '')}\n${fence}` :
+                            `${'`'.repeat(fence.length)}${value}${'`'.repeat(fence.length)}`);
+                        element.textContent = `${prefix}${values.length - 1}_END`;
+                    }
+                }
+                comparisonBody = cleanContent(clone.innerText);
+                text = comparisonBody.replace(new RegExp(`${prefix}(\\d+)_END`, 'g'), (_, index) => outputCode[Number(index)]);
+            } finally { clone.remove(); }
+            const attachments = [...node.querySelectorAll('img, [data-testid*="attachment"], a[download]')]
+                .map(item => ({ type: item.tagName === 'IMG' ? 'image' : 'file',
+                    name: item.getAttribute('alt') || item.getAttribute('download') || item.getAttribute('aria-label') || '' }));
+            if (!text && attachments.length) text = '> [非文字內容：附件本體未嵌入匯出檔]';
+            return { role, text, comparisonBody, comparisonCode: { prefix, values }, process,
+                createdAt: node.querySelector('[data-cds="MessageActions"] time[datetime]')?.getAttribute('datetime') || '',
+                key: id ? `id:${id}` : index !== null ? `index:${index}:${role}` : '',
+                index: index !== null && /^\d+$/.test(index) ? Number(index) : null,
+                setsize: Number(envelope.getAttribute('aria-setsize')) || null, citations, attachments };
+        });
+    }
+
+    // Snapshots overlap while moving from oldest to newest. Stable ids/indexes
+    // win; otherwise retain the longest matching overlap, not a text set.
+    function mergeDomSnapshot(messages, snapshot) {
+        const same = (a, b) => a.key && b.key ? a.key === b.key : a.role === b.role && a.text === b.text;
+        let overlap = 0;
+        for (let n = Math.min(messages.length, snapshot.length); n > 0; n--) {
+            if (snapshot.slice(0, n).every((item, i) => same(messages[messages.length - n + i], item))) {
+                overlap = n;
+                break;
+            }
+        }
+        for (let i = 0; i < overlap; i++) {
+            const old = messages[messages.length - overlap + i];
+            if (snapshot[i].text.length > old.text.length) Object.assign(old, snapshot[i]);
+        }
+        for (const item of snapshot.slice(overlap)) {
+            const existing = item.key && messages.find(message => message.key === item.key);
+            if (existing) {
+                if (item.text.length > existing.text.length) Object.assign(existing, item);
+            } else messages.push(item);
+        }
+    }
+
+    async function scanDom(button, checkScope) {
+        const scroller = findConversationScroller();
+        const original = scroller.scrollTop;
+        const messages = [];
+        const warnings = new Set();
+        let empty = false;
+        try {
+            let settled = 0;
+            for (let steps = 0; steps < 3000 && settled < 3; steps++) {
+                checkScope();
+                const top = getScrollBounds(scroller).top;
+                const current = scroller.scrollTop;
+                scroller.scrollTop = Math.max(top, current - Math.max(100, scroller.clientHeight * 0.6));
+                await delay(300);
+                if (scroller.scrollTop <= getScrollBounds(scroller).top + 2) settled++;
+                else settled = 0;
+                if (steps === 2999) warnings.add('DOM 向上掃描達到步數上限');
+            }
+            for (let steps = 0; steps < 3000; steps++) {
+                checkScope();
+                let snapshot = domSnapshot(scroller);
+                if (snapshot.some(item => !item.text)) {
+                    await delay(600);
+                    checkScope();
+                    snapshot = domSnapshot(scroller);
+                }
+                if (snapshot.some(item => !item.text)) empty = true;
+                mergeDomSnapshot(messages, snapshot.filter(item => item.text));
+                button.textContent = `掃描 DOM：${messages.length} 則…`;
+                const bounds = getScrollBounds(scroller);
+                const current = scroller.scrollTop;
+                if (current >= bounds.bottom - 2) break;
+                scroller.scrollTop = Math.min(bounds.bottom, current + Math.max(100, scroller.clientHeight * 0.6));
+                await delay(300);
+                if (Math.abs(scroller.scrollTop - current) < 1) {
+                    warnings.add('DOM 捲動未到達底端');
+                    break;
+                }
+                if (steps === 2999) warnings.add('DOM 掃描達到步數上限');
+            }
+        } finally {
+            scroller.scrollTop = original;
+        }
+        checkScope();
+        if (!messages.length) throw new Error('DOM 未讀到可匯出的訊息（可能尚未載入或頁面結構已變）');
+        if (empty) warnings.add('DOM 曾出現無法解析的空訊息殼，歷史可能不完整');
+        const total = Math.max(0, ...messages.map(item => item.setsize || 0));
+        if (total > messages.length) warnings.add(`DOM 標示 ${total} 則，掃描取得 ${messages.length} 則`);
+        if (messages.some(item => !item.key)) warnings.add('部分 DOM 訊息沒有穩定識別碼，重複訊息與分支無法獨立確認');
+        warnings.add('DOM 讀取畫面選取的分支；歷史與分支完整性未由 DOM 獨立確認');
+        const list = [...warnings];
+        const markdown = buildMarkdown(messages, 'DOM') +
+            (list.length ? `\n> **DOM 提示**：${list.join('；')}\n` : '');
+        return { messages, warnings: list, markdown };
+    }
+
+    function downloadResult(name, content) {
+        const url = URL.createObjectURL(new Blob(['\uFEFF' + content], { type: 'text/markdown;charset=utf-8' }));
+        const anchor = root.document.createElement('a');
+        anchor.href = url;
+        anchor.download = name + '.md';
+        root.document.body.appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }
+
+    function showCombinedResults(title, apiResult, domResult, errors) {
+        const comparison = apiResult && domResult ? compareTranscripts(apiResult.messages, domResult.messages) : null;
+        const first = comparison?.differences[0];
+        const metadata = [
+            ...((apiResult?.messages || []).map((message, i) => `API #${i + 1}：引用 ${prepareComparisonMessage(message, 'api').citations?.length ?? '未知'}；附件 ${prepareComparisonMessage(message, 'api').attachments?.length ?? '未知'}；工具前進度 ${JSON.stringify(message.process || [])}`)),
+            ...((domResult?.messages || []).map((message, i) => `DOM #${i + 1}：引用 ${message.citations?.length ?? '未知'}；附件 ${message.attachments?.length ?? '未知'}；處理狀態 ${JSON.stringify(message.process || [])}`))
+        ];
+        const count = (result, source, field) => {
+            if (!result) return '未知';
+            const values = result.messages.map(message => prepareComparisonMessage(message, source)[field]);
+            return values.some(value => value === null) ? '未知' : values.reduce((sum, value) => sum + value.length, 0);
+        };
+        const formatDifference = difference => {
+            const labels = { text: '文字不同', role: '角色不同', 'api-only': '僅 API 有此訊息', 'dom-only': '僅 DOM 有此訊息' };
+            const side = (label, index, message) => message
+                ? `${label} #${index} (${message.role})：\n${prepareComparisonMessage(message, label === 'API' ? 'api' : 'dom').body}`
+                : `${label}：無`;
+            return `${labels[difference.kind]}\n${side('API', difference.apiIndex, difference.api)}\n\n${side('DOM', difference.domIndex, difference.dom)}`;
+        };
+        const summary = [
+            `API：${apiResult ? apiResult.messages.length + ' 則' : '失敗：' + errors.api}`,
+            `DOM：${domResult ? domResult.messages.length + ' 則' : '失敗：' + errors.dom}`,
+            comparison ? (comparison.match ? '角色、順序與呈現正文相符' :
+                `正文差異：${comparison.differences.length} 筆\n\n第一筆差異：\n${formatDifference(first)}`) : '未進行比對',
+            `引用：API ${count(apiResult, 'api', 'citations')} 項／DOM ${count(domResult, 'dom', 'citations')} 項；附件：API ${count(apiResult, 'api', 'attachments')} 項／DOM ${count(domResult, 'dom', 'attachments')} 項（另列報告）`,
+            `工具前進度／處理狀態：API ${(apiResult?.messages || []).reduce((n, message) => n + (message.process?.length || 0), 0)} 項／DOM ${(domResult?.messages || []).reduce((n, message) => n + (message.process?.length || 0), 0)} 項（另列報告）`,
+            ...(apiResult?.warnings || []).map(warning => `API：${warning}`),
+            ...(domResult?.warnings || []).map(warning => `DOM：${warning}`)
+        ].filter(Boolean).join('\n');
+        const report = summary + '\n\n' + (comparison?.differences || []).map((item, index) =>
+            `正文差異 ${index + 1}\n${formatDifference(item)}`).join('\n\n--------------------\n\n') +
+            '\n\n引用／附件計數\n' + metadata.join('\n') + '\n';
+        root.document.getElementById('claude-export-save-overlay')?.remove();
+        const overlay = root.document.createElement('div');
+        overlay.id = 'claude-export-save-overlay';
+        Object.assign(overlay.style, { position: 'fixed', inset: '0', background: 'rgba(0,0,0,.6)',
+            zIndex: '2147483646', display: 'flex', alignItems: 'center', justifyContent: 'center' });
+        const modal = root.document.createElement('div');
+        Object.assign(modal.style, { background: '#151515', color: '#fff', padding: '24px', borderRadius: '12px',
+            width: '650px', maxWidth: '90vw', maxHeight: '85vh', overflow: 'auto', fontFamily: 'system-ui' });
+        const heading = root.document.createElement('h3');
+        heading.textContent = '綜合匯出結果';
+        const details = root.document.createElement('pre');
+        details.textContent = summary;
+        Object.assign(details.style, { whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' });
+        const buttons = root.document.createElement('div');
+        Object.assign(buttons.style, { display: 'flex', flexWrap: 'wrap', gap: '8px' });
+        const add = (label, action) => {
+            const button = root.document.createElement('button');
+            button.textContent = label;
+            Object.assign(button.style, { padding: '8px 12px', background: '#10a37f', color: '#fff', cursor: 'pointer' });
+            button.onclick = action;
+            buttons.appendChild(button);
+        };
+        const base = `CLD_${sanitizeFileName(title) || 'Claude-Chat'}_${getTimestamp()}`;
+        if (comparison?.match) {
+            const warnings = [...apiResult.warnings, ...domResult.warnings];
+            const content = buildMarkdown(apiResult.messages, 'API + DOM（呈現正文比對相符；引用與附件未驗證）') +
+                (warnings.length ? `\n> **來源提示**：${warnings.join('；')}\n` : '');
+            add('下載綜合 Markdown', () => downloadResult(`${base}_COMBINED`, content));
+        } else {
+            if (apiResult) add('下載 API Markdown', () => downloadResult(`${base}_API`, apiResult.markdown));
+            if (domResult) add('下載 DOM Markdown', () => downloadResult(`${base}_DOM`, domResult.markdown));
+        }
+        if (comparison) add('下載正文差異與 metadata 報告', () => downloadResult(`${base}_DIFFERENCES`, report));
+        add('關閉', () => overlay.remove());
+        modal.append(heading, details, buttons);
+        overlay.appendChild(modal);
+        root.document.body.appendChild(overlay);
+    }
+
+    function processDomExport(button) {
+        return runExclusive(button, async btn => {
+            const scope = root.location.href;
+            const checkScope = () => {
+                if (root.location.href !== scope) throw new Error('收集期間對話網址已變更');
+            };
+            const result = await scanDom(btn, checkScope);
+            showSaveModal(determineTitle(), result.markdown, { messageCount: result.messages.length,
+                warning: result.warnings.join('\n') }, title =>
+                downloadResult(`CLD_DOM_${sanitizeFileName(title)}_${getTimestamp()}`, result.markdown));
+        });
+    }
+
+    function processCombinedExport(button) {
+        return runExclusive(button, async btn => {
+            const scope = root.location.href;
+            let changed = false;
+            const monitor = setInterval(() => { if (root.location.href !== scope) changed = true; }, 100);
+            const checkScope = () => {
+                if (changed || root.location.href !== scope) throw new Error('收集期間對話網址已變更，無法比對不同對話');
+            };
+            let apiResult = null;
+            let domResult = null;
+            let title = determineTitle();
+            const errors = {};
+            try {
+                try {
+                    btn.textContent = '取得 API 對話…';
+                    const data = await fetchConversation();
+                    checkScope();
+                    title = determineTitle(data.name);
+                    apiResult = exportConversation(data);
+                    if (!apiResult.messages.length) {
+                        apiResult = null;
+                        throw new Error('API 沒有可匯出的可見訊息');
+                    }
+                } catch (error) { errors.api = error.message || String(error); }
+                try {
+                    checkScope();
+                    domResult = await scanDom(btn, checkScope);
+                    checkScope();
+                } catch (error) { domResult = null; errors.dom = error.message || String(error); }
+                if (changed || root.location.href !== scope) {
+                    domResult = null;
+                    errors.dom = '收集期間對話網址已變更，無法比對不同對話';
+                }
+                showCombinedResults(title, apiResult, domResult, errors);
+            } finally { clearInterval(monitor); }
+        });
+    }
+
     function createButton() {
         if (!root.document.body || root.document.getElementById('claude-export-fab-container')) return;
 
@@ -797,13 +1274,20 @@
             return button;
         };
 
+        const combinedButton = makeButton('綜合匯出', event => processCombinedExport(event.currentTarget));
+        combinedButton.style.background = '#10a37f';
         const exportButton = makeButton('API匯出', event => processApiExport(event.currentTarget));
         exportButton.title = 'API匯出：讀目前分支，不靠捲動';
-        menu.append(exportButton);
+        const domButton = makeButton('正常匯出', event => processDomExport(event.currentTarget));
+        const topButton = makeButton('到頂端', event => runExclusive(event.currentTarget, async () => {
+            const scroller = findConversationScroller();
+            scroller.scrollTop = getScrollBounds(scroller).top;
+        }));
+        menu.append(combinedButton, exportButton, domButton, topButton);
 
         const fab = root.document.createElement('button');
         fab.textContent = '✳';
-        fab.title = 'GYC - Claude - v1.2.4';
+        fab.title = 'GYC - Claude - v1.3.1';
         fab.setAttribute('aria-label', '開啟 Grab Your Chat - Claude 工具');
         Object.assign(fab.style, {
             width: '56px',
