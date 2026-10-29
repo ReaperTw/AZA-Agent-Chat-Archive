@@ -1,0 +1,4 @@
+interface:
+  display_name: "AZA-Agent-Chat-Archive"
+  short_description: "Archive Antigravity, Codex, Claude Code, Grok, Command Code, OMP, and Hermes chats"
+  default_prompt: "Use $AZA-Agent-Chat-Archive now to immediately archive the current agent task as Markdown."

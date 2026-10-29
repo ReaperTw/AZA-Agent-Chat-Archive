@@ -1,4 +1,4 @@
-# AZA Agent Chat Archive
+# AZA-Agent-Chat-Archive
 
 將 ChatGPT、Gemini、Grok、Claude 與本機 AI Agent 的對話整理成乾淨、可攜的 Markdown 檔案。
 
@@ -19,7 +19,7 @@
 | Gemini | Tampermonkey userscript | [安裝 GYC - Gemini](https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-gemini.user.js) |
 | Grok | Tampermonkey userscript | [安裝 GYC - Grok](https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-grok.user.js) |
 | Claude | Tampermonkey userscript | [安裝 GYC - Claude](https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-claude.user.js) |
-| Codex、Grok Build、Command Code、OMP、Claude Code、Hermes | Agent Skill | [查看 Agent Chat Archive](skills/agent-chat-archive/) |
+| Antigravity、Codex、Grok Build、Command Code、OMP、Claude Code、Hermes | Agent Skill | [查看 AZA-Agent-Chat-Archive](skills/AZA-Agent-Chat-Archive/) |
 
 ### 歷史版本與更新說明
 
@@ -149,18 +149,28 @@ Grok 1.4.3 修正 API 大寫 `ASSISTANT` 被漏讀，並以 response ID 接回�
 
 最新功能流程與登入樣本範圍見「四家固定輸出與綜合模式」。這些選定對話的呈現正文證據，不替代本節要求的完整歷史、分支及獨立 DOM 驗收；未取得各項證據時，分項記錄為未驗證。
 
-## Agent Chat Archive Skill
+## AZA-Agent-Chat-Archive Skill
 
 ### 能做什麼
 
-- 歸檔目前的 Codex、Grok Build、Command Code、OMP、Claude Code 或 Hermes 對話。
+- 歸檔目前的 Antigravity（桌面版／`agy` CLI）、Codex、Grok Build、Command Code、OMP、Claude Code 或 Hermes 對話。
 - 列出並選擇其他本機 Agent 對話進行歸檔。
 - 只保留可見的使用者與助理訊息；排除系統指令、推理內容、工具呼叫與執行狀態。
 - 再次匯出同一個 Session 時更新既有歸檔，避免產生重複檔案；OMP 使用任務資料夾，其他環境維持單一 Markdown。
 
+### Antigravity 與 AZA 命名（Skill 1.6.0）
+
+Skill 名稱、來源目錄、安裝目錄與顯示名稱統一為 `AZA-Agent-Chat-Archive`，採 `AZA-` 全大寫、其餘單字首字大寫及連字號分隔。舊安裝需移除 `agent-chat-archive` 目錄或連結，改裝 `AZA-Agent-Chat-Archive`；既有 `.agent-chat-archive.json` 設定檔與歸檔識別標記保持不變，避免丟失偏好或重複匯出。OMP 已開啟的工作階段需重新載入 skills 或重啟，才會更新名稱清單。
+
+Antigravity 的來源、選擇目前對話、命令及保存邊界見 [`harnesses/Antigravity.md`](skills/AZA-Agent-Chat-Archive/harnesses/Antigravity.md)。需要 Python 3（僅標準函式庫）與 PowerShell；預設搜尋桌面版及 CLI 的 SQLite 對話，唯讀處理 WAL，保留原始使用者顯示文字與助理答案，不匯出推理、展開後的系統上下文或工具內容。同一對話內的 fork 使用資料庫已複製的目前分支，不拼接被放棄的分支。無目前對話 ID 且 workspace 有多筆候選時，要求選擇，不把最近修改時間當成目前任務證據。
+
+已以真實桌面版對話（29 則，含同對話 fork）及 CLI 對話（2 則）完成 PowerShell 匯出、順序／文字核對、推理排除及來源資料庫雜湊不變檢查；私人輸出於驗證後刪除。這是本機儲存與命令流程驗證，不代表已完成 Antigravity UI 全歷史比對。跨對話／裁剪的父軌跡、未知 step 格式／類型、缺步及舊 `.pb` 會明確拒絕，不覆蓋既有成功歸檔。
+
+回歸：`python -B tests/test_antigravity_export.py -v`（6 項）、`powershell -NoProfile -ExecutionPolicy Bypass -File skills/AZA-Agent-Chat-Archive/scripts/Test-AgentChatArchive.ps1`（52 項既有檢查）、`python -B skills/AZA-Agent-Chat-Archive/scripts/Export-HermesChat.py --self-test`（4 項）。
+
 ### OMP 任務歸檔（Skill 1.5.0）
 
-OMP 預設將主對話與可取得的 subagent 可見對話一起保存。格式、保存邊界與完整性判定見 [`harnesses/Omp.md`](skills/agent-chat-archive/harnesses/Omp.md#task-bundle)。
+OMP 預設將主對話與可取得的 subagent 可見對話一起保存。格式、保存邊界與完整性判定見 [`harnesses/Omp.md`](skills/AZA-Agent-Chat-Archive/harnesses/Omp.md#task-bundle)。
 
 主檔提供 subagent 附件索引；manifest 保存 ID、父子關係與匯出狀態。巢狀 agent、失敗與取消的任務也納入發現範圍。缺漏或無法確認完整性時明確回報部分匯出，重新匯出失敗的附件保留上次成功版本。
 
@@ -168,11 +178,11 @@ OMP 預設將主對話與可取得的 subagent 可見對話一起保存。格式
 
 ### 使用
 
-1. 將 [`skills/agent-chat-archive`](skills/agent-chat-archive/) 安裝到 Agent 支援的 Skills 目錄。
-2. 對 Agent 說：`使用 agent-chat-archive 歸檔目前對話`。
+1. 將 [`skills/AZA-Agent-Chat-Archive`](skills/AZA-Agent-Chat-Archive/) 安裝到 Agent 支援的 Skills 目錄。
+2. 對 Agent 說：`使用 AZA-Agent-Chat-Archive 歸檔目前對話`。
 3. 第一次使用時，依提示選擇輸出資料夾與命名方式。
 4. 完成後，Agent 會回報檔案位置、訊息數量與警告。
 
 不同 Agent 的 Skill 安裝位置可能不同；實際位置請依該 Agent 的 Skills 說明為準。
 
-Claude Code 會讀取 `~/.claude/skills/agent-chat-archive`。網頁版 Claude 仍用上方的 userscript，不走這個 Skill。
+Claude Code 會讀取 `~/.claude/skills/AZA-Agent-Chat-Archive`。Antigravity 桌面版與 CLI 共用 `~/.gemini/config/skills/AZA-Agent-Chat-Archive`，必須安裝為實體目錄：目前 Windows 掃描器會略過 junction，不能沿用 OMP 的連結安裝方式；更新時需同步複製整份 skill。已直接呼叫正在執行的 Antigravity `getAllSkills`，確認實體安裝會載入大寫名稱 `AZA-Agent-Chat-Archive`，junction 則不會。`~/.gemini/antigravity/skills` 不是目前版本的全域自訂 skill 來源。網頁版 Claude 仍用上方的 userscript，不走這個 Skill。

@@ -20,6 +20,7 @@ DEFAULT_HARNESSES = {
     "Omp": {"folderPrefix": "Omp-", "filePrefix": "OMP_"},
     "Hermes": {"folderPrefix": "Hermes-", "filePrefix": "Hermes_"},
     "Claude": {"folderPrefix": "Claude-", "filePrefix": "Claude_"},
+    "Antigravity": {"folderPrefix": "Antigravity-", "filePrefix": "AGY_"},
 }
 JSON_PREFIX = "\x00json:"
 

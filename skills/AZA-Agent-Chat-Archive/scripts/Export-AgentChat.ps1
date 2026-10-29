@@ -21,7 +21,7 @@ param(
     [Parameter(Mandatory, ParameterSetName = 'ShowConfig')]
     [switch]$ShowConfig,
 
-    [ValidateSet('Auto', 'Codex', 'Grok', 'CommandCode', 'Omp', 'Claude')]
+    [ValidateSet('Auto', 'Codex', 'Grok', 'CommandCode', 'Omp', 'Claude', 'Antigravity')]
     [string]$Harness = 'Auto',
 
     [switch]$IncludeArchived,
@@ -82,6 +82,19 @@ param(
     [Parameter(ParameterSetName = 'Configure')]
     [AllowEmptyString()]
     [string]$ClaudeFilePrefix = 'Claude_',
+
+    [Parameter(ParameterSetName = 'Configure')]
+    [AllowEmptyString()]
+    [string]$AntigravityFolderPrefix = 'Antigravity-',
+
+    [Parameter(ParameterSetName = 'Configure')]
+    [AllowEmptyString()]
+    [string]$AntigravityFilePrefix = 'AGY_',
+
+    [string]$AntigravityHome = $(
+        if ($env:ANTIGRAVITY_APP_DATA_DIR) { $env:ANTIGRAVITY_APP_DATA_DIR }
+        else { Join-Path ($(if ($env:USERPROFILE) { $env:USERPROFILE } else { [Environment]::GetFolderPath('UserProfile') })) '.gemini/antigravity' }
+    ),
 
     [string]$ConfigPath = $(
         if ($env:AGENT_CHAT_ARCHIVE_CONFIG) {
@@ -191,7 +204,8 @@ function Save-ArchiveConfig {
         @{ Name = 'CommandCode'; Folder = 'CommandCodeFolderPrefix'; File = 'CommandCodeFilePrefix'; FolderDefault = 'CommandCode-'; FileDefault = 'CommandCode_' },
         @{ Name = 'Omp'; Folder = 'OmpFolderPrefix'; File = 'OmpFilePrefix'; FolderDefault = 'Omp-'; FileDefault = 'OMP_' },
         @{ Name = 'Hermes'; Folder = 'HermesFolderPrefix'; File = 'HermesFilePrefix'; FolderDefault = 'Hermes-'; FileDefault = 'Hermes_' },
-        @{ Name = 'Claude'; Folder = 'ClaudeFolderPrefix'; File = 'ClaudeFilePrefix'; FolderDefault = 'Claude-'; FileDefault = 'Claude_' }
+        @{ Name = 'Claude'; Folder = 'ClaudeFolderPrefix'; File = 'ClaudeFilePrefix'; FolderDefault = 'Claude-'; FileDefault = 'Claude_' },
+        @{ Name = 'Antigravity'; Folder = 'AntigravityFolderPrefix'; File = 'AntigravityFilePrefix'; FolderDefault = 'Antigravity-'; FileDefault = 'AGY_' }
     )
     $harnesses = [ordered]@{}
     foreach ($pair in $pairs) {
@@ -255,7 +269,12 @@ function Get-ArchiveConfig {
             folderPrefix = 'Claude-'; filePrefix = 'Claude_'
         })
     }
-    foreach ($name in @('Codex', 'Grok', 'CommandCode', 'Omp', 'Hermes', 'Claude')) {
+    if (-not (Test-Property $config.harnesses 'Antigravity')) {
+        $config.harnesses | Add-Member -NotePropertyName Antigravity -NotePropertyValue ([pscustomobject]@{
+            folderPrefix = 'Antigravity-'; filePrefix = 'AGY_'
+        })
+    }
+    foreach ($name in @('Codex', 'Grok', 'CommandCode', 'Omp', 'Hermes', 'Claude', 'Antigravity')) {
         if (-not (Test-Property $config.harnesses $name)) {
             throw "Archive configuration at '$resolvedConfig' has no '$name' settings."
         }
@@ -280,6 +299,7 @@ function Resolve-HarnessName {
         if ($full -match '[\\/]\.codex[\\/]') { return 'Codex' }
         if ($full -match '[\\/]\.omp[\\/]') { return 'Omp' }
         if ($full -match '[\\/]\.claude[\\/]projects[\\/]') { return 'Claude' }
+        if ($full -match '[\\/]antigravity(?:-cli)?[\\/]conversations[\\/]') { return 'Antigravity' }
         $claudeRoot = (Resolve-LocalPath $ClaudeHome).TrimEnd('\', '/')
         $underClaude = $full.StartsWith($claudeRoot + '\', [StringComparison]::OrdinalIgnoreCase) -or $full.StartsWith($claudeRoot + '/', [StringComparison]::OrdinalIgnoreCase)
         if ($underClaude -and $full -match '[\\/]projects[\\/]') { return 'Claude' }
@@ -289,6 +309,7 @@ function Resolve-HarnessName {
     if ($env:CODEX_THREAD_ID) { return 'Codex' }
     if ($env:OMP_SESSION_ID) { return 'Omp' }
     if ($env:CLAUDE_SESSION_ID -or $env:CLAUDE_CODE_SESSION_ID) { return 'Claude' }
+    if ($env:ANTIGRAVITY_CONVERSATION_ID) { return 'Antigravity' }
     # OMP tools can inherit CLAUDECODE=1 without an OMP_SESSION_ID.
     # Prefer the nearest known host process over that compatibility flag.
     if ($env:OS -eq 'Windows_NT') {
@@ -299,6 +320,7 @@ function Resolve-HarnessName {
                 if (!$ancestor) { break }
                 if ($ancestor.Name -eq 'omp.exe') { return 'Omp' }
                 if ($ancestor.Name -eq 'claude.exe') { return 'Claude' }
+                if ($ancestor.Name -in @('Antigravity.exe', 'agy.exe')) { return 'Antigravity' }
                 $ancestorId = $ancestor.ParentProcessId
             }
         } catch {
@@ -306,7 +328,7 @@ function Resolve-HarnessName {
         }
     }
     if ($env:CLAUDECODE -eq '1') { return 'Claude' }
-    throw 'Cannot detect the active harness. Pass -Harness Codex, Grok, CommandCode, Omp, or Claude.'
+    throw 'Cannot detect the active harness. Pass -Harness Codex, Grok, CommandCode, Omp, Claude, or Antigravity.'
 }
 
 function Get-CurrentSessionId {
@@ -317,6 +339,7 @@ function Get-CurrentSessionId {
         'Grok' { return [string]$env:GROK_SESSION_ID }
         'CommandCode' { return [string]$env:COMMANDCODE_SESSION_ID }
         'Omp' { return [string]$env:OMP_SESSION_ID }
+        'Antigravity' { return [string]$env:ANTIGRAVITY_CONVERSATION_ID }
         'Claude' {
             if ($env:CLAUDE_SESSION_ID) { return [string]$env:CLAUDE_SESSION_ID }
             return [string]$env:CLAUDE_CODE_SESSION_ID
@@ -460,6 +483,7 @@ function Get-HarnessHome {
         'CommandCode' { return $CommandCodeHome }
         'Omp' { return $OmpHome }
         'Claude' { return $ClaudeHome }
+        'Antigravity' { return $AntigravityHome }
     }
 }
 
@@ -633,6 +657,8 @@ if ($PSCmdlet.ParameterSetName -eq 'ShowConfig') {
         HermesFilePrefix = $config.harnesses.Hermes.filePrefix
         ClaudeFolderPrefix = $config.harnesses.Claude.folderPrefix
         ClaudeFilePrefix = $config.harnesses.Claude.filePrefix
+        AntigravityFolderPrefix = $config.harnesses.Antigravity.folderPrefix
+        AntigravityFilePrefix = $config.harnesses.Antigravity.filePrefix
     }
     exit 0
 }
@@ -674,7 +700,7 @@ foreach ($file in ($candidateFiles | Sort-Object LastWriteTime -Descending)) {
     if (-not $record.IsInternal -and (Test-CwdMatch $record.Cwd $WorkingDirectory)) {
         $records.Add($record)
         if ($PSCmdlet.ParameterSetName -eq 'List' -and $records.Count -ge $Limit) { break }
-        if ($PSCmdlet.ParameterSetName -eq 'Latest' -and -not $currentId) { break }
+        if ($PSCmdlet.ParameterSetName -eq 'Latest' -and -not $currentId -and $harnessName -ne 'Antigravity') { break }
     }
 }
 
@@ -712,6 +738,9 @@ if ($PSCmdlet.ParameterSetName -eq 'SessionId') {
         $records = $current
     } else {
         if ($records.Count -eq 0) { throw "No $harnessName session matched working directory '$WorkingDirectory'." }
+        if ($harnessName -eq 'Antigravity' -and $records.Count -ne 1) {
+            throw 'Multiple Antigravity sessions match this workspace. Use -List and an explicit -SessionId; latest modified is not proof of the current conversation.'
+        }
         $records = @($records | Sort-Object { $_.File.LastWriteTime } -Descending | Select-Object -First 1)
     }
 }
