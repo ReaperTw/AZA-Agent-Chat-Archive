@@ -10,8 +10,9 @@ for (const provider of ['chatgpt', 'claude', 'gemini', 'grok']) {
     assert.equal(merged.comparison.match, true);
     assert.equal(merged.entries.length, 2);
     assert(merged.content.includes('**Answer**'));
-    assert(merged.content.includes('\n\nAnswer\n\n</details>'));
-    assert(merged.content.includes('API #2 · DOM #2'));
+    if (provider === 'grok') {
+        assert.equal(merged.content.split('Answer').length - 1, 1, 'render-equivalent answer is exported once');
+    }
 
     const conflict = buildIntegratedMarkdown([question, assistant('API answer')], [question, assistant('DOM answer')]);
     assert.equal(conflict.counts.conflicts, 1);

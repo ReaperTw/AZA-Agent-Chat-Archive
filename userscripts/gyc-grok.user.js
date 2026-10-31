@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name        GYC - Grok
 // @namespace   https://github.com/ReaperTw/AZA-Agent-Chat-Archive
-// @version      1.4.4
-// @description Grab Your Chat - Grok 端對話匯出器；最後更新於 20261029
+// @version      1.4.5
+// @description Grab Your Chat - Grok 端對話匯出器；最後更新於 20261031
 // @updateURL   https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-grok.user.js
 // @downloadURL https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-grok.user.js
 // @match       https://grok.com/*
@@ -106,6 +106,7 @@
         let content = `> **匯出來源**：${[apiAvailable && 'API', domAvailable && 'DOM'].filter(Boolean).join(' + ')}（整合匯出）\n\n`;
         if (apiAvailable && domAvailable && result.comparison.differences.length) content += `> **正文差異**：${result.comparison.differences.length} 筆；單邊訊息及衝突版本均已保留，未自動覆蓋。\n\n`;
         if (!apiAvailable || !domAvailable) content += `> **來源取得失敗**：${apiAvailable ? 'DOM' : domAvailable ? 'API' : 'API、DOM'}。\n\n`;
+        if (notes.length) content += notes.map(note => `> **來源提醒**：${note}\n\n`).join('');
         let users = 0, models = 0;
         const body = message => String(message?.text ?? '');
         const supplement = (message, source) => {
@@ -124,19 +125,17 @@
             const primary = entry.api || entry.dom;
             const role = primary.role === 'user' ? `User ${++users}` : `Model ${++models}`;
             const sources = [entry.api && `API #${entry.apiIndex}`, entry.dom && `DOM #${entry.domIndex}`].filter(Boolean).join(' · ');
-            content += `--- [${role}] ---\n> **訊息來源**：${sources}${entry.kind === 'progress' ? '（前進度）' : ''}\n\n`;
+            content += `--- [${role}] ---\n`;
+            if (entry.kind !== 'match') content += `> **訊息來源**：${sources}${entry.kind === 'progress' ? '（前進度）' : ''}\n`;
+            content += '\n';
             if (entry.kind === 'text' || entry.kind === 'role') {
                 content += `> **來源衝突：兩版均保留**${entry.kind === 'role' ? '（角色也不同）' : ''}\n\n`;
                 content += `### API 版本（${entry.api.role}）\n\n${body(entry.api)}\n\n### DOM 版本（${entry.dom.role}）\n\n${body(entry.dom)}`;
             } else {
                 content += body(primary);
-                if (entry.api && entry.dom && body(entry.api) !== body(entry.dom)) {
-                    content += `\n\n<details>\n<summary>DOM 原文（呈現正文相符）</summary>\n\n${body(entry.dom)}\n\n</details>`;
-                }
             }
             content += supplement(entry.api, 'API') + supplement(entry.dom, 'DOM') + '\n\n';
         }
-        if (notes.length) content += `## 來源紀錄\n\n${notes.map(note => `- ${note}`).join('\n')}\n`;
         return { ...result, compared: apiAvailable && domAvailable, content: content.trimEnd() + '\n' };
     }
 
@@ -206,7 +205,7 @@
         if (differences.length || unavailable) status.setAttribute('role', 'alert');
         const statusTitle = unavailable ? '有來源取得失敗' : differences.length ? `發現 ${differences.length} 筆正文差異` : '兩個來源的正文相符';
         status.append(el('strong', '', statusTitle));
-        status.append(el('span', '', unavailable ? '請查看下方各來源的實際錯誤。' : differences.length ? '單邊訊息已補入；衝突保留 API 與頁面兩版，不自動覆蓋。' : '相同訊息已合併，來源原文與補充資料一併保留。'));
+        status.append(el('span', '', unavailable ? '請查看下方各來源的實際錯誤。' : differences.length ? '單邊訊息已補入；衝突保留 API 與頁面兩版，不自動覆蓋。' : '相同訊息只保留一份正文；各來源原文可另存。'));
         panel.append(status);
         if (!integration.entries.length) heading.lastChild.textContent = '未取得可匯出訊息';
         if (integration.counts.progress) panel.append(el('p', 'gyc-subtle', `另保留 ${integration.counts.progress} 則 API 前進度訊息。`));
@@ -679,6 +678,7 @@
         let userIndex = 1;
         let modelIndex = 1;
         let output = `> **匯出來源**：${method}\n\n`;
+        if (warnings.length) output += `> **匯出不完整**\n${warnings.map(text => '> ' + text).join('\n')}\n\n`;
         for (const message of exportTimeline) {
             if (message.type === 'gap') {
                 output += `${message.text}\n\n`;
@@ -704,7 +704,7 @@
         const warning = warnings.length
             ? `⚠️ ${warnings.join('\n')}`
             : '';
-        const content = output.trimEnd() + (warning ? `\n\n> **匯出不完整**\n${warnings.map(text => '> ' + text).join('\n')}` : '') + '\n';
+        const content = output.trimEnd() + '\n';
         return { content, warning, messageCount: exportTimeline.length };
     }
 
@@ -1088,7 +1088,14 @@
             ? `API ${apiMessages.length} 則，DOM ${domMessages.length} 則，正文差異 ${comparison.differences.length} 筆\n\n` +
                 comparison.differences.map((difference, index) => `正文差異 ${index + 1}\n${formatDifference(difference)}`).join('\n\n--------------------\n\n') +
                 (comparison.progress?.length ? '\n\nAPI 額外前進度\n' + comparison.progress.map(item => `API #${item.apiIndex}：\n${item.api.text}`).join('\n\n') : '') +
-                `\n\n${metadataNotice}\n` + metadata.map(item => `${item.source} #${item.index}：引用 ${JSON.stringify(item.citations)}；附件 ${JSON.stringify(item.attachments)}`).join('\n') + '\n'
+                `\n\n${metadataNotice}\n引用：API ${metadataCount('API', 'citations')}／DOM ${metadataCount('DOM', 'citations')}；附件：API ${metadataCount('API', 'attachments')}／DOM ${metadataCount('DOM', 'attachments')}\n` +
+                warnings.map(warning => `> ${warning}\n`).join('') +
+                metadata.filter(item => item.citations?.length || item.attachments?.length).map(item => {
+                    const fields = [];
+                    if (item.citations?.length) fields.push(`引用 ${JSON.stringify(item.citations)}`);
+                    if (item.attachments?.length) fields.push(`附件 ${JSON.stringify(item.attachments)}`);
+                    return `${item.source} #${item.index}：${fields.join('；')}`;
+                }).join('\n') + '\n'
             : `${summary}\n\n${metadataNotice}\n`;
         const base = `Grok_${sanitizeFileName(title) || 'Grok-Chat'}_${getTimestamp()}`;
         showIntegratedDialog({
@@ -1379,7 +1386,7 @@
             }
         }
         const branched = [...children.values()].some(ids => ids.length > 1) || roots.length > 1;
-        if (branched) warnings.add('API 含多條分支，無法確認目前分支；以下逐則保留並標記，並非單一連續對話');
+        if (branched) warnings.add('API 含多條分支，無法確認目前分支；已保留所有候選訊息，並非單一連續對話');
         const timeline = [];
         const seen = new Set();
         const pending = roots.slice().reverse();
@@ -1400,7 +1407,6 @@
                     warnings.add('部分訊息正文為空或格式無法解析');
                 }
                 const comparisonBody = body;
-                if (branched) body = '> [分支未確認的訊息，勿視為單一連續對話]\n\n' + body;
                 timeline.push({ type: role === 'assistant' ? 'ai' : 'user', text: body, comparisonBody, timestamp: response.createTime });
             } else if (!['tool', 'system', 'reasoning'].includes(role)) {
                 warnings.add('已略過角色無法識別的訊息');

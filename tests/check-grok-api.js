@@ -22,11 +22,11 @@ assert(res.timeline[0].timestamp.includes('2026'), 'ISO createTime');
 const p = parseLoadResponses(mock, ['r1','rX']);
 assert(p.missing.includes('rX'), 'missing ids reported');
 
-// branch markers + warning
+// Branch ambiguity must not alter or discard candidate bodies.
 const br = [{responseId:'a1',sender:'human',message:'a',parentResponseId:null},{responseId:'b1',sender:'assistant',message:'b',parentResponseId:'a1'},{responseId:'b2',sender:'assistant',message:'c',parentResponseId:'a1'}];
 const brRes = buildActiveBranchTimeline(br, 'a1');
 assert(brRes.warning, 'ambiguous branch must be reported');
-assert(brRes.timeline.every(item => item.text !== 'a' && item.text !== 'b' && item.text !== 'c'), 'ambiguous messages must carry an explicit label');
+assert.deepStrictEqual(brRes.timeline.map(item => item.text), ['a', 'b', 'c']);
 
 async function checkTreeAndNativeRoles() {
   const originalFetch = global.fetch;
@@ -56,7 +56,6 @@ async function checkTreeAndNativeRoles() {
       { responseId: 'b', sender: 'ASSISTANT', message: 'Alternative', parentResponseId: 'q' }
     ], 'q');
     assert(branched.warning);
-    assert(branched.timeline.every(row => row.text.includes('分支未確認')));
     const comparable = branched.timeline.slice(0, 2).map(row => ({
       ...row, role: row.type === 'ai' ? 'assistant' : 'user'
     }));
