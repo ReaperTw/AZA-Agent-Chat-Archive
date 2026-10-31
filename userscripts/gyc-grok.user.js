@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        GYC - Grok
 // @namespace   https://github.com/ReaperTw/AZA-Agent-Chat-Archive
-// @version      1.4.5
+// @version      1.4.6
 // @description Grab Your Chat - Grok 端對話匯出器；最後更新於 20261031
 // @updateURL   https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-grok.user.js
 // @downloadURL https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-grok.user.js
@@ -823,7 +823,7 @@
             }
             btn.innerText = 'API 讀取中…';
             const data = await fetchConversationViaApi(convId);
-            const branch = buildActiveBranchTimeline(data.responses, convId);
+            const branch = buildActiveBranchTimeline(data.responses, convId, new URLSearchParams(location.search).get('rid'));
             if (!branch.timeline.length) throw new Error('API 沒有可匯出的訊息；請用正常匯出');
             openTimelineSaveModal(branch.timeline, [data.warning, branch.warning].filter(Boolean), 'API');
         } catch (error) {
@@ -1065,7 +1065,10 @@
         const formatDifference = difference => {
             const labels = { text: '文字不同', role: '角色不同', 'api-only': '僅 API 有此訊息', 'dom-only': '僅 DOM 有此訊息' };
             const source = (label, index, message) => message ? `${label} #${index} (${message.role})：\n${prepareComparisonMessage(message, label === 'API' ? 'api' : 'dom').body}` : `${label}：無`;
-            return `${labels[difference.kind]}\n${source('API', difference.apiIndex, difference.api)}\n\n${source('DOM', difference.domIndex, difference.dom)}`;
+            const lineEndSpacesOnly = difference.kind === 'text' &&
+                prepareComparisonMessage(difference.api, 'api').body.replace(/[ \t]+\n/g, '\n') ===
+                prepareComparisonMessage(difference.dom, 'dom').body.replace(/[ \t]+\n/g, '\n');
+            return `${lineEndSpacesOnly ? '文字不同（僅換行前空白，未忽略差異）' : labels[difference.kind]}\n${source('API', difference.apiIndex, difference.api)}\n\n${source('DOM', difference.domIndex, difference.dom)}`;
         };
         const metadata = api && dom ? [
             ...apiMessages.map((message, index) => ({ source: 'API', index: index + 1, ...prepareComparisonMessage(message, 'api') })),
@@ -1128,7 +1131,7 @@
                 button.innerText = '取得 API 對話…';
                 const data = await fetchConversationViaApi(id);
                 checkScope();
-                const branch = buildActiveBranchTimeline(data.responses, id);
+                const branch = buildActiveBranchTimeline(data.responses, id, new URLSearchParams(location.search).get('rid'));
                 if (!branch.timeline.length) throw new Error('API 沒有可匯出的訊息');
                 api = { messages: branch.timeline.map(toComparisonTurn), warning: [data.warning, branch.warning].filter(Boolean).join('；') };
             } catch (error) { errors.api = error.message || String(error); }
@@ -1367,14 +1370,34 @@
         return { ids, responses, warning: warnings.join('；') || null };
     }
 
-    function buildActiveBranchTimeline(responses, rootId) {
+    function buildActiveBranchTimeline(responses, rootId, selectedId = null) {
         const byId = new Map();
         for (const response of responses) {
             if (response && (response.responseId || response.id)) byId.set(response.responseId || response.id, response);
         }
+        let selectionWarning = null;
+        if (selectedId) {
+            const path = [];
+            const visited = new Set();
+            let id = selectedId;
+            while (id && id !== rootId && byId.has(id) && !visited.has(id)) {
+                visited.add(id);
+                const response = byId.get(id);
+                path.push(response);
+                id = response.parentResponseId;
+            }
+            const candidates = [...byId.values()];
+            const roots = candidates.filter(response => !response.parentResponseId || response.parentResponseId === rootId);
+            const isLeaf = !candidates.some(response => response.parentResponseId === selectedId);
+            if (path.length && (!id || id === rootId) && roots.length === 1 && isLeaf) {
+                return buildActiveBranchTimeline(path.reverse(), rootId);
+            }
+            selectionWarning = '無法由頁面指定訊息確認完整分支（鏈缺失、循環或非末端訊息）；已保留所有候選訊息';
+        }
         const children = new Map();
         const roots = [];
         const warnings = new Set();
+        if (selectionWarning) warnings.add(selectionWarning);
         for (const [id, response] of byId) {
             const parent = response.parentResponseId;
             if (parent && byId.has(parent)) {
@@ -1402,11 +1425,13 @@
             const role = String(response.sender || response.role || '').toLowerCase();
             if (role === 'human' || role === 'user' || role === 'assistant') {
                 let body = typeof response.message === 'string' ? response.message.trim() : '';
-                if (!body) {
-                    body = '> [空白或無法解析的訊息正文]';
-                    warnings.add('部分訊息正文為空或格式無法解析');
-                }
                 const comparisonBody = body;
+                if (!body) {
+                    const reason = response.streamErrors?.length ? '回應失敗，沒有正文' :
+                        response.partial ? '回應未完成，沒有正文' : '空白或無法解析的訊息正文';
+                    body = `> [${reason}]`;
+                    warnings.add(reason);
+                }
                 timeline.push({ type: role === 'assistant' ? 'ai' : 'user', text: body, comparisonBody, timestamp: response.createTime });
             } else if (!['tool', 'system', 'reasoning'].includes(role)) {
                 warnings.add('已略過角色無法識別的訊息');

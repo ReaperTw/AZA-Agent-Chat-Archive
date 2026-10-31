@@ -28,6 +28,25 @@ const brRes = buildActiveBranchTimeline(br, 'a1');
 assert(brRes.warning, 'ambiguous branch must be reported');
 assert.deepStrictEqual(brRes.timeline.map(item => item.text), ['a', 'b', 'c']);
 
+const selected = buildActiveBranchTimeline(br, 'conversation', 'b2');
+assert.deepStrictEqual(selected.timeline.map(item => item.text), ['a', 'c'], 'selected branch excludes regenerated siblings');
+assert.strictEqual(selected.warning, null);
+const nonLeaf = buildActiveBranchTimeline(br, 'conversation', 'a1');
+assert.strictEqual(nonLeaf.timeline.length, 3, 'an interior response cannot identify a complete branch');
+assert(nonLeaf.warning);
+const noParents = buildActiveBranchTimeline(br.map(({ parentResponseId, ...response }) => response), 'conversation', 'b2');
+assert.strictEqual(noParents.timeline.length, 3, 'missing parent metadata must not collapse export to one message');
+assert(noParents.warning);
+for (const leaf of ['missing', 'loop']) {
+  const invalid = buildActiveBranchTimeline([...br, { responseId: 'loop', parentResponseId: 'loop', sender: 'assistant', message: 'cycle' }], 'conversation', leaf);
+  assert.strictEqual(invalid.timeline.length, 4, 'unconfirmed selection must preserve candidates');
+  assert(invalid.warning);
+}
+const empty = buildActiveBranchTimeline([{ responseId: 'empty', sender: 'assistant', message: '' }], 'conversation');
+assert(empty.warning, 'empty response remains explicitly uncertain');
+assert(compareTranscripts(empty.timeline.map(item => ({ ...item, role: 'assistant' })), [{ role: 'assistant', text: '' }]).match,
+  'generated empty-body notice must not become a source text difference');
+
 async function checkTreeAndNativeRoles() {
   const originalFetch = global.fetch;
   const nodes = [

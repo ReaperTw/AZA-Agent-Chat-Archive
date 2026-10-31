@@ -11,3 +11,5 @@ assert(!compareTranscripts(api, [user, { role: 'assistant', text: 'Hello other' 
 assert(!compareTranscripts(api, [user, { role: 'user', text: dom[1].text }]).match, 'role difference');
 assert(!compareTranscripts([user, { role: 'assistant', text: 'working', channel: 'commentary' }, api[1]], dom).match, 'Grok progress is not inferred from labels');
 assert.strictEqual(prepareComparisonMessage(api[1], 'api').citations, null, 'unknown citations are not claimed absent');
+assert(!compareTranscripts([{ role: 'user', text: 'First. \nSecond.' }], [{ role: 'user', text: 'First.\nSecond.' }]).match,
+    'line-end source whitespace is diagnosed, not silently ignored');
