@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         GYC - Gemini
 // @namespace    https://github.com/ReaperTw/AZA-Agent-Chat-Archive
-// @version      1.4.4
-// @description  Grab Your Chat - Gemini 端對話匯出器；最後更新於 20261031
+// @version      1.4.5
+// @description  Grab Your Chat - Gemini 端對話匯出器；最後更新於 20261101
 // @updateURL    https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-gemini.user.js
 // @downloadURL  https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-gemini.user.js
 // @match        https://gemini.google.com/*
@@ -69,8 +69,26 @@
         return module.exports;
     })();
 
+    const mathBody = tex => '$' + tex.replace(/\s+/g, ' ').trim() + '$';
+    // Gemini renders math before Markdown and accepts bold next to CJK punctuation.
+    markdown.use({ extensions: [{
+        name: 'gycMath', level: 'inline',
+        start: source => source.indexOf('$'),
+        tokenizer(source) {
+            const match = /^\$\$([\s\S]+?)\$\$/.exec(source) || /^\$([^\n$]+?)\$/.exec(source);
+            if (match) return { type: 'gycMath', raw: match[0], text: mathBody(match[1]) };
+        }
+    }, {
+        name: 'gycStrong', level: 'inline',
+        start: source => source.indexOf('**'),
+        tokenizer(source) {
+            const match = /^\*\*([^\n]+?)\*\*/.exec(source);
+            if (match && !/^[\p{P}\s]/u.test(match[1])) return { type: 'gycStrong', raw: match[0], tokens: this.lexer.inlineTokens(match[1]) };
+        }
+    }] });
+
     function prepareComparisonMessage(message, source) {
-        const citations = source === 'dom' ? (message.citations ?? null) : [];
+        const citations = message.citations ?? null;
         const attachments = source === 'dom' ? (message.attachments ?? null) : (message.attachments ?? []).slice();
         const normalizeLiteral = text => String(text ?? '').replace(/\r\n?/g, '\n').replace(/\u00a0/g, ' ').trim();
         const normalize = text => normalizeLiteral(text).replace(/[ \t]+\n/g, '\n').replace(/\n(?:[ \t]*\n)+/g, '\n');
@@ -104,13 +122,19 @@
         };
         const inline = tokens => (tokens ?? []).map(token => {
             if (token.tokens) return inline(token.tokens);
+            if (token.type === 'gycMath') return keepCode(token.text);
             if (token.type === 'br') return '\n';
+            if (token.type === 'html' && /^<br\s*\/?>$/i.test(token.raw)) return '\n';
             if (token.type === 'codespan') return keepCode(decode(token.text));
             if (token.type === 'image') {
                 attachments.push({ type: 'image', alt: decode(token.text), url: token.href });
                 return '';
             }
-            return decode(token.text ?? token.raw ?? '');
+            let value = decode(token.text ?? token.raw ?? '');
+            for (const citation of citations || []) {
+                if (/^\[cite: \d+(?:, \d+)*\]$/.test(citation.label || '')) value = value.replaceAll(citation.label, '');
+            }
+            return value;
         }).join('');
         const blocks = tokens => (tokens ?? []).map(token => {
             switch (token.type) {
@@ -227,7 +251,7 @@ function parseGeminiApiData(rawTurns) {
             turns.push({ type: 'user', text: cleanContent(user), timestamp, dateStr });
         } else {
             warnings.add('部分使用者訊息沒有文字，可能含未嵌入的附件');
-            turns.push({ type: 'user', text: '> [非文字或空白使用者訊息；附件本體未嵌入]', timestamp, dateStr });
+            turns.push({ type: 'user', text: '> [非文字或空白使用者訊息；附件本體未嵌入]', comparisonBody: '', timestamp, dateStr });
         }
         const candidates = Array.isArray(turn[3]?.[0]) ? turn[3][0] : [];
         const selectedId = turn[3]?.[3];
@@ -242,15 +266,27 @@ function parseGeminiApiData(rawTurns) {
             isAlt = candidates.length > 1;
             warnings.add(candidates.length ? '無法確認目前回答，已保留可取得的候選回答' : '部分回合沒有回答正文，可能仍在生成');
         }
+        const citations = [];
         const answers = selected.map((candidate, index) => {
-            let text = candidate?.[1]?.[0];
-            if (typeof text !== 'string' || !text.trim()) {
-                text = '> [非文字或空白回答；本體未嵌入]';
-                warnings.add('部分回答沒有文字正文');
+            const rawText = candidate?.[1]?.[0];
+            const hasText = typeof rawText === 'string' && Boolean(rawText.trim());
+            if (!hasText) warnings.add('部分回答沒有文字正文');
+            const text = hasText ? cleanContent(rawText) : '> [非文字或空白回答；本體未嵌入]';
+            const comparisonBody = hasText ? text : '';
+            // Native source-chip metadata identifies these markers as citations;
+            // ordinary text that merely looks like a marker remains body text.
+            const sources = candidate?.[12]?.[0]?.['44'];
+            if (Array.isArray(sources)) {
+                for (const source of sources) {
+                    const marker = source?.[0]?.[0];
+                    if (typeof marker !== 'string' || !/^\[cite: \d+(?:, \d+)*\]$/.test(marker) || !comparisonBody.includes(marker)) continue;
+                    citations.push({ label: marker });
+                }
             }
-            return (isAlt ? `**候選回答 ${index + 1}（目前選取未確認）**\n\n` : '') + cleanContent(text);
+            const prefix = isAlt ? `**候選回答 ${index + 1}（目前選取未確認）**\n\n` : '';
+            return { text: prefix + text, comparisonBody: prefix + comparisonBody };
         });
-        if (answers.length) turns.push({ type: 'ai', text: answers.join('\n\n---\n\n'), timestamp, dateStr, isAlt });
+        if (answers.length) turns.push({ type: 'ai', text: answers.map(answer => answer.text).join('\n\n---\n\n'), comparisonBody: answers.map(answer => answer.comparisonBody).join('\n\n---\n\n'), citations: citations.length ? citations : null, timestamp, dateStr, isAlt });
     }
     return { turns, parseWarnings: [...warnings] };
 }
@@ -503,15 +539,39 @@ function buildRpcRequest(cid, limit) {
             panel.append(details);
             return details;
         };
-        if (differences.length) {
-            const text = differences.map((item, index) => {
-                const side = (name, message, pos) => message ? `${name} #${pos} (${message.role})\n${prepareComparisonMessage(message, name === 'API' ? 'api' : 'dom').body}` : `${name}：沒有此訊息`;
-                return `差異 ${index + 1}\n${side('API', item.api, item.apiIndex)}\n\n${side('DOM', item.dom, item.domIndex)}`;
-            }).join('\n\n────────────────────\n\n');
-            disclosure('查看正文差異', text, true);
-        }
-        if (notes.length || report) disclosure('來源紀錄與補充資料', [...notes, report].filter(Boolean).join('\n\n'));
         const actions = el('div', 'gyc-actions');
+        panel.append(actions);
+        if (differences.length) {
+            const details = disclosure('查看正文差異', '');
+            const preview = details.lastChild;
+            const navigation = el('div', 'gyc-actions');
+            const previous = el('button', '', '上一頁');
+            const next = el('button', '', '下一頁');
+            const position = el('span', 'gyc-subtle');
+            navigation.append(previous, position, next);
+            details.append(navigation);
+            let page = 0;
+            const pageSize = 5;
+            const render = () => {
+                const start = page * pageSize;
+                preview.textContent = differences.slice(start, start + pageSize).map((item, index) => {
+                    const side = (name, message, pos) => {
+                        if (!message) return `${name}：沒有此訊息`;
+                        const body = prepareComparisonMessage(message, name === 'API' ? 'api' : 'dom').body;
+                        return `${name} #${pos} (${message.role})\n${body.slice(0, 2000)}${body.length > 2000 ? '\n[預覽已截短；完整正文請下載比對報告]' : ''}`;
+                    };
+                    return `差異 ${start + index + 1}\n${side('API', item.api, item.apiIndex)}\n\n${side('DOM', item.dom, item.domIndex)}`;
+                }).join('\n\n────────────────────\n\n');
+                position.textContent = `${start + 1}–${Math.min(start + pageSize, differences.length)}／${differences.length}`;
+                previous.disabled = page === 0;
+                next.disabled = start + pageSize >= differences.length;
+                preview.scrollTop = 0;
+            };
+            details.addEventListener('toggle', () => { if (details.open) render(); });
+            previous.onclick = () => { page--; render(); };
+            next.onclick = () => { page++; render(); };
+        }
+        if (notes.length || report) disclosure('來源紀錄與補充資料', [...notes, report ? '完整逐則內容請使用「下載比對報告」。' : ''].filter(Boolean).join('\n\n'));
         const add = (label, action, primary = false, target = actions) => {
             if (!action) return;
             const button = el('button', primary ? 'gyc-primary' : '', label);
@@ -520,7 +580,6 @@ function buildRpcRequest(cid, limit) {
         };
         if (integration.entries.length) add('下載整合 Markdown', onDownload, true);
         add('下載比對報告', onReport);
-        panel.append(actions);
         if (onApi || onDom) {
             const originals = disclosure('另存個別來源', '');
             originals.lastChild.remove();
@@ -688,49 +747,71 @@ if (typeof document !== 'undefined') {
             };
         }
 
-        function sameTurn(a, b, allowGrow) {
-            if (a.type !== b.type) return false;
-            if (a.text === b.text) return true;
-            return allowGrow && (a.text.includes(b.text) || b.text.includes(a.text));
-        }
-
-        function mergeTimelines(master, fragment) {
-            if (master.length === 0) return { merged: fragment, hasGap: false };
-            if (fragment.length === 0) return { merged: master, hasGap: false };
-            for (let overlapLength = Math.min(master.length, fragment.length); overlapLength > 0; overlapLength--) {
-                let isMatch = true;
-                for (let i = 0; i < overlapLength; i++) {
-                    if (!sameTurn(master[master.length - overlapLength + i], fragment[i], i === overlapLength - 1)) {
-                        isMatch = false;
-                        break;
-                    }
-                }
-                if (isMatch) {
-                    for (let i = 0; i < overlapLength; i++) {
-                        if (fragment[i].text.length > master[master.length - overlapLength + i].text.length) {
-                            master[master.length - overlapLength + i].text = fragment[i].text;
-                        }
-                    }
-                    return { merged: master.concat(fragment.slice(overlapLength)), hasGap: false };
-                }
+        // Read the DOM structure, not innerText: Gemini skips off-screen layout with
+        // content-visibility:auto. Its KaTeX accessibility and visual trees duplicate math.
+        function readDomBody(body) {
+            const clone = body.cloneNode(true);
+            const citations = [...clone.querySelectorAll('.source-inline-chip-container')].map(node => ({ label: node.querySelector('button')?.getAttribute('aria-label') || node.textContent }));
+            clone.querySelectorAll('.source-inline-chip-container').forEach(node => node.remove());
+            for (const math of clone.querySelectorAll('[data-math], .katex')) {
+                if (!clone.contains(math)) continue;
+                const tex = math.getAttribute('data-math') ?? math.querySelector('annotation[encoding="application/x-tex"]')?.textContent;
+                if (tex !== undefined) math.replaceWith(document.createTextNode(mathBody(tex)));
             }
-            return { merged: master, hasGap: true };
+            clone.querySelectorAll('button, .screen-reader-user-query-label, [aria-hidden="true"]').forEach(node => node.remove());
+            let prefix = 'GYC_DOM_CODE_';
+            while (clone.textContent.includes(prefix)) prefix += '_';
+            const values = [];
+            for (const code of clone.querySelectorAll('pre, code')) {
+                if (!clone.contains(code) || (code.tagName === 'CODE' && code.closest('pre'))) continue;
+                const content = code.tagName === 'PRE' ? code.querySelector('code') || code : code;
+                const value = content.textContent.replace(/\r\n?/g, '\n');
+                values.push(code.tagName === 'PRE' ? value.replace(/\n$/, '') : value);
+                code.replaceWith(document.createTextNode(`${code.tagName === 'PRE' ? '\n' : ''}${prefix}${values.length - 1}_END${code.tagName === 'PRE' ? '\n' : ''}`));
+            }
+            Object.assign(clone.style, {
+                position: 'fixed', left: '-10000px', top: '0', width: '800px',
+                opacity: '0', pointerEvents: 'none', contentVisibility: 'visible'
+            });
+            document.body.append(clone);
+            let comparisonBody;
+            try { comparisonBody = cleanContent(clone.innerText); }
+            finally { clone.remove(); }
+            let text = comparisonBody;
+            values.forEach((value, index) => { text = text.replaceAll(`${prefix}${index}_END`, value); });
+            return { text, comparisonBody, comparisonCode: { prefix, values }, citations };
         }
 
-        function collectTurns(scroller) {
-            const specific = Array.from(scroller.querySelectorAll('.user-query-bubble-with-background, .model-response, model-response'));
-            const nodes = specific.length
-                ? specific
-                : Array.from(scroller.querySelectorAll('.response-container'));
-            return nodes
-                .filter(node => !nodes.some(other => other !== node && other.contains(node)))
-                .map(node => {
-                    const user = node.classList.contains('user-query-bubble-with-background');
-                    const lines = user ? [...node.querySelectorAll('.query-text-line')] : [];
-                    const body = user ? node : node.querySelector('message-content .markdown, .markdown') || node;
-                    return { type: user ? 'user' : 'ai', text: cleanContent(lines.length ? lines.map(line => line.innerText).join('\n') : body.innerText || '') };
-                })
-                .filter(turn => turn.text);
+        const domTurnCache = new WeakMap();
+        function collectTurns(scroller, timeline, warnings) {
+            const current = [...scroller.querySelectorAll('user-query, model-response')];
+            const nodes = current.length ? current : [...scroller.querySelectorAll('.user-query-bubble-with-background, .model-response')];
+            for (const node of nodes) {
+                const user = node.tagName === 'USER-QUERY' || node.classList.contains('user-query-bubble-with-background');
+                const type = user ? 'user' : 'ai';
+                const id = node.closest('.conversation-container')?.id;
+                const key = id ? `${id}:${type}` : node;
+                if (!id && !warnings.includes('部分頁面訊息缺少穩定回合 ID，無法確認重掛載後的完整順序')) warnings.push('部分頁面訊息缺少穩定回合 ID，無法確認重掛載後的完整順序');
+                const fingerprint = node.textContent;
+                const cached = domTurnCache.get(node);
+                if (cached?.fingerprint === fingerprint) {
+                    timeline.set(key, cached.turn);
+                    continue;
+                }
+                const lines = user ? [...node.querySelectorAll('.query-text-line, .query-bullet-item')] : [];
+                const body = user ? node.querySelector('.query-text') : node.querySelector('message-content .markdown, .markdown');
+                let result = user
+                    ? { text: cleanContent(lines.length ? lines.map(line => line.classList.contains('query-bullet-item') ? '- ' + line.textContent.trim() : line.textContent).join('\n') : body?.textContent || '') }
+                    : body ? readDomBody(body) : { text: '', comparisonBody: '' };
+                if (!result.text) {
+                    const image = user && node.querySelector('img');
+                    if (!image && !warnings.includes('部分頁面訊息沒有可識別的文字正文')) warnings.push('部分頁面訊息沒有可識別的文字正文');
+                    result = { text: image ? '> [圖片附件；本體未嵌入]' : '> [非文字或空白訊息；正文未確認]', comparisonBody: '' };
+                }
+                const turn = { type, ...result };
+                domTurnCache.set(node, { fingerprint, turn });
+                timeline.set(key, turn);
+            }
         }
 
         async function scrollToTop(btn) {
@@ -803,52 +884,34 @@ if (typeof document !== 'undefined') {
                     scroller.scrollTop = 0;
                 }
 
-                let timeline = collectTurns(scroller);
+                const timeline = new Map();
+                collectTurns(scroller, timeline, warnings);
                 const step = Math.max(1, Math.min(config.step || 800, Math.floor((scroller.clientHeight || window.innerHeight || 800) / 2)));
                 const estimated = Math.ceil((scroller.scrollHeight || 1) / step);
                 const maxPasses = Math.min(5000, Math.max(100, estimated * 4 + 50));
                 let bottomStable = 0;
-                let retryCount = 0;
                 for (let pass = 0; pass < maxPasses; pass++) {
                     config.checkScope?.();
                     const before = scroller.scrollTop;
                     const maxTop = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
                     scroller.scrollTop = Math.min(maxTop, before + step);
                     await new Promise(r => setTimeout(r, config.baseWait));
-                    const fragment = collectTurns(scroller);
-                    const merged = mergeTimelines(timeline, fragment);
-                    if (merged.hasGap && fragment.length && timeline.length) {
-                        retryCount++;
-                        if (retryCount <= 3) {
-                            scroller.scrollTop = Math.max(0, scroller.scrollTop - step * 0.5);
-                            await new Promise(r => setTimeout(r, Math.max(1000, config.baseWait * 2)));
-                            continue;
-                        }
-                        warnings.push('掃描斷層，前後訊息可能不連續');
-                        timeline = timeline.concat(
-                            [{ type: 'gap', text: '⚠️ 此處掃描斷層，前後訊息可能不連續' }],
-                            fragment
-                        );
-                        retryCount = 0;
-                    } else {
-                        timeline = merged.merged;
-                        retryCount = 0;
-                    }
+                    collectTurns(scroller, timeline, warnings);
                     const atBottom = scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop <= 5;
                     if (atBottom && Math.abs(scroller.scrollTop - before) < 5) bottomStable++;
                     else bottomStable = 0;
                     const percent = maxTop > 0 ? Math.min(100, Math.round(scroller.scrollTop / maxTop * 100)) : 100;
-                    btn.innerText = `掃描 ${percent}%｜已存 ${timeline.filter(turn => turn.type !== 'gap').length} 則`;
+                    btn.innerText = `掃描 ${percent}%｜已存 ${timeline.size} 則`;
                     if (bottomStable >= 2) break;
                     if (pass === maxPasses - 1) warnings.push(`達到安全迴圈上限 ${maxPasses}`);
                 }
 
                 config.checkScope?.();
-                if (!timeline.some(turn => turn.type !== 'gap' && turn.text)) {
+                if (!timeline.size) {
                     throw new Error('DOM 未找到任何對話內容');
                 }
 
-                const exportTurns = timeline.filter(turn => turn.type !== 'gap' && turn.text);
+                const exportTurns = [...timeline.values()];
                 const out = renderGeminiApiMarkdown(exportTurns, warnings);
                 if (captureOnly) return { turns: exportTurns, warnings, out };
                 let title = determineTitle();
@@ -1098,11 +1161,11 @@ if (typeof document !== 'undefined') {
             normalButton.title = '從頂端捲動掃描畫面，不使用 API';
             combinedButton.title = '獨立收集 API 與畫面並比對正文';
             combinedButton.style.background = 'linear-gradient(180deg, #316aca, #204994)';
-            menu.append(combinedButton, apiButton, normalButton, btnTop);
+            menu.append(btnTop, combinedButton, apiButton, normalButton);
 
             const fab = document.createElement('button');
             fab.textContent = '✦';
-        fab.title = "GYC - Gemini - v1.4.3";
+        fab.title = "GYC - Gemini - v1.4.5";
             fab.setAttribute('aria-label', '開啟 Grab Your Chat - Gemini 工具');
             Object.assign(fab.style, {
                 width: '56px',

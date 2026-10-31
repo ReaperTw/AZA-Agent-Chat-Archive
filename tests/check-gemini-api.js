@@ -1,5 +1,5 @@
 const assert = require('node:assert/strict');
-const { parseGeminiRpc, parseGeminiApiData, collectGeminiHistory, renderGeminiApiMarkdown, compareTranscripts } = require('../userscripts/gyc-gemini.user.js');
+const { parseGeminiRpc, parseGeminiApiData, collectGeminiHistory, renderGeminiApiMarkdown, compareTranscripts, prepareComparisonMessage } = require('../userscripts/gyc-gemini.user.js');
 const turn = i => [['c_chat', 'r_' + i], [], [['question-' + i]], [[['rc_' + i, ['answer-' + i]]]], [1780000000 + i, 0]];
 const frame = data => ")]}'\n\n123\n" + JSON.stringify([['wrb.fr', 'hNvQHb', JSON.stringify(data)]]) + '\n';
 const tokens = { SNlM0e: 'token', cfb2h: 'build', FdrFJe: 'session' };
@@ -81,6 +81,32 @@ const tokens = { SNlM0e: 'token', cfb2h: 'build', FdrFJe: 'session' };
     domMessages[1].text = 'Hello there';
     assert.equal(compareTranscripts(apiMessages, domMessages).differences[0].kind, 'text');
     assert.equal(compareTranscripts(apiMessages, domMessages.slice(0, 1)).match, false);
+
+    const imageOnly = turn(6);
+    imageOnly[2] = [];
+    const imageTurns = parseGeminiApiData([imageOnly]).turns;
+    assert.equal(imageTurns.length, 2, 'attachment-only users retain their place');
+    assert.equal(compareTranscripts(imageTurns.map(t => ({ ...t, role: t.type === 'user' ? 'user' : 'assistant' })), [
+        { role: 'user', text: 'Image not embedded', comparisonBody: '' },
+        { role: 'assistant', text: 'answer-6' }
+    ]).match, true, 'presentation hints do not become body conflicts');
+
+    const cited = turn(7);
+    cited[3][0][0][1][0] = 'Answer [cite: 2]; literal [cite: 9]';
+    cited[3][0][0][12] = [{ 44: [[['[cite: 2]', 0]]] }];
+    const citedAnswer = parseGeminiApiData([cited]).turns[1];
+    assert.equal(citedAnswer.text, 'Answer [cite: 2]; literal [cite: 9]');
+    assert.equal(prepareComparisonMessage({ ...citedAnswer, role: 'assistant' }, 'api').body, 'Answer ; literal [cite: 9]');
+    assert.deepEqual(citedAnswer.citations, [{ label: '[cite: 2]' }]);
+
+    const equivalent = (api, dom) => compareTranscripts([{ role: 'assistant', text: api }], [{ role: 'assistant', text: dom }]).match;
+    assert(equivalent('判斷**真值**是否一致', '判斷真值是否一致'));
+    assert(equivalent('保留**「字面符號」**', '保留**「字面符號」**'));
+    assert(equivalent('A<br>B', 'A\nB'));
+    assert(equivalent('$$p \\rightarrow q$$', '$p \\rightarrow q$'));
+    assert(!equivalent('$p \\rightarrow q$', '$q \\rightarrow p$'));
+    assert(!equivalent('`$x  y$`', '$x y$'), 'code whitespace remains literal');
+    assert(!equivalent('```txt\nx  y\n```', 'x y'), 'fenced code remains literal');
     assert.throws(() => parseGeminiRpc(")]}'\n" + JSON.stringify([['wrb.fr', 'hNvQHb', null]])));
     console.log('ok Gemini API: framed RPC, >100 history, no-progress warning, dates, answer alternatives');
 })().catch(error => { console.error(error); process.exitCode = 1; });
