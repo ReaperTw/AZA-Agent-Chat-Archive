@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GYC - Gemini
 // @namespace    https://github.com/ReaperTw/AZA-Agent-Chat-Archive
-// @version      1.4.5
+// @version      1.4.6
 // @description  Grab Your Chat - Gemini 端對話匯出器；最後更新於 20261101
 // @updateURL    https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-gemini.user.js
 // @downloadURL  https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-gemini.user.js
@@ -814,6 +814,27 @@ if (typeof document !== 'undefined') {
             }
         }
 
+        async function loadHistoryTop(scroller, btn, wait, checkScope, minimumTurns = 0) {
+            let previous = '';
+            let stable = 0;
+            for (let pass = 0; pass < MAX_UPWARD_LOOPS; pass++) {
+                checkScope?.();
+                if (scroller.scrollTop <= 1) scroller.scrollTop = 1;
+                scroller.scrollTop = 0;
+                await new Promise(resolve => setTimeout(resolve, wait));
+                checkScope?.();
+                const turns = [...scroller.querySelectorAll('.conversation-container')];
+                const signature = JSON.stringify([scroller.scrollHeight, turns.map(turn => turn.id)]);
+                // New history can shrink the estimated height. Height alone is not
+                // evidence of exhaustion, and prepending can move the viewport.
+                stable = signature === previous && scroller.scrollTop <= 1 && turns.length >= minimumTurns ? stable + 1 : 0;
+                previous = signature;
+                btn.innerText = `載入歷史｜${turns.length} 回合`;
+                if (stable >= 4) return;
+            }
+            throw new Error('歷史仍在載入，無法確認已到對話起點；未開始匯出');
+        }
+
         async function scrollToTop(btn) {
             if (!btn) return;
             btn.disabled = true;
@@ -821,19 +842,10 @@ if (typeof document !== 'undefined') {
             try {
                 btn.innerText = '⬆️ 狂奔至頂端中...';
                 const scroller = findScrollContainer();
-                let stagnantCount = 0;
-                for (let i = 0; i < MAX_UPWARD_LOOPS; i++) {
-                    const pre = scroller.scrollHeight;
-                    scroller.scrollTop = 0;
-                    await new Promise(r => setTimeout(r, FAST_UPWARD_WAIT));
-                    if (scroller.scrollHeight <= pre) {
-                        stagnantCount++;
-                        if (stagnantCount >= 3) break;
-                    } else {
-                        stagnantCount = 0;
-                    }
-                }
+                await loadHistoryTop(scroller, btn, FAST_UPWARD_WAIT);
                 btn.innerText = '✅ 已達最頂端';
+            } catch (error) {
+                showNotification(`❌ ${error.message}`, true);
             } finally {
                 setTimeout(() => {
                     btn.disabled = false;
@@ -866,23 +878,8 @@ if (typeof document !== 'undefined') {
             const warnings = [];
             try {
                 const scroller = findScrollContainer();
-                {
-                    btn.innerText = '定位起點...';
-                    let stagnantCount = 0;
-                    for (let i = 0; i < MAX_UPWARD_LOOPS; i++) {
-                        const pre = scroller.scrollHeight;
-                        scroller.scrollTop = 0;
-                        await new Promise(r => setTimeout(r, config.upWait));
-                        config.checkScope?.();
-                        if (scroller.scrollHeight <= pre) {
-                            stagnantCount++;
-                            if (stagnantCount >= 3) break;
-                        } else {
-                            stagnantCount = 0;
-                        }
-                    }
-                    scroller.scrollTop = 0;
-                }
+                btn.innerText = '定位起點...';
+                await loadHistoryTop(scroller, btn, config.upWait, config.checkScope, config.minimumTurns);
 
                 const timeline = new Map();
                 collectTurns(scroller, timeline, warnings);
@@ -894,7 +891,12 @@ if (typeof document !== 'undefined') {
                     config.checkScope?.();
                     const before = scroller.scrollTop;
                     const maxTop = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
-                    scroller.scrollTop = Math.min(maxTop, before + step);
+                    const mounted = [...scroller.querySelectorAll('.conversation-container')];
+                    const allBodiesMounted = mounted.length > 0 && mounted.every(turn =>
+                        turn.querySelector('user-query') && turn.querySelector('model-response message-content .markdown'));
+                    // Structural capture already reads off-screen bodies. Only virtualized
+                    // or incomplete DOM needs viewport-by-viewport discovery.
+                    scroller.scrollTop = allBodiesMounted ? maxTop : Math.min(maxTop, before + step);
                     await new Promise(r => setTimeout(r, config.baseWait));
                     collectTurns(scroller, timeline, warnings);
                     const atBottom = scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop <= 5;
@@ -1043,7 +1045,7 @@ if (typeof document !== 'undefined') {
                 } catch (error) { api = null; errors.api = error.message || String(error); }
                 try {
                     checkScope();
-                    dom = await processAndExport({ upWait: FAST_UPWARD_WAIT, step: FAST_SCROLL_STEP, baseWait: FAST_BASE_WAIT, checkScope }, btn, true);
+                    dom = await processAndExport({ upWait: FAST_UPWARD_WAIT, step: FAST_SCROLL_STEP, baseWait: FAST_BASE_WAIT, checkScope, minimumTurns: api?.turns.filter(turn => turn.type === 'user').length || 0 }, btn, true);
                     checkScope();
                 } catch (error) { dom = null; errors.dom = error.message || String(error); }
                 showCombinedResults(title, api, dom, errors);
@@ -1165,7 +1167,7 @@ if (typeof document !== 'undefined') {
 
             const fab = document.createElement('button');
             fab.textContent = '✦';
-        fab.title = "GYC - Gemini - v1.4.5";
+        fab.title = "GYC - Gemini - v1.4.6";
             fab.setAttribute('aria-label', '開啟 Grab Your Chat - Gemini 工具');
             Object.assign(fab.style, {
                 width: '56px',
