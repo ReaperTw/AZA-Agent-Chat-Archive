@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         GYC - Gemini
 // @namespace    https://github.com/ReaperTw/AZA-Agent-Chat-Archive
-// @version      1.4.3
-// @description  Grab Your Chat - Gemini 端對話匯出器；最後更新於 20261029
+// @version      1.4.4
+// @description  Grab Your Chat - Gemini 端對話匯出器；最後更新於 20261031
 // @updateURL    https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-gemini.user.js
 // @downloadURL  https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-gemini.user.js
 // @match        https://gemini.google.com/*
@@ -392,6 +392,7 @@ function buildRpcRequest(cid, limit) {
         let content = `> **匯出來源**：${[apiAvailable && 'API', domAvailable && 'DOM'].filter(Boolean).join(' + ')}（整合匯出）\n\n`;
         if (apiAvailable && domAvailable && result.comparison.differences.length) content += `> **正文差異**：${result.comparison.differences.length} 筆；單邊訊息及衝突版本均已保留，未自動覆蓋。\n\n`;
         if (!apiAvailable || !domAvailable) content += `> **來源取得失敗**：${apiAvailable ? 'DOM' : domAvailable ? 'API' : 'API、DOM'}。\n\n`;
+        if (notes.length) content += notes.map(note => `> **來源提醒**：${note}\n\n`).join('');
         let users = 0, models = 0;
         const body = message => String(message?.text ?? '');
         const supplement = (message, source) => {
@@ -410,19 +411,17 @@ function buildRpcRequest(cid, limit) {
             const primary = entry.api || entry.dom;
             const role = primary.role === 'user' ? `User ${++users}` : `Model ${++models}`;
             const sources = [entry.api && `API #${entry.apiIndex}`, entry.dom && `DOM #${entry.domIndex}`].filter(Boolean).join(' · ');
-            content += `--- [${role}] ---\n> **訊息來源**：${sources}${entry.kind === 'progress' ? '（前進度）' : ''}\n\n`;
+            content += `--- [${role}] ---\n`;
+            if (entry.kind !== 'match') content += `> **訊息來源**：${sources}${entry.kind === 'progress' ? '（前進度）' : ''}\n`;
+            content += '\n';
             if (entry.kind === 'text' || entry.kind === 'role') {
                 content += `> **來源衝突：兩版均保留**${entry.kind === 'role' ? '（角色也不同）' : ''}\n\n`;
                 content += `### API 版本（${entry.api.role}）\n\n${body(entry.api)}\n\n### DOM 版本（${entry.dom.role}）\n\n${body(entry.dom)}`;
             } else {
                 content += body(primary);
-                if (entry.api && entry.dom && body(entry.api) !== body(entry.dom)) {
-                    content += `\n\n<details>\n<summary>DOM 原文（呈現正文相符）</summary>\n\n${body(entry.dom)}\n\n</details>`;
-                }
             }
             content += supplement(entry.api, 'API') + supplement(entry.dom, 'DOM') + '\n\n';
         }
-        if (notes.length) content += `## 來源紀錄\n\n${notes.map(note => `- ${note}`).join('\n')}\n`;
         return { ...result, compared: apiAvailable && domAvailable, content: content.trimEnd() + '\n' };
     }
 
@@ -492,7 +491,7 @@ function buildRpcRequest(cid, limit) {
         if (differences.length || unavailable) status.setAttribute('role', 'alert');
         const statusTitle = unavailable ? '有來源取得失敗' : differences.length ? `發現 ${differences.length} 筆正文差異` : '兩個來源的正文相符';
         status.append(el('strong', '', statusTitle));
-        status.append(el('span', '', unavailable ? '請查看下方各來源的實際錯誤。' : differences.length ? '單邊訊息已補入；衝突保留 API 與頁面兩版，不自動覆蓋。' : '相同訊息已合併，來源原文與補充資料一併保留。'));
+        status.append(el('span', '', unavailable ? '請查看下方各來源的實際錯誤。' : differences.length ? '單邊訊息已補入；衝突保留 API 與頁面兩版，不自動覆蓋。' : '相同訊息只保留一份正文；各來源原文可另存。'));
         panel.append(status);
         if (!integration.entries.length) heading.lastChild.textContent = '未取得可匯出訊息';
         if (integration.counts.progress) panel.append(el('p', 'gyc-subtle', `另保留 ${integration.counts.progress} 則 API 前進度訊息。`));
