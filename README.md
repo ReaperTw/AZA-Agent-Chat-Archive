@@ -1,247 +1,57 @@
 # AZA-Agent-Chat-Archive
 
-將 ChatGPT、Gemini、Grok、Claude 與本機 AI Agent 的對話整理成乾淨、可攜的 Markdown 檔案。
-
-## 能做什麼
-
-- 匯出使用者與 AI 的對話內容，方便備份、搜尋或放進 Obsidian。
-- 自動捲動並載入較長的網頁對話。
-- 匯出前可確認檔名，完成後直接下載 `.md`。
-- 網頁版與 Agent Skill 都在本機產生檔案，不會自行把對話上傳到其他服務。
-
-這是單篇對話匯出工具，不是 ChatGPT、Gemini、Grok、Claude 或 Discord 帳號的完整備份工具。
-
-## 選擇版本
-
-| 使用環境 | 類型 | 安裝 |
-| --- | --- | --- |
-| ChatGPT | Tampermonkey userscript | [安裝 GYC - ChatGPT](https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-chatgpt.user.js) |
-| Gemini | Tampermonkey userscript | [安裝 GYC - Gemini](https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-gemini.user.js) |
-| Grok | Tampermonkey userscript | [安裝 GYC - Grok](https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-grok.user.js) |
-| Claude | Tampermonkey userscript | [安裝 GYC - Claude](https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-claude.user.js) |
-| Antigravity、Codex、Grok Build、Command Code、OMP、Claude Code、Hermes | Agent Skill | [查看 AZA-Agent-Chat-Archive](skills/AZA-Agent-Chat-Archive/) |
-
-### 歷史版本與更新說明
-
-前往 [GitHub Releases](https://github.com/ReaperTw/AZA-Agent-Chat-Archive/releases) 查看各版本差異並下載固定版本；userscript 附 `.user.js`，Agent Skill 附完整安裝目錄 ZIP。
-
-版本依元件獨立編號，例如 `claude-v1.2.1` 與 `archive-skill-v1.4.1`，不代表其他元件同時升級。歷史版本只包含 Git 已保存的版號，未保存的中間版本不補號。
-
-上表安裝連結跟隨 `main` 更新。若要停留在舊版，請從對應 Release 安裝，並關閉該腳本在 Tampermonkey 的自動更新。
+將 ChatGPT、Gemini、Grok、Claude 與本機 AI Agent 的可見對話，匯出為方便保存、搜尋的 Markdown。這是單篇對話匯出工具，不是帳號完整備份，也不能還原成可繼續執行的工作階段。
 
 ## 網頁對話匯出器
 
 ### 安裝
 
-1. 在瀏覽器安裝 [Tampermonkey](https://www.tampermonkey.net/)。
-2. 從上表選擇 ChatGPT、Gemini、Grok 或 Claude 版本。
-3. 在 Tampermonkey 安裝頁確認安裝。
-4. 重新載入對話頁面。
+1. 安裝瀏覽器擴充套件 [Tampermonkey](https://www.tampermonkey.net/)。
+2. 點選下方適用的腳本並在 Tampermonkey 確認安裝。
+3. 重新載入對話頁面。
+
+| 網站 | 安裝連結 |
+| --- | --- |
+| ChatGPT | [安裝 GYC - ChatGPT](https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-chatgpt.user.js) |
+| Gemini | [安裝 GYC - Gemini](https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-gemini.user.js) |
+| Grok | [安裝 GYC - Grok](https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-grok.user.js) |
+| Claude | [安裝 GYC - Claude](https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-claude.user.js) |
 
 ### 使用
 
-1. 開啟要保存的對話。
-2. 點擊頁面右下角的站點圖示按鈕：ChatGPT 標誌、Claude `✳`、Gemini `✦` 或 Grok `𝕏`。
-3. 選擇匯出方式：
+1. 開啟要保存的對話，點擊頁面右下角的站點圖示。
+2. 選擇匯出方式：
+   - **API**：讀取網站結構化資料；ChatGPT 僅支援個人對話，Grok 僅支援 grok.com 已保存的對話。
+   - **DOM**（介面上的「正常匯出」）：捲動掃描頁面，不呼叫 API；群聊與 X 版 Grok 使用此方式。
+   - **COM**（介面上的「綜合匯出」）：依平台契約整合或核對兩種來源；ChatGPT 以 DOM 為正式正文，API 只做訊息結構核對，其他三站沿用 API／DOM 正文比較與衝突保留。
    - **到頂端**：載入並回到對話頂端，不下載檔案。
-   - **API匯出**：直接向網站讀取對話資料，不靠捲動；ChatGPT 僅支援個人對話，Grok 僅支援 grok.com 已保存的對話。
-   - **正常匯出**：從頂端捲動掃描畫面，不使用 API；群聊與 X 版 Grok 也使用此模式。
-   - **綜合匯出**：ChatGPT 1.4.9 以正常掃描的 DOM 為正式正文，API 只核對訊息 ID、角色與順序，未配對 API 內容另存待確認附錄。其餘三家維持 API／DOM 正文比較與衝突兩版保留。
-4. 綜合模式按「下載整合 Markdown」；ChatGPT 可下載「核對報告」，其他平台下載比對報告。展開「另存個別來源」可保存 API／頁面各自的訊息 Markdown；單獨模式確認檔名後下載。
+3. 檢視來源數量與警告。平常只需下載 COM 的 Markdown；核對報告、API／DOM 副本需要時再另存。
 
-四家均提供「綜合匯出／API匯出／正常匯出」與回到頂端操作。綜合模式中任一路失敗，成功的一側仍可保存；單獨模式失敗時不自動切換。Claude 的正常模式與 API 分開擷取，作為比對來源與 API 失敗時的保存路徑。
+檔名標記固定為 **API／DOM／COM**。綜合檔以 `_COM.md` 結尾，例如 `GPT_對話名稱_20261101_181621_COM.md`；不加批次序號。API／DOM 保留原有檔名格式。
 
-Markdown 統一以 `> **匯出來源**` 開頭，正式正文使用 `--- [User N] ---`／`--- [Model N] ---`，實際取得的時間另列。檔名使用 `API`、`DOM`、`COMBINED`、`DIFFERENCES` 區分內容；ChatGPT 1.4.9 的核對報告使用 `VERIFICATION`，待確認附錄不計入正式正文數量。`DOM` 即正常匯出。引用、附件與進度分開診斷，不藉由刪除未知文字讓正文看起來一致。
-Claude 的分支根節點可能使用特殊 UUID，匯出器會把它視為正常結束；只有實際父訊息缺失才會顯示「分支上游有訊息不在回應裡」警告。
-Claude 1.2.3 會排除系統／工具與未知角色，不把未知 sender 冒充 Model；未知內容區塊及分支循環會明確警告。保留已支援的可見 Artifact／檔案成果，避免用 `message.text` 回填已排除的推理或工具區塊。
-Gemini 的 API 與正常匯出視窗都會顯示訊息數、字數及具體警告；API 匯出每組問答只在 User 前列一次來源時間，不在 Model 回覆重複列出。
-ChatGPT 1.1.3 將正常匯出每步基本等待從 500ms 降為 250ms，保留 60% 視窗步距、空殼重試與缺漏回訪。實際速度仍受頁面載入與瀏覽器計時器影響；已登入對話的前後下載全文一致，不代表所有長對話已驗證。
-ChatGPT 1.1.6 的 API／正常匯出共用 Markdown 排版：來源、`User N`／`Model N` 分隔、時間標記及檔尾提示格式一致；正常匯出的不完整警告也會保存到檔案，多行提示維持 Markdown 引用格式。保留各模式實際取得的時間與來源，不補造正常模式沒有的逐則時間，也不改正文擷取規則；時間數量、附件說明、警告或正文不同時，檔案大小仍可能不同。
-1.1.6 當時以隔離瀏覽器的模擬對話驗證 API／正常匯出／獨立 DOM 正文及缺少時間戳的提示；這份歷史證據不代表所有長對話均已驗證。
+### 範圍與限制
 
-### 四家固定輸出與綜合模式
+- 匯出器在本機瀏覽器產生檔案，不會自行把對話上傳到其他服務；匯出內容仍受你選擇的下載位置及其同步設定影響。
+- 附件本體不嵌入 Markdown；圖片通常只保留可取得的提示／佔位文字，不是圖片備份。
+- 網站內部 API、頁面結構可能改版。未知內容、歷史不完整、分支不明或來源失敗會以警告呈現；訊息 ID／角色／順序對上，不等於正文逐字相同或未知元件完整。
+- ChatGPT 綜合匯出只核對 API 訊息結構，不做 API 與 DOM 正文逐字比對。未配對 API 內容另列待確認，不混入正式正文。
 
-以下正文比較與衝突合併規則適用 Claude、Gemini、Grok，以及 ChatGPT 1.4.8 與更早版本；ChatGPT 1.4.9 改用下方「ChatGPT 綜合匯出」的頁面優先契約。
+## 本機 Agent Skill
 
-- 呈現正文與角色相符：只保留一份 API 正文，不逐則標來源，也不附上格式不同的 DOM 副本；需要各來源原文時使用「另存個別來源」。
-- 單邊訊息：保留並標記來源，不以去重刪除重複出現的訊息。正文衝突：在同一則中保留 API／DOM 兩版及各自角色，不自動覆蓋；結果視窗顯示警告並展開具體差異。
-- 各來源取得的引用、附件說明、時間及可見處理狀態隨訊息保留；未知 metadata 不當成零，也不以計數相同推定內容相同。已證明的 API 前進度一併保留，不算正式正文衝突。
-- 來源取得失敗：顯示實際錯誤，仍可下載成功一側的整合檔；不把未取得的來源宣稱為正文差異。兩側均失敗時不提供空白整合檔。
-- 分支不確定及其他來源警告集中在整合檔檔頭，不混入每則正文；不能因此視為已確認目前分支。
-- 比對報告不逐則列出空值或沒有內容的 metadata；未知狀態保留摘要，不當成零。有內容的引用／附件及已支援的處理狀態保留，Gemini 的 metadata 仍標示未知。
+[AZA-Agent-Chat-Archive Skill](skills/AZA-Agent-Chat-Archive/) 可歸檔 Antigravity、Codex、Grok Build、Command Code、OMP、Claude Code 與 Hermes 的可見對話。將 skill 目錄安裝到 Agent 支援的 Skills 位置，再要求 Agent「使用 AZA-Agent-Chat-Archive 歸檔目前對話」。首次使用依提示設定輸出資料夾與命名方式。
 
-結果視窗保留來源數量卡片、下載按鈕及可展開的來源紀錄；支援明暗主題、窄螢幕、鍵盤焦點與 Escape 關閉。ChatGPT 第三張卡片為「正式正文」，顯示 ID／角色／順序核對狀態與待確認內容，不宣稱正文逐字一致；其他平台沿用正文差異警告。
+各 Harness 的安裝位置、命令、支援邊界與保存規則，請依序參閱：
 
-Claude 新增正常匯出與到頂端：正常模式不依賴 API，向上載入再向下收集，使用穩定訊息索引／ID 保留重複訊息。API 適合取得結構化分支，正常模式作為頁面核對與 API 失敗時的保存路徑。尚未實測的獨立 Artifact／檔案面板不能宣稱已由 DOM 完整保存。
+- [Antigravity](skills/AZA-Agent-Chat-Archive/harnesses/Antigravity.md)
+- [Codex](skills/AZA-Agent-Chat-Archive/harnesses/Codex.md)
+- [Grok Build](skills/AZA-Agent-Chat-Archive/harnesses/Grok.md)
+- [Command Code](skills/AZA-Agent-Chat-Archive/harnesses/CommandCode.md)
+- [OMP](skills/AZA-Agent-Chat-Archive/harnesses/Omp.md)
+- [Claude Code](skills/AZA-Agent-Chat-Archive/harnesses/Claude.md)
+- [Hermes](skills/AZA-Agent-Chat-Archive/harnesses/Hermes.md)
 
-1.3.0 的隔離瀏覽器驗證涵蓋合成 API／頁面相符、不符及單路失敗；Grok 另驗證 X 不支援 API 時仍可保存 DOM，Claude 另驗證虛擬化歷史、重複訊息與停用 API 的正常匯出。
+Skill 只匯出可見對話，不保存隱藏推理、工具活動或引用檔案；OMP 會將主對話及可取得的 subagent 對話保存為任務資料夾。它不是來源工作階段或完整檔案備份。
 
-1.4.0 的來源守恆回歸：`node tests/check-integrated-export.js`，涵蓋四家的重複訊息、長缺口、角色／文字衝突、原文字面差異、metadata、前進度與單路失敗。隔離無頭瀏覽器實際操作四家結果視窗的相符、衝突、API 失敗及雙路失敗，共 16 個場景；24 份整合檔／報告確認下載並核對內容。另驗證 390px 淺色畫面、焦點及 Escape。這輪未重新登入四站，擷取器未修改；登入樣本證據如下。
+## 開發與驗收
 
-1.4.1 重測修正雙來源均失敗時的誤導狀態說明：零訊息不再宣稱已保留成功內容；四家空結果畫面均已用隔離瀏覽器確認，且不提供整合檔下載。
-
-1.4.2 修正長差異視窗的自動聚焦捲動：下載按鈕仍取得鍵盤焦點，但開啟時保留視窗頂端，避免標題被捲走。已在使用者登入的 Brave 以長篇訊息重播四家結果視窗，確認初始捲動為 0、標題可見、鍵盤焦點保留。另用實際擷取資料的記憶體副本驗證正文衝突及單／雙來源失敗；這些是受控輸入，不是網站真的傳回錯誤。
-
-Grok 1.4.3 修正 API 大寫 `ASSISTANT` 被漏讀，並以 response ID 接回訊息樹提供的父子關係；網站正文回應沒有附帶父 ID 時，不再因此把每則訊息誤當成獨立分支。真正多分支的提示仍保留於原文與來源警告，提示本身與比較正文分開。Markdown 助理標題維持 `Model N`。去識別的 146 組問答已跑過實際擷取、解析、整合與瀏覽器結果視窗：兩路各 292 則，整合 292 則、正文差異 0；分支與角色回歸亦通過。使用者回報案例的 API 已觀察到 146 個 `human`、147 個 `ASSISTANT`；該頁後續偵錯連線被取消，修正後的原對話結果尚未重新驗證，不能把模擬資料結果當成該對話的完成證據。
-
-啟動按鈕圖示修正：ChatGPT／Claude／Gemini 1.4.3、Grok 1.4.4 保留各站原有圖示與圓形按鈕，不再覆蓋成「匯出」文字；新版選單與整合結果面板不變。四家的圖示、56px 圓形尺寸與開啟選單已在隔離瀏覽器實際確認。
-
-Grok 1.4.5 精簡閱讀用 Markdown：呈現正文與角色相符時只保留 API 正文，不再附上格式不同的 DOM 副本，也不逐則列來源；單邊訊息、前進度及真正的文字／角色衝突仍標記來源並保留內容。分支不確定與其他來源警告集中於檔頭，不插進每則正文；所有候選訊息仍保留，不能視為已確認目前分支。個別來源原文仍可透過「另存個別來源」下載。比對報告只逐則列出有內容的引用／附件，未知狀態集中摘要，不當成零。
-
-此版驗證：`node tests/check-integrated-export.js`、`node tests/check-grok-api.js`、`node tests/check-grok-combined.js` 通過；隔離瀏覽器實際操作整合檔與比對報告按鈕，核對產生的 Blob 內容及結果視窗。私人既有匯出資料於記憶體重播，API 444 則／DOM 438 則，整合仍為 444 則、10 筆衝突與 6 筆單邊訊息；移除 428 段相符副本後輸出縮小約 52%。原始私人檔案未修改或提交。本輪沒有重新登入網站擷取；完整歷史、目前分支及獨立 DOM 三路驗收仍為未驗證，重播不代表已解決原本的 16 筆差異。
-
-ChatGPT／Claude／Gemini 1.4.4 同步上述精簡規則，四家共用回歸 `node tests/check-integrated-export.js` 通過。三家隔離瀏覽器各操作相符、正文衝突、有內容 metadata、API 失敗四種受控情境，共 12 個場景；點擊整合檔／比對報告按鈕並核對 24 份 Blob 內容，確認單份正文、必要警告、衝突兩版、補充資料及失敗後成功來源保留，並檢查三家結果視窗。此輪僅修改輸出層，未重新登入網站擷取；完整歷史、目前分支及獨立 DOM 驗收仍為未驗證。
-
-Grok 1.4.6 修正差異成因：API 與綜合模式依頁面 URL 的 `rid` 沿父鏈選取目前分支，不再把其他分支混入正文；指定訊息不存在、不是末端、父鏈缺失／循環或根節點不唯一時，保留候選與不確定警告。空白回應的展示說明與比較正文分離；API 回應失敗或未完成仍明確提示，不把說明文字當成來源正文。只有換行前空白不同的差異在比對報告中明確分類，仍保留原文與差異計數，沒有放寬比較。
-
-原案例唯讀登入核對：API 444 則、URL 指定分支 438 則；API #108、#298、#299、#367、#443、#444 恰好都是非目前分支訊息。8 筆空白回應的正文、output chunks、工具及附件均為空，7 筆帶 `streamErrors`、1 筆為 `partial`。原 API 正文與既有匯出逐則相同；以既有報告重建的 DOM 比對輸入重播後，兩路及整合均為 438 則，差異從 16 降為 2，僅剩原 API #340／#377（選定分支 #337／#373）的換行前單一空格差異。這是舊報告重播，不是重新擷取完整 DOM；唯讀獨立核對目前掛載的末端 7 則亦相符。獨立隔離登入頁受到 Cloudflare 驗證阻擋，未操作驗證挑戰；完整歷史的三路驗收仍未完成。私人資料未寫入版本庫。
-
-驗證：`node tests/check-grok-api.js`、`node tests/check-grok-combined.js`、`node tests/check-integrated-export.js` 通過；隔離瀏覽器重播原案例並操作整合檔／比對報告按鈕，核對 438 則、2 筆純空白差異、錯誤與未完成提示均保留。
-
-Gemini 1.4.5 修正長對話正常掃描：依 `.conversation-container` 的穩定回合 ID 更新訊息，不再以可能變空的 `innerText` 做文字重疊合併；純圖片使用者訊息保留原位置，附件／空白提示不參與正文比較。正文在獨立的隱藏副本讀取，避開 Gemini 的 `content-visibility: auto`；保留富文字清單，從 `data-math`／KaTeX annotation 讀取公式，程式碼空白維持字面內容。只有原生來源 metadata 確認的引用標記才另列，原始 Markdown 不刪除引用；程式碼與公式內的字面內容不因此移除。
-
-Gemini 選單改為「到頂端 → 綜合匯出 → API匯出 → 正常匯出」。結果視窗的下載按鈕放在差異之前；差異預設收合，展開後每頁 5 筆、每側預覽最多 2000 字，截短處明示下載完整報告。完整差異與來源正文仍保存在下載內容，不再把整份報告重複掛進視窗。
-
-原案例透過唯讀 Browser Relay 確認 API 回報無後續歷史、共 59 回合；頁面掛載的 59 個回合 ID 與 API 全部對應，其中 20 則使用者訊息只有圖片。以該頁 DOM、實際樣式及 API 回應在隔離瀏覽器重播，操作實際綜合匯出按鈕（僅加速等待計時）：API／正常／整合均為 118 則，原本 482 則的重複累加消除；50 次重複擷取仍為 118 則。正文／表示差異從原報告的 447 筆降為 25 筆，仍保留兩版，不能宣稱正文全部一致。整合檔與比對報告兩個按鈕均核對產生的 Blob；447 筆長差異壓力場景確認按需載入、上一頁／下一頁、下載回呼及 Escape 關閉。`node tests/check-gemini-api.js`、`node tests/check-integrated-export.js` 通過。
-
-此輪原站僅唯讀取證，沒有在使用者分頁捲動、重載或安裝腳本；Relay 拒絕附加瀏覽器管理／擴充套件頁，無法建立規定的登入測試群組。隔離重播不等於原站完整歷史、目前分支與獨立 DOM 三路驗收；該驗收仍未完成，25 筆差異未隱藏或歸零。私人內容僅於記憶體處理，未加入版本庫。
-
-Gemini 1.4.6 改以回合 ID 集合、捲動位置及高度共同判斷頂端穩定；高度縮小不再視為載入完成，超過載入上限明確失敗。綜合模式以 API 回合數作為 DOM 載入下限（不拿 API 正文填入 DOM）；完整正文已掛載時直接結構擷取後驗證頁底，避免每半個視窗重複等待。已在原站完整 59 回合 DOM 執行正常擷取路徑，縮短等待參數下取得 118 則、無警告；兩份既有回歸通過。實際等待參數的 Relay 呼叫多次逾時，最後回報 debugger 未附加；冷啟動自動載入與安裝更新驗收仍未完成，不能據此宣稱已完全修復。
-
-Gemini 1.4.7 精簡整合檔的補充資訊：相同時間不再於 API／DOM 與緊接的回答重複列出；相同引用、附件及處理狀態每則只列一次，以短行代替縮排 JSON。已出現在正文的完整補充內容不再重複附加；不同內容及未知欄位仍保留，正文、來源失敗與衝突兩版規則不變。DOM 引用保留標籤文字，不再輸出整段操作用 aria-label。單獨來源匯出維持原有時間與正文。
-
-`node tests/check-integrated-export.js`、`node tests/check-gemini-api.js` 通過；隔離瀏覽器操作綜合下載，確認問答正文保留、相同時間與 URL 各一次，並檢查結果視窗。四篇 Gemini 原站驗收另行進行；此版開始第一篇後 Chrome 回報 `canceled_by_user`，依規則停止該頁自動化。這些受控輸出檢查不代表四篇已完整或零差異。
-
-Gemini 1.4.8 修正實際歷史載入：頁頂除了設定 `scrollTop`，亦送出 Gemini 載入器需要的向上 wheel 事件；完整性仍由回合 ID、位置、穩定狀態及綜合模式的 API 回合下限共同判斷，不能以逾時或高度未增加宣稱全文。修正 query-line 樣板多加的一對空格（保留使用者本身縮排）、程式碼語言工具列混入正文，以及表格儲存格的版面換行。補齊原站的中文粗體、單波浪範圍、引用段落字面星號、display math 先於 Markdown 的處理、等價 TeX 分隔符與行距；程式碼、數字、公式方向及真正字面差異仍會報錯。隱藏側欄時的檔名改從目前頁面標題取得。
-
-四篇登入對話已各自取得 API／正常來源及獨立完整 DOM。API 均回報無後續歷史，回合 ID 順序逐一對應 DOM，回答選取 ID 可確認；獨立 DOM 使用另一份節點走訪器擷取，不由 API 或正常解析結果複製正文。私人證據在版本庫外執行 `node tests/check-export-parity.js`，四篇正文均 `bodyPassed: true`、差異 0：
-
-| 去識別案例 | API／正常／獨立 DOM 訊息數 | 正文差異 |
-| --- | ---: | ---: |
-| Gemini A | 98 | 0 |
-| Gemini B | 4 | 0 |
-| Gemini C | 90 | 0 |
-| Gemini D | 118 | 0 |
-
-驗收只宣稱上述四篇的可見文字完整、角色／順序／正文相符；引用及處理狀態 metadata 的跨來源一致性仍未驗證。D 的 20 則純圖片訊息依 API 空白正文與對應 DOM 圖片節點確認，三路證據保留相同圖片佔位，圖片本體不在文字驗收範圍。前三篇以原站綜合下載按鈕保存並核對 Blob 與實際檔案；D 的最終下載前專用測試頁失去連線，改以先前已完整擷取的真實 API／正常 DOM 資料及最終修正版產生整合檔，再核對同一份獨立 DOM，未重新請求 API 或手動補字。四份檔案均確認寫入 Downloads。測試使用另開的原生 Brave 專用視窗，Relay 重啟時恢復該測試 target，不操作其他工作分頁；測試注入擷取診斷鉤子，不代表 Tampermonkey 的永久安裝已更新。
-
-`node tests/check-gemini-api.js`、`node tests/check-integrated-export.js`、`node tests/check-export-parity-test.js` 通過；另有四份上述真實私人證據 CLI 驗收。私人正文、回應、登入資訊與獨立 DOM 節點樹未加入版本庫。
-
-
-
-
-
-1.3.1 依 relay 登入頁面的實際結構修正 Gemini `model-response`／`message-content` 及多行使用者文字；Claude 修正只有圖片的使用者訊息、TurnStatus 處理摘要、引用標籤與 MessageActions 日期不應混入正文，工具前文字另存進度，原始 API 文字保留。Claude API 請求加上 30 秒上限，避免實測中卡在讀取 API。回歸測試通過。
-
-1.4.x 已在使用者登入的 Brave 重新完成以下選定對話的 API／正常擷取、整合檔及報告下載；呈現正文相符，並逐則檢查兩側原文都存在於整合檔。ChatGPT 整合後保留 11 則，其餘整合數與表中相同：
-
-| 平台 | API 訊息 | DOM 訊息 | 備註 |
-| --- | ---: | ---: | --- |
-| ChatGPT | 11 | 10 | 1 則前進度另列；兩側各辨識 9 項引用、1 個附件 |
-| Gemini | 2 | 2 | 引用／附件 metadata 未驗證 |
-| Claude | 6 | 6 | 兩側各辨識 6 項引用、1 個附件；獨立 Artifact 面板未實測 |
-| Grok | 6 | 6 | API 缺少部分父訊息，上游完整性未確認 |
-
-### ChatGPT 綜合匯出
-
-ChatGPT **1.4.10** 修正 Azazel 全量檢查發現的三項根因：排除沒有訊息 ID、網站明確以 `data-markdown-text-tone="tertiary"` 呈現的處理摘要；頁面明確列出多個來源 ID 時，允許連續、同角色、各自唯一且沒有重複配對的 API 訊息核對同一 DOM 段落，逐項保存 API 補充資料；使用者正文不再壓縮多個空白行。不同角色、非連續 ID、重複 ID 與未知內容仍保留警告。
-
-1.4.10 的進度排除以助理 `commentary` 加上嚴格布林 `is_thinking_preamble_message === true` 為證據，不再要求同 exchange 的完整 final。實測網站會在接續回答換 exchange，或保留 `finished_partial_completion`，舊條件因此漏掉已明確標記的前置進度。未標記 commentary、字串 `"true"`、正式 final 均不刪除。
-
-新版驗證：parser／整合回歸通過；22 篇皆已產生修正版匯出，其中前 15 篇在 Browser Relay 實際登入頁重跑，核對通過、待確認 0。其後 Chrome 回報 `canceled_by_user`，依規則停止瀏覽器；後 7 篇僅由先前私人 API／DOM／獨立 DOM 證據離線重建，不能宣稱新版即時登入驗證已完成。「三頭繩索訓練比較」證據重建為 35 則，排除經 API `thoughts[].summary` 證實的處理標題；「把手」為 API 32 則／DOM 30 段，32 個來源訊息均可核對，待確認 0。這是訊息結構核對，不代表 API／DOM 逐字相同；新版 DOM fixture 已補上摘要與空白行回歸，但本輪因連線取消未執行瀏覽器 fixture。
-
-ChatGPT **1.4.9** 採頁面優先，不再重建 API 的 Markdown／JSX 呈現：
-
-- **正式正文來自 DOM**，保留頁面擷取順序與每次重複出現的訊息。已識別的引用控制項另列 metadata；一般連結、未知可見元件、表格文字及程式碼內容保留。
-- **API 只核對訊息結構**：依 `current_node` 父鏈取得目前分支，利用 API mapping／message ID 與頁面的 message、selection、DIL source 或 search-message ID 配對，再核對角色與順序。1.4.10 允許頁面明確宣告的連續同角色多訊息合併；不使用相同文字、位置或相同總數猜配對，也不把 turn envelope ID 冒充訊息 ID。
-- ID 全部對上只代表訊息結構核對完成，**不代表同一 ID 內的文字逐字相同、沒有截斷，或未知元件已完整擷取**。無法提供 ID、重複 ID、角色／順序異常、分支／歷史不明均明確警告；時間戳缺失提示不單獨判為歷史缺漏。
-- 未配對的 API 訊息完整保留在 **「待確認 API 內容（不屬於正式正文）」** 附錄，標示原 API 索引與角色，不自動混入正文。疑似漏抓與分支差異尚未證實時，不冒稱已補齊。
-- API 失敗時仍可保存 DOM 正文，核對標為未完成。DOM 失敗時正式正文為 0，API 僅存待確認附錄；兩側均失敗不提供空白整合檔。收集期間換對話仍停止核對。
-- 只排除助理 `commentary` 中 `metadata.is_thinking_preamble_message === true` 的前置進度（1.4.10 起不依賴接續回答的 exchange／完成狀態）。缺少證據的 commentary 保留；DOM 不主動展開思考區，並略過已識別展開區，以及沒有原生訊息 ID 的 tertiary 處理摘要。
-- 單獨 API 匯出仍保存來源文字與上述保守篩選結果；可另存 API／DOM 原文。刪除舊版逐字比較器、JSX 特例與內附 Markdown renderer，未知 API 元件不再造成格式誤報。
-
-驗證：`node tests/check-chatgpt-api.js` 與 `node tests/check-integrated-export.js` 通過，包含 ID／角色／順序、不同分支、重複與缺失 ID、原文保留、未知元件、待確認附錄及來源失敗。瀏覽器重播先前登入擷取的私人原始 DOM（8 回合、18 則正文）與 API：18 則 ID 配對、0 則待確認；正常擷取正文另與獨立 DOM 文字逐則一致。實際操作綜合匯出與四份下載，並驗證 API 失敗、DOM 失敗及雙側失敗介面。本輪即時頁面導回首頁、對話 API HTTP 404，**未完成新一輪即時登入實測**；重播不替代登入證據，引用 metadata 未驗證。私人資料不入庫。
-
-DOM 回歸：於專案根目錄執行 `python -m http.server 18763 --bind 127.0.0.1`，以瀏覽器開啟 `http://127.0.0.1:18763/tests/check-chatgpt-dom.html`。`PASS` 涵蓋合併回合、訊息來源 ID、重複使用者文字、時序、表格／程式碼、重複快照及已識別的展開處理內容排除。
-
-### API 匯出的範圍與限制
-
-- ChatGPT：依 `current_node` 的父子鏈匯出個人對話，略過工具、系統、分析與隱藏訊息；即使 `thoughts`、`reasoning_recap` 沒有 channel，也不當成正文。1.1.7 保留未被明確隱藏、且非工具接收對象的 User／Assistant 文字，包括 `commentary`；不再只因 channel 不是 `final` 就略過文字、發出可見性警告或標示 `_INCOMPLETE`。已知圖片附件保留佔位說明。未知角色、未知內容格式、分頁標記或斷鏈仍會標示不完整；群聊保留原本的 DOM 流程。
-- Gemini：已驗證的回合數參數從 100 逐步提高，最多要求 10000 回合；這不是已驗證的游標分頁。若仍有後續資料但無法取得更早回合，會停止並標示不完整。依 API 的目前回答 ID（`turn[3][3]`）選取候選，未選取的空白候選不會觸發正文缺漏警告；選取 ID 無法對應時，仍標示並保留可取得的候選，不猜測選取結果。`_INCOMPLETE` 也可能由回答選取不明或所選正文空白觸發，不一定代表歷史訊息缺漏；視窗會分開說明 API 是否已回報無後續歷史，以及回答內容的疑慮。
-- Grok.com：先取得訊息樹，再每批載入 50 則正文，最多 10000 則。1.4.6 起使用頁面 URL 的 `rid` 選取已確認的末端父鏈；無法確認時保留所有候選與警告，不把多條分支冒充成連續對話。空白、失敗及未完成回應保留提示，但提示不參與正文比較。X 版維持 DOM 匯出。
-- 對話時間取自來源資料，轉成瀏覽器本地時區；附件本體不嵌入 Markdown。這些是未公開保證的網站內部介面，可能隨改版失效。
-- ChatGPT 1.1.2 已在登入的實際對話完成 API 按鈕、保存視窗與 Markdown 下載驗證；含圖片的 5 組問答正確計為 10 則訊息，不再把推理節點計入或因已知圖片附件誤標不完整。Gemini、Grok API 試用版本已通過模擬回應的瀏覽器按鈕、Markdown 下載及失敗復原檢查；不等於兩者都已完成登入實測。
-
-### Debug 一致性驗收
-
-共同規則以本節為準；[AGENTS.md](AGENTS.md) 要求相關變更依此驗收。三來源均須獨立取得，分別確認目前分支與完整歷史；但各平台依匯出契約評分。
-
-**ChatGPT 1.4.9：** API 證據保存目前父鏈的訊息 ID／角色／順序與完整性；正常擷取保存 DOM 正文及來源 ID；獨立完整 DOM 另行取得正文。核對 API／正常擷取的訊息結構，以及正常擷取／獨立 DOM 的角色、順序、文字；後者只允許換行編碼、NBSP 與首尾空白正規化，附件提示與引用 metadata 分開。保存私人證據及各項結果，API 正文一致性固定為未驗證。不能把 DOM 正文複製成 API capture，也不能用舊三方逐字比較器的 exit 0 冒充新契約驗收。缺登入、缺獨立 DOM 或只做重播時明確標示。
-
-**Claude／Gemini／Grok，以及舊版 ChatGPT 的三方正文診斷：**
-
-1. 等待生成結束，確認同一對話與目前選取分支。逐段載入全部頁面歷史，獨立擷取並核對 DOM；不可拿匯出器解析結果當 DOM 證據。掛載節點數或訊息數相等不足以證明完整。只有已知完整歷史、目前分支，且獨立 DOM 擷取完成，才能標記 `complete: true`。
-2. 比較正文訊息的角色、順序與文字。只允許換行編碼、NBSP 與正文首尾空白正規化；不可丟棄未知文字、合併訊息或放寬正規化。圖片本體忽略；來源引用及已證明的工具／工具前進度可另行標註，未證明的內容仍屬正文並照常比較。正文差異是正文差異；純引用或進度 metadata 差異不得稱為缺少正式答案。
-3. 在版本庫外保存私人 JSON 證據。`conversation`、`branch` 在各模式應一致且去識別；每個 capture 有 `complete` 與獨立的 `messages` 正文：
-
-   ```json
-   {
-     "provider": "claude",
-     "api": {
-       "conversation": "private-chat-A",
-       "branch": "selected-branch-A",
-       "complete": true,
-       "messages": [{ "role": "user", "text": "Example" }],
-       "references": [{ "messageIndex": 1, "label": "Source", "url": "https://example.test" }],
-       "process": [{ "messageIndex": 1, "text": "Searching…", "evidence": "Observed in the UI before the answer." }]
-     },
-     "normal": { "conversation": "private-chat-A", "branch": "selected-branch-A", "complete": true, "messages": [{ "role": "user", "text": "Example" }] },
-     "dom": { "conversation": "private-chat-A", "branch": "selected-branch-A", "complete": true, "messages": [{ "role": "user", "text": "Example" }] }
-   }
-   ```
-
-   `references` 與 `process` 是可選 capture 欄位；缺少或 `null` 表示未驗證，`[]` 表示已檢查且沒有項目。`messageIndex` 以該 capture 的正文 `messages` 為準，從 1 起算。引用須保留標籤與 URL；進度須有非空 `evidence`，說明實際觀察到的 UI／協定證據。不得只因文字不是 final channel 就把它歸為 `process`；未證明的工具進度／前置文字不得移出正文。
-4. 執行 `node tests/check-export-parity.js <私人證據.json>`；也可用 `-` 從 stdin 輸入。四家都提供 `api`、`normal`、`dom` 三份獨立 capture。報告分別列出 `body`、`references`、`process` 的 `match`／`different`／`unverified`，並標示 `bodyPassed`。結束碼 **0** 表示已驗證正文一致，**1** 表示正文訊息角色／順序／文字有差異，**2** 表示證據不完整或無效。因而 exit 0 不代表引用、進度或全部欄位都一致；metadata 有差異或未驗證仍須如實呈現。報告不得輸出正文、URL 或私人識別資料。
-5. 分別記錄歷史、文字解析、分支確認及 DOM 證據狀態。比較器只檢查所提供證據，不能自行證明擷取獨立或完整；來源不明、缺登入或未完成 DOM 擷取均為未驗證。
-
-比較器回歸：`node tests/check-export-parity-test.js`。模擬資料與 parser 測試不能替代登入實測。
-
-最新功能流程與登入樣本範圍見「四家固定輸出與綜合模式」。這些選定對話的呈現正文證據，不替代本節要求的完整歷史、分支及獨立 DOM 驗收；未取得各項證據時，分項記錄為未驗證。
-
-## AZA-Agent-Chat-Archive Skill
-
-### 能做什麼
-
-- 歸檔目前的 Antigravity（桌面版／`agy` CLI）、Codex、Grok Build、Command Code、OMP、Claude Code 或 Hermes 對話。
-- 列出並選擇其他本機 Agent 對話進行歸檔。
-- 只保留可見的使用者與助理訊息；排除系統指令、推理內容、工具呼叫與執行狀態。
-- 再次匯出同一個 Session 時更新既有歸檔，避免產生重複檔案；OMP 使用任務資料夾，其他環境維持單一 Markdown。
-
-### Antigravity 與 AZA 命名（Skill 1.6.0）
-
-Skill 名稱、來源目錄、安裝目錄與顯示名稱統一為 `AZA-Agent-Chat-Archive`，採 `AZA-` 全大寫、其餘單字首字大寫及連字號分隔。舊安裝需移除 `agent-chat-archive` 目錄或連結，改裝 `AZA-Agent-Chat-Archive`；既有 `.agent-chat-archive.json` 設定檔與歸檔識別標記保持不變，避免丟失偏好或重複匯出。OMP 已開啟的工作階段需重新載入 skills 或重啟，才會更新名稱清單。
-
-Antigravity 的來源、選擇目前對話、命令及保存邊界見 [`harnesses/Antigravity.md`](skills/AZA-Agent-Chat-Archive/harnesses/Antigravity.md)。需要 Python 3（僅標準函式庫）與 PowerShell；預設搜尋桌面版及 CLI 的 SQLite 對話，唯讀處理 WAL，保留原始使用者顯示文字與助理答案，不匯出推理、展開後的系統上下文或工具內容。同一對話內的 fork 使用資料庫已複製的目前分支，不拼接被放棄的分支。無目前對話 ID 且 workspace 有多筆候選時，要求選擇，不把最近修改時間當成目前任務證據。
-
-已以真實桌面版對話（29 則，含同對話 fork）及 CLI 對話（2 則）完成 PowerShell 匯出、順序／文字核對、推理排除及來源資料庫雜湊不變檢查；私人輸出於驗證後刪除。這是本機儲存與命令流程驗證，不代表已完成 Antigravity UI 全歷史比對。跨對話／裁剪的父軌跡、未知 step 格式／類型、缺步及舊 `.pb` 會明確拒絕，不覆蓋既有成功歸檔。
-
-回歸：`python -B tests/test_antigravity_export.py -v`（6 項）、`powershell -NoProfile -ExecutionPolicy Bypass -File skills/AZA-Agent-Chat-Archive/scripts/Test-AgentChatArchive.ps1`（52 項既有檢查）、`python -B skills/AZA-Agent-Chat-Archive/scripts/Export-HermesChat.py --self-test`（4 項）。
-
-### OMP 任務歸檔（Skill 1.5.0）
-
-OMP 預設將主對話與可取得的 subagent 可見對話一起保存。格式、保存邊界與完整性判定見 [`harnesses/Omp.md`](skills/AZA-Agent-Chat-Archive/harnesses/Omp.md#task-bundle)。
-
-主檔提供 subagent 附件索引；manifest 保存 ID、父子關係與匯出狀態。巢狀 agent、失敗與取消的任務也納入發現範圍。缺漏或無法確認完整性時明確回報部分匯出，重新匯出失敗的附件保留上次成功版本。
-
-舊版 OMP 單檔會在任務資料夾成功保存後遷移。來源對話不會自動刪除；歸檔不包含隱藏推理、工具紀錄或外部檔案，也不能還原成可接續執行的 OMP session。
-
-### 使用
-
-1. 將 [`skills/AZA-Agent-Chat-Archive`](skills/AZA-Agent-Chat-Archive/) 安裝到 Agent 支援的 Skills 目錄。
-2. 對 Agent 說：`使用 AZA-Agent-Chat-Archive 歸檔目前對話`。
-3. 第一次使用時，依提示選擇輸出資料夾與命名方式。
-4. 完成後，Agent 會回報檔案位置、訊息數量與警告。
-
-不同 Agent 的 Skill 安裝位置可能不同；實際位置請依該 Agent 的 Skills 說明為準。
-
-Claude Code 會讀取 `~/.claude/skills/AZA-Agent-Chat-Archive`。Antigravity 桌面版與 CLI 共用 `~/.gemini/config/skills/AZA-Agent-Chat-Archive`，必須安裝為實體目錄：目前 Windows 掃描器會略過 junction，不能沿用 OMP 的連結安裝方式；更新時需同步複製整份 skill。已直接呼叫正在執行的 Antigravity `getAllSkills`，確認實體安裝會載入大寫名稱 `AZA-Agent-Chat-Archive`，junction 則不會。`~/.gemini/antigravity/skills` 不是目前版本的全域自訂 skill 來源。網頁版 Claude 仍用上方的 userscript，不走這個 Skill。
+解析契約、三來源核對方式及已知驗證範圍，請見[匯出驗收規格](docs/EXPORT_VALIDATION.md)；修改本專案前先讀 [AGENTS.md](AGENTS.md)。

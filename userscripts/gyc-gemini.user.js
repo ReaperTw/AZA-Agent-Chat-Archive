@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GYC - Gemini
 // @namespace    https://github.com/ReaperTw/AZA-Agent-Chat-Archive
-// @version      1.4.8
+// @version      1.4.9
 // @description  Grab Your Chat - Gemini 端對話匯出器；最後更新於 20261101
 // @updateURL    https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-gemini.user.js
 // @downloadURL  https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-gemini.user.js
@@ -907,7 +907,7 @@ if (typeof document !== 'undefined') {
 
         // Shared download helper (extracted for reuse in DOM + API paths)
         function performDownload(finalTitle, content, method, filenameKind = method) {
-            const marked = filenameKind === 'COMBINED' ? content.replace(/^\uFEFF/, '')
+            const marked = filenameKind === 'COM' ? content.replace(/^\uFEFF/, '')
                 : `> **匯出來源**：${method}\n\n${content.replace(/^\uFEFF/, '')}`;
             const blob = new Blob(['\uFEFF' + marked], { type: 'text/markdown;charset=utf-8' });
             const anchor = document.createElement('a');
@@ -1069,7 +1069,7 @@ if (typeof document !== 'undefined') {
                 id: 'gemini-export-modal', site: 'Gemini', title,
                 apiCount: api ? apiMessages.length : null, domCount: dom ? domMessages.length : null,
                 integration, errors, report,
-                onDownload: () => performDownload(title, integration.content, '整合匯出', 'COMBINED'),
+                onDownload: () => performDownload(title, integration.content, '整合匯出', 'COM'),
                 onApi: api && (() => performDownload(title, api.out, 'API')),
                 onDom: dom && (() => performDownload(title, dom.out, 'DOM')),
                 onReport: () => performDownload(title, report, '比對報告', 'DIFFERENCES')
@@ -1218,7 +1218,7 @@ if (typeof document !== 'undefined') {
 
             const fab = document.createElement('button');
             fab.textContent = '✦';
-        fab.title = "GYC - Gemini - v1.4.8";
+            fab.title = "GYC - Gemini - v1.4.9";
             fab.setAttribute('aria-label', '開啟 Grab Your Chat - Gemini 工具');
             Object.assign(fab.style, {
                 width: '56px',

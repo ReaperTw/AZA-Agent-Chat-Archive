@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name        GYC - Grok
 // @namespace   https://github.com/ReaperTw/AZA-Agent-Chat-Archive
-// @version      1.4.6
-// @description Grab Your Chat - Grok 端對話匯出器；最後更新於 20261031
+// @version      1.4.7
+// @description Grab Your Chat - Grok 端對話匯出器；最後更新於 20261101
 // @updateURL   https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-grok.user.js
 // @downloadURL https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-grok.user.js
 // @match       https://grok.com/*
@@ -1104,7 +1104,7 @@
         showIntegratedDialog({
             id: 'grok-export-save-overlay', site: 'Grok', title, apiCount: api ? apiMessages.length : null, domCount: dom ? domMessages.length : null,
             integration, errors, report,
-            onDownload: () => downloadCombinedFile(`${base}_COMBINED`, integration.content),
+            onDownload: () => downloadCombinedFile(`${base}_COM`, integration.content),
             onApi: api && (() => downloadCombinedFile(`${base}_API`, buildTimelineMarkdown(apiMessages, api.warning ? [api.warning] : [], 'API').content)),
             onDom: dom && (() => downloadCombinedFile(`${base}_DOM`, buildTimelineMarkdown(domMessages, dom.warning ? [dom.warning] : [], 'DOM').content)),
             onReport: () => downloadCombinedFile(`${base}_DIFFERENCES`, report)
@@ -1256,7 +1256,7 @@
 
         const fab = document.createElement('button');
         fab.innerText = '𝕏';
-        fab.title = "GYC - Grok - v1.4.4";
+        fab.title = "GYC - Grok - v1.4.7";
         fab.setAttribute('aria-label', '開啟 Grab Your Chat - Grok 工具');
         Object.assign(fab.style, {
             width: '56px',

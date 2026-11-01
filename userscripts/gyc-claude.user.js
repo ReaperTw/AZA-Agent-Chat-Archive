@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         GYC - Claude
 // @namespace    https://github.com/ReaperTw/AZA-Agent-Chat-Archive
-// @version      1.4.4
-// @description  Grab Your Chat - Claude 端對話匯出器；最後更新於 20261031
+// @version      1.4.5
+// @description  Grab Your Chat - Claude 端對話匯出器；最後更新於 20261101
 // @updateURL    https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-claude.user.js
 // @downloadURL  https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-claude.user.js
 // @match        https://claude.ai/*
@@ -1318,7 +1318,7 @@
             apiCount: apiResult ? apiResult.messages.length : null,
             domCount: domResult ? domResult.messages.length : null,
             integration, errors, notes, report,
-            onDownload: () => downloadResult(`${base}_COMBINED`, integration.content),
+            onDownload: () => downloadResult(`${base}_COM`, integration.content),
             onApi: apiResult ? () => downloadResult(`${base}_API`, apiResult.markdown) : null,
             onDom: domResult ? () => downloadResult(`${base}_DOM`, domResult.markdown) : null,
             onReport: () => downloadResult(`${base}_DIFFERENCES`, report)
@@ -1471,7 +1471,7 @@
 
         const fab = root.document.createElement('button');
         fab.textContent = '✳';
-        fab.title = "GYC - Claude - v1.4.3";
+        fab.title = "GYC - Claude - v1.4.5";
         fab.setAttribute('aria-label', '開啟 Grab Your Chat - Claude 工具');
         Object.assign(fab.style, {
             width: '56px',
