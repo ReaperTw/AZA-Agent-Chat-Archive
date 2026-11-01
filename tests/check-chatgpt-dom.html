@@ -1,0 +1,43 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>ChatGPT grouped DOM regression</title>
+<style>#conversation { height: 600px; overflow-y: auto; } [data-markdown-text-style] { white-space: normal; }</style>
+<div id="conversation">
+  <div data-turn-key="grouped-turn">
+    <div class="group/user-message" data-chatgpt-search-unit-key="fallback-turn-1:0:user"><div class="whitespace-pre-wrap">Repeat question</div></div>
+    <div class="group/user-message" data-chatgpt-search-unit-key="fallback-turn-1:2:user"><div class="whitespace-pre-wrap">Repeat question</div></div>
+    <div data-chatgpt-search-unit-key="fallback-turn-1:3:assistant">
+      <div data-markdown-text-style="assistant-message">
+        <div data-dil-source-message-id="interrupted-answer" data-chatgpt-copy-reference="0"><p>Interrupted answer</p></div>
+        <div data-dil-source-message-id="final-answer" data-chatgpt-copy-reference="2"><p>Final answer</p><table><thead><tr><th>Item</th><th>Value</th></tr></thead><tbody><tr><td>Price</td><td><code>399</code></td></tr></tbody></table></div>
+      </div>
+    </div>
+  </div>
+</div>
+<pre id="result">Running…</pre>
+<script>
+(async () => {
+    const assert = (condition, message) => { if (!condition) throw Error(message); };
+    const source = await (await fetch('../userscripts/gyc-chatgpt.user.js')).text();
+    // Expose the real DOM path only in this isolated fixture, not in the installed script.
+    (0, eval)(source.replace('    const observer = new MutationObserver(createButton);',
+        '    window.collectFixture = { collectSnapshot, prepareComparisonMessage }; return;\n    const observer = new MutationObserver(createButton);'));
+    const messages = new Map();
+    const state = { seenKeys: new Set(), pendingEmpty: new Map(), timeMarkers: new Map(), nextSequence: 0, emptyObservations: 0 };
+    const collect = () => collectFixture.collectSnapshot(document.getElementById('conversation'), messages, state);
+    collect();
+    const rows = [...messages.values()];
+    assert(rows.length === 4, `Expected four independent messages; got ${rows.length}`);
+    assert(rows.map(row => row.role).join(',') === 'user,assistant,user,assistant', 'Grouped messages lost chronological order');
+    assert(rows[0].text === rows[2].text, 'Repeated user messages must both survive');
+    assert(rows[1].text === 'Interrupted answer', 'Interrupted answer was lost or merged');
+    assert(collectFixture.prepareComparisonMessage(rows[3], 'dom').body === 'Final answer\nItem\tValue\nPrice\t399', 'Table cells or inline code changed');
+    collect();
+    assert(messages.size === 4, 'A second snapshot duplicated messages');
+    document.getElementById('result').textContent = 'PASS: grouped replies, repeated users, chronological order, table/code text, snapshot deduplication';
+    document.documentElement.dataset.result = 'pass';
+})().catch(error => {
+    document.getElementById('result').textContent = 'FAIL: ' + error.message;
+    document.documentElement.dataset.result = 'fail';
+});
+</script>
