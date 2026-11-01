@@ -6,6 +6,9 @@
   <div data-turn-key="grouped-turn">
     <div class="group/user-message" data-chatgpt-search-unit-key="fallback-turn-1:0:user" data-chatgpt-search-message-ids="first-user"><div class="whitespace-pre-wrap">Repeat question</div></div>
     <div class="group/user-message" data-chatgpt-search-unit-key="fallback-turn-1:2:user" data-chatgpt-search-message-ids="second-user"><div class="whitespace-pre-wrap">Repeat question</div></div>
+    <div hidden>
+      <div data-message-author-role="assistant" data-message-id="hidden-progress"><div data-markdown-text-style="assistant-message">Hidden processing preamble</div></div>
+    </div>
     <div>
       <div><button aria-expanded="true">處理時間為 33s</button></div>
       <div><div data-markdown-text-style="assistant-message"><p>Private processing detail</p></div></div>
@@ -14,6 +17,7 @@
     <div data-chatgpt-search-unit-key="fallback-turn-1:3:assistant">
       <div data-markdown-text-style="assistant-message">
         <div data-dil-source-message-id="interrupted-answer" data-chatgpt-copy-reference="0"><p>Interrupted answer</p></div>
+        <div hidden data-dil-source-message-id="hidden-grouped-progress" data-chatgpt-copy-reference="1"><p>Hidden grouped preamble</p></div>
         <div data-dil-source-message-id="final-answer" data-chatgpt-copy-reference="2"><p>Final answer</p><table><thead><tr><th>Item</th><th>Value</th></tr></thead><tbody><tr><td>Price</td><td><code>399</code></td></tr></tbody></table></div>
       </div>
     </div>
@@ -46,6 +50,15 @@
     assert([...whitespaceMessages.values()].some(row => row.role === 'user' && row.text === 'First\n\n\n\nLast'), 'User blank lines were collapsed');
     collect();
     assert(messages.size === 4, 'A second snapshot duplicated messages');
+    const offscreen = document.createElement('div');
+    offscreen.setAttribute('data-message-author-role', 'user');
+    offscreen.setAttribute('data-message-id', 'visible-below-fold');
+    offscreen.style.marginTop = '5000px';
+    offscreen.textContent = 'Visible message below the viewport';
+    document.getElementById('conversation').append(offscreen);
+    const offscreenMessages = new Map();
+    collectFixture.collectSnapshot(document.getElementById('conversation'), offscreenMessages, state);
+    assert([...offscreenMessages.values()].some(row => row.sourceIds.includes('visible-below-fold') && row.text === offscreen.textContent), 'Offscreen visible content was mistaken for hidden content');
     document.getElementById('result').textContent = 'PASS: grouped replies, repeated users, chronological order, table/code text, snapshot deduplication';
     document.documentElement.dataset.result = 'pass';
 })().catch(error => {
