@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GYC - ChatGPT
 // @namespace    https://github.com/ReaperTw/AZA-Agent-Chat-Archive
-// @version      1.4.9
+// @version      1.4.10
 // @description  Grab Your Chat - ChatGPT 端對話匯出器；最後更新於 20261101
 // @updateURL    https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-chatgpt.user.js
 // @downloadURL  https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-chatgpt.user.js
@@ -93,7 +93,6 @@
         if (payload.has_more || payload.next_cursor) warnings.add('API 仍有後續資料，這次沒有取得全文');
         const seen = new Set();
         let id = payload.current_node;
-        let completedExchange = null;
         let excludedPreambles = 0;
         while (id) {
             if (seen.has(id)) { warnings.add('訊息鏈含循環'); break; }
@@ -115,13 +114,9 @@
                 warnings.add('文字解析未完成：已略過無法識別角色的訊息');
             }
             const hidden = internal;
-            if (role === 'user' || (role === 'assistant' && message.channel === 'final')) {
-                completedExchange = null;
-            }
-            // Only an explicit preamble with a completed answer in the same exchange is disposable.
+            // The native boolean explicitly identifies processing preambles, not formal answers.
             if (!hidden && role === 'assistant' && message.channel === 'commentary' &&
-                message.metadata?.is_thinking_preamble_message === true &&
-                completedExchange && message.metadata.turn_exchange_id === completedExchange) {
+                message.metadata?.is_thinking_preamble_message === true) {
                 excludedPreambles++;
                 id = node.parent;
                 continue;
@@ -153,17 +148,12 @@
                         } : {}),
                         create_time: message.create_time, date: formatApiDate(message.create_time)
                     });
-                    if (role === 'assistant' && message.channel === 'final' &&
-                        message.status === 'finished_successfully' && !unknownContent &&
-                        parts.some(part => typeof part === 'string' && part.trim())) {
-                        completedExchange = message.metadata?.turn_exchange_id || null;
-                    }
                 }
             }
             id = node.parent;
         }
         messages.reverse();
-        if (excludedPreambles) notices.add(`已排除 ${excludedPreambles} 則明確標記的思考前置進度；同回合正式回答已保留`);
+        if (excludedPreambles) notices.add(`已排除 ${excludedPreambles} 則網站明確標記的思考前置進度；未標記文字及正式回答不受影響`);
         return {
             title: typeof payload.title === 'string' ? payload.title : 'ChatGPT-Chat',
             messages, incomplete: warnings.size > 0,
@@ -235,10 +225,13 @@
                 if (!found) return { kind: 'dom-unmatched' };
                 for (const index of found) matches.add(index);
             }
-            if (matches.size !== 1) return { kind: 'ambiguous-id' };
-            const index = matches.values().next().value;
-            claims.set(index, (claims.get(index) || 0) + 1);
-            return { index };
+            const indices = [...matches].sort((a, b) => a - b);
+            if (!indices.length || indices.some((value, i) => i && value !== indices[i - 1] + 1)) {
+                return { kind: 'ambiguous-id' };
+            }
+            for (const id of ids) if (byId.get(id).size !== 1) return { kind: 'ambiguous-id' };
+            for (const index of indices) claims.set(index, (claims.get(index) || 0) + 1);
+            return { indices };
         });
         const used = new Set();
         let previous = -1;
@@ -247,17 +240,18 @@
             if (!canCheck) return entry;
             const candidate = candidates[index];
             let kind = candidate.kind;
-            if (!kind && claims.get(candidate.index) !== 1) kind = 'ambiguous-id';
-            if (!kind && apiMessages[candidate.index].role !== dom.role) kind = 'role';
+            if (!kind && candidate.indices.some(index => claims.get(index) !== 1)) kind = 'ambiguous-id';
+            if (!kind && candidate.indices.some(index => apiMessages[index].role !== dom.role)) kind = 'role';
             if (kind) {
-                issues.push({ kind, domIndex: index + 1,
-                    ...(candidate.index !== undefined ? { apiIndex: candidate.index + 1 } : {}) });
+                issues.push({ kind, domIndex: index + 1 });
             } else {
-                entry.api = apiMessages[candidate.index];
-                entry.apiIndex = candidate.index + 1;
-                used.add(candidate.index);
-                if (candidate.index <= previous) issues.push({ kind: 'order', apiIndex: entry.apiIndex, domIndex: entry.domIndex });
-                previous = Math.max(previous, candidate.index);
+                entry.apiIndices = candidate.indices.map(index => index + 1);
+                entry.api = apiMessages[candidate.indices[0]];
+                entry.apiIndex = entry.apiIndices[0];
+                entry.apiMessages = candidate.indices.map(index => apiMessages[index]);
+                for (const index of candidate.indices) used.add(index);
+                if (candidate.indices[0] <= previous) issues.push({ kind: 'order', apiIndex: entry.apiIndex, domIndex: entry.domIndex });
+                previous = Math.max(previous, candidate.indices.at(-1));
             }
             return entry;
         });
@@ -275,7 +269,7 @@
         return {
             entries, pending,
             verification: { complete: issues.length === 0, bodyVerified: false, issues },
-            counts: { matched: used.size, unverified: entries.length - used.size, pending: pending.length }
+            counts: { matched: used.size, unverified: entries.filter(entry => !entry.api).length, pending: pending.length }
         };
     }
 
@@ -326,7 +320,9 @@
         for (const entry of result.entries) {
             const role = entry.dom.role === 'user' ? `User ${++users}` : `Model ${++models}`;
             content += `--- [${role}] ---\n\n${entry.dom.text}`;
-            content += supplement(entry.api, 'API') + supplement(entry.dom, 'DOM') + '\n\n';
+            content += (entry.apiMessages || []).map((message, index) =>
+                supplement(message, entry.apiMessages.length > 1 ? `API #${entry.apiIndices[index]}` : 'API')
+            ).join('') + supplement(entry.dom, 'DOM') + '\n\n';
         }
         if (result.pending.length) {
             content += '## 待確認 API 內容（不屬於正式正文）\n\n';
@@ -915,7 +911,8 @@
         }));
         const hasCode = role === 'assistant' && node.querySelector('pre code, code:not(pre code)');
         const hasTable = role === 'assistant' && node.querySelector('table');
-        if (!controls.length && !hasCode && !hasTable) return { text: cleanContent(extractText(node, role)), citations };
+        const clean = text => role === 'user' ? text.trim() : cleanContent(text);
+        if (!controls.length && !hasCode && !hasTable) return { text: clean(extractText(node, role)), citations };
         const clone = node.cloneNode(true);
         clone.querySelectorAll(CITATION_SELECTOR).forEach(control => control.remove());
         let prefix = 'GYC_DOM_CODE_';
@@ -951,7 +948,7 @@
         });
         node.parentElement.appendChild(clone);
         try {
-            let text = cleanContent(extractText(clone, role));
+            let text = clean(extractText(clone, role));
             for (const [index, value] of values.entries()) text = text.replaceAll(`${prefix}${index}_END`, value);
             return { text, citations };
         } finally {
@@ -1013,6 +1010,7 @@
     function isExpandedActivity(node, scroller) {
         if (getDomSourceIds(node).length || node.hasAttribute('data-message-author-role') ||
             node.querySelector('[data-dil-source-message-id]')) return false;
+        if (node.getAttribute('data-markdown-text-tone') === 'tertiary') return true;
         const envelope = getTurnEnvelope(node, scroller);
         for (let ancestor = node; ancestor && ancestor !== envelope; ancestor = ancestor.parentElement) {
             const header = ancestor.firstElementChild;
@@ -1688,7 +1686,7 @@
                 <path fill="currentColor"
                     d="M22.2819 9.8211a5.9847 5.9847 0 0 0-.5157-4.9108 6.0462 6.0462 0 0 0-6.5098-2.9A6.0651 6.0651 0 0 0 4.9807 4.1818a5.9847 5.9847 0 0 0-3.9977 2.9 6.0462 6.0462 0 0 0 .7427 7.0966 5.98 5.98 0 0 0 .511 4.9107 6.051 6.051 0 0 0 6.5146 2.9001A5.9847 5.9847 0 0 0 13.2599 24a6.0557 6.0557 0 0 0 5.7718-4.2058 5.9894 5.9894 0 0 0 3.9977-2.9001 6.0557 6.0557 0 0 0-.7475-7.0729zm-9.022 12.6081a4.4755 4.4755 0 0 1-2.8764-1.0408l.1419-.0804 4.7783-2.7582a.7948.7948 0 0 0 .3927-.6813v-6.7369l2.02 1.1686a.071.071 0 0 1 .038.052v5.5826a4.504 4.504 0 0 1-4.4945 4.4944zm-9.6607-4.1254a4.4708 4.4708 0 0 1-.5346-3.0137l.142.0852 4.783 2.7582a.7712.7712 0 0 0 .7806 0l5.8428-3.3685v2.3324a.0804.0804 0 0 1-.0332.0615L9.74 19.9502a4.4992 4.4992 0 0 1-6.1408-1.6464zM2.3408 7.8956a4.485 4.485 0 0 1 2.3655-1.9728V11.6a.7664.7664 0 0 0 .3879.6765l5.8144 3.3543-2.0201 1.1685a.0757.0757 0 0 1-.071 0l-4.8303-2.7865A4.504 4.504 0 0 1 2.3408 7.872zm16.5963 3.8558L13.1038 8.364 15.1192 7.2a.0757.0757 0 0 1 .071 0l4.8303 2.7913a4.4944 4.4944 0 0 1-.6765 8.1042v-5.6772a.79.79 0 0 0-.407-.667zm2.0107-3.0231l-.142-.0852-4.7735-2.7818a.7759.7759 0 0 0-.7854 0L9.409 9.2297V6.8974a.0662.0662 0 0 1 .0284-.0615l4.8303-2.7866a4.4992 4.4992 0 0 1 6.6802 4.66zM8.3065 12.863l-2.02-1.1638a.0804.0804 0 0 1-.038-.0567V6.0742a4.4992 4.4992 0 0 1 7.3757-3.4537l-.142.0805L8.704 5.459a.7948.7948 0 0 0-.3927.6813zm1.0976-2.3654 2.602-1.4998 2.6069 1.4998v2.9994l-2.5974 1.4997-2.6067-1.4997Z"/>
             </svg>`;
-        fab.title = "GYC - ChatGPT 1.4.9";
+        fab.title = "GYC - ChatGPT 1.4.10";
         fab.setAttribute('aria-label', '開啟 Grab Your Chat - ChatGPT 工具');
         Object.assign(fab.style, {
             width: '56px',

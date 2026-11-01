@@ -144,14 +144,20 @@ Gemini 1.4.8 修正實際歷史載入：頁頂除了設定 `scrollTop`，亦送�
 
 ### ChatGPT 綜合匯出
 
+ChatGPT **1.4.10** 修正 Azazel 全量檢查發現的三項根因：排除沒有訊息 ID、網站明確以 `data-markdown-text-tone="tertiary"` 呈現的處理摘要；頁面明確列出多個來源 ID 時，允許連續、同角色、各自唯一且沒有重複配對的 API 訊息核對同一 DOM 段落，逐項保存 API 補充資料；使用者正文不再壓縮多個空白行。不同角色、非連續 ID、重複 ID 與未知內容仍保留警告。
+
+1.4.10 的進度排除以助理 `commentary` 加上嚴格布林 `is_thinking_preamble_message === true` 為證據，不再要求同 exchange 的完整 final。實測網站會在接續回答換 exchange，或保留 `finished_partial_completion`，舊條件因此漏掉已明確標記的前置進度。未標記 commentary、字串 `"true"`、正式 final 均不刪除。
+
+新版驗證：parser／整合回歸通過；22 篇皆已產生修正版匯出，其中前 15 篇在 Browser Relay 實際登入頁重跑，核對通過、待確認 0。其後 Chrome 回報 `canceled_by_user`，依規則停止瀏覽器；後 7 篇僅由先前私人 API／DOM／獨立 DOM 證據離線重建，不能宣稱新版即時登入驗證已完成。「三頭繩索訓練比較」證據重建為 35 則，排除經 API `thoughts[].summary` 證實的處理標題；「把手」為 API 32 則／DOM 30 段，32 個來源訊息均可核對，待確認 0。這是訊息結構核對，不代表 API／DOM 逐字相同；新版 DOM fixture 已補上摘要與空白行回歸，但本輪因連線取消未執行瀏覽器 fixture。
+
 ChatGPT **1.4.9** 採頁面優先，不再重建 API 的 Markdown／JSX 呈現：
 
 - **正式正文來自 DOM**，保留頁面擷取順序與每次重複出現的訊息。已識別的引用控制項另列 metadata；一般連結、未知可見元件、表格文字及程式碼內容保留。
-- **API 只核對訊息結構**：依 `current_node` 父鏈取得目前分支，利用 API mapping／message ID 與頁面的 message、selection、DIL source 或 search-message ID 唯一配對，再核對角色與順序。不使用相同文字、位置或相同總數猜配對，也不把 turn envelope ID 冒充訊息 ID。
+- **API 只核對訊息結構**：依 `current_node` 父鏈取得目前分支，利用 API mapping／message ID 與頁面的 message、selection、DIL source 或 search-message ID 配對，再核對角色與順序。1.4.10 允許頁面明確宣告的連續同角色多訊息合併；不使用相同文字、位置或相同總數猜配對，也不把 turn envelope ID 冒充訊息 ID。
 - ID 全部對上只代表訊息結構核對完成，**不代表同一 ID 內的文字逐字相同、沒有截斷，或未知元件已完整擷取**。無法提供 ID、重複 ID、角色／順序異常、分支／歷史不明均明確警告；時間戳缺失提示不單獨判為歷史缺漏。
 - 未配對的 API 訊息完整保留在 **「待確認 API 內容（不屬於正式正文）」** 附錄，標示原 API 索引與角色，不自動混入正文。疑似漏抓與分支差異尚未證實時，不冒稱已補齊。
 - API 失敗時仍可保存 DOM 正文，核對標為未完成。DOM 失敗時正式正文為 0，API 僅存待確認附錄；兩側均失敗不提供空白整合檔。收集期間換對話仍停止核對。
-- 只排除助理 `commentary` 中 `metadata.is_thinking_preamble_message === true`，且同一 `turn_exchange_id` 後面已有成功完成、含非空文字之 `final` 的前置進度。缺少證據的 commentary 保留；DOM 不主動展開思考區，並略過已識別「處理時間為／Thought for」展開區中的無訊息 ID 處理內容。
+- 只排除助理 `commentary` 中 `metadata.is_thinking_preamble_message === true` 的前置進度（1.4.10 起不依賴接續回答的 exchange／完成狀態）。缺少證據的 commentary 保留；DOM 不主動展開思考區，並略過已識別展開區，以及沒有原生訊息 ID 的 tertiary 處理摘要。
 - 單獨 API 匯出仍保存來源文字與上述保守篩選結果；可另存 API／DOM 原文。刪除舊版逐字比較器、JSX 特例與內附 Markdown renderer，未知 API 元件不再造成格式誤報。
 
 驗證：`node tests/check-chatgpt-api.js` 與 `node tests/check-integrated-export.js` 通過，包含 ID／角色／順序、不同分支、重複與缺失 ID、原文保留、未知元件、待確認附錄及來源失敗。瀏覽器重播先前登入擷取的私人原始 DOM（8 回合、18 則正文）與 API：18 則 ID 配對、0 則待確認；正常擷取正文另與獨立 DOM 文字逐則一致。實際操作綜合匯出與四份下載，並驗證 API 失敗、DOM 失敗及雙側失敗介面。本輪即時頁面導回首頁、對話 API HTTP 404，**未完成新一輪即時登入實測**；重播不替代登入證據，引用 metadata 未驗證。私人資料不入庫。

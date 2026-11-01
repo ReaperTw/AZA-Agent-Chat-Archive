@@ -62,8 +62,21 @@ assert.equal(reordered.pending.length, 0);
 const aliases = { ...message('canonical', 'assistant', 'native'), sourceIds: ['canonical', 'native-id'] };
 assert.equal(buildIntegratedMarkdown([aliases], [message('native-id', 'assistant', 'page')]).verification.complete, true);
 const aggregate = buildIntegratedMarkdown(api, [{ ...dom[1], sourceIds: ['q', 'a'] }]);
-assert(hasIssue(aggregate, 'ambiguous-id'));
+assert(hasIssue(aggregate, 'role'));
 assert.equal(aggregate.pending.length, 2);
+const combinedAnswers = buildIntegratedMarkdown([
+    { ...message('a1', 'assistant', 'first'), attachments: [{ name: 'one.txt' }] },
+    { ...message('a2', 'assistant', 'second'), attachments: [{ name: 'two.txt' }] }
+], [{ ...message('a1', 'assistant', 'first and second'), sourceIds: ['a1', 'a2'] }]);
+assert.equal(combinedAnswers.verification.complete, true);
+assert.equal(combinedAnswers.counts.matched, 2);
+assert.equal(combinedAnswers.entries.length, 1);
+assert.equal(combinedAnswers.pending.length, 0);
+assert(combinedAnswers.content.includes('one.txt') && combinedAnswers.content.includes('two.txt'));
+const noncontiguous = buildIntegratedMarkdown([
+    message('a1', 'assistant', 'first'), message('a2', 'assistant', 'middle'), message('a3', 'assistant', 'last')
+], [{ ...message('a1', 'assistant', 'aggregate'), sourceIds: ['a1', 'a3'] }]);
+assert(hasIssue(noncontiguous, 'ambiguous-id'));
 const aliasCollision = buildIntegratedMarkdown([
     { ...message('one', 'user', 'one'), sourceIds: ['one', 'shared'] },
     { ...message('two', 'user', 'two'), sourceIds: ['two', 'shared'] }

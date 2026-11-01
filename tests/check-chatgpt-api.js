@@ -71,7 +71,7 @@ assert.deepEqual(withoutPreamble.messages.map(m => m.text), ['Question', 'Verifi
 assert(!buildMarkdown(withoutPreamble).content.includes('Checking sources.'));
 assert(withoutPreamble.notice);
 assert.equal(withoutPreamble.incomplete, false);
-// An explicit preamble marker alone cannot justify dropping the only available response.
+// Explicit native preambles remain processing content even after interruptions or exchange changes.
 for (const tail of [
     [],
     [['answer', { ...completedAnswer, status: 'in_progress' }]],
@@ -81,7 +81,7 @@ for (const tail of [
     [['next-user', message('user', 'Next question')], ['answer', completedAnswer]]
 ]) {
     const result = parseApiConversation(apiChain([['progress', preamble], ...tail]));
-    assert(result.messages.some(m => m.text === preamble.content.parts[0]));
+    assert(!result.messages.some(m => m.text === preamble.content.parts[0]));
 }
 for (const metadata of [
     { turn_exchange_id: 'exchange-1' },
