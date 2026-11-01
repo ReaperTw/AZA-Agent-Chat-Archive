@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GYC - Gemini
 // @namespace    https://github.com/ReaperTw/AZA-Agent-Chat-Archive
-// @version      1.4.6
+// @version      1.4.7
 // @description  Grab Your Chat - Gemini 端對話匯出器；最後更新於 20261101
 // @updateURL    https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-gemini.user.js
 // @downloadURL  https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-gemini.user.js
@@ -429,17 +429,31 @@ function buildRpcRequest(cid, limit) {
         if (apiAvailable && domAvailable && result.comparison.differences.length) content += `> **正文差異**：${result.comparison.differences.length} 筆；單邊訊息及衝突版本均已保留，未自動覆蓋。\n\n`;
         if (!apiAvailable || !domAvailable) content += `> **來源取得失敗**：${apiAvailable ? 'DOM' : domAvailable ? 'API' : 'API、DOM'}。\n\n`;
         if (notes.length) content += notes.map(note => `> **來源提醒**：${note}\n\n`).join('');
-        let users = 0, models = 0;
+        let users = 0, models = 0, previousTimestamp = '';
         const body = message => String(message?.text ?? '');
-        const supplement = (message, source) => {
-            if (!message) return '';
+        const supplement = entry => {
+            const messages = [entry.api, entry.dom].filter(Boolean);
             const lines = [];
-            const timestamp = message.createdAt || message.date || message.time;
-            if (timestamp) lines.push(`> **${source} 時間**：${timestamp}`);
-            if (message.note) lines.push(`**${source} 備註**\n\n${message.note}`);
+            const timestamps = [...new Set(messages.map(message => message.createdAt || message.date || message.time).filter(Boolean))];
+            const timestamp = timestamps.join(' / ');
+            if (timestamp && timestamp !== previousTimestamp) {
+                lines.push(`> 時間：${timestamp}`);
+                previousTimestamp = timestamp;
+            }
+            const notes = [...new Set(messages.map(message => message.note).filter(Boolean))];
+            lines.push(...notes);
             for (const [field, label] of [['citations', '引用'], ['attachments', '附件'], ['process', '處理狀態']]) {
-                if (!Array.isArray(message[field]) || !message[field].length) continue;
-                lines.push(`**${source} ${label}**\n\n\`\`\`json\n${JSON.stringify(message[field], null, 2)}\n\`\`\``);
+                const values = [...new Set(messages.flatMap(message => (message[field] || []).map(value => {
+                    if (typeof value === 'string') return value;
+                    if (value && typeof value === 'object') {
+                        const keys = Object.keys(value);
+                        if (keys.every(key => ['label', 'url', 'name', 'type'].includes(key))) {
+                            return [...new Set([value.label || value.name, value.url, value.type].filter(Boolean))].join(' — ');
+                        }
+                    }
+                    return JSON.stringify(value);
+                })))].filter(value => value && !messages.some(message => body(message).includes(value)));
+                if (values.length) lines.push(`${label}：${values.join('；')}`);
             }
             return lines.length ? `\n\n${lines.join('\n\n')}` : '';
         };
@@ -456,7 +470,7 @@ function buildRpcRequest(cid, limit) {
             } else {
                 content += body(primary);
             }
-            content += supplement(entry.api, 'API') + supplement(entry.dom, 'DOM') + '\n\n';
+            content += supplement(entry) + '\n\n';
         }
         return { ...result, compared: apiAvailable && domAvailable, content: content.trimEnd() + '\n' };
     }
@@ -751,7 +765,7 @@ if (typeof document !== 'undefined') {
         // content-visibility:auto. Its KaTeX accessibility and visual trees duplicate math.
         function readDomBody(body) {
             const clone = body.cloneNode(true);
-            const citations = [...clone.querySelectorAll('.source-inline-chip-container')].map(node => ({ label: node.querySelector('button')?.getAttribute('aria-label') || node.textContent }));
+            const citations = [...clone.querySelectorAll('.source-inline-chip-container')].map(node => ({ label: node.textContent.trim() }));
             clone.querySelectorAll('.source-inline-chip-container').forEach(node => node.remove());
             for (const math of clone.querySelectorAll('[data-math], .katex')) {
                 if (!clone.contains(math)) continue;
@@ -1167,7 +1181,7 @@ if (typeof document !== 'undefined') {
 
             const fab = document.createElement('button');
             fab.textContent = '✦';
-        fab.title = "GYC - Gemini - v1.4.6";
+        fab.title = "GYC - Gemini - v1.4.7";
             fab.setAttribute('aria-label', '開啟 Grab Your Chat - Gemini 工具');
             Object.assign(fab.style, {
                 width: '56px',

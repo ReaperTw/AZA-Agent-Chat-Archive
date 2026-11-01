@@ -46,6 +46,23 @@ for (const provider of ['chatgpt', 'claude', 'gemini', 'grok']) {
     for (const value of ['api.example.test', 'dom.example.test', 'api.txt', 'dom.txt', 'Visible status', '2026-10-29']) {
         assert(withMetadata.content.includes(value));
     }
+    if (provider === 'gemini') {
+        const shared = { citations: [{ label: 'Manual', url: 'https://example.test/manual' }], attachments: [{ name: 'input.txt', type: 'file' }], date: '2026-11-01 10:00' };
+        const compact = buildIntegratedMarkdown([
+            { ...user('Question'), ...shared }, { ...assistant('Answer'), date: shared.date }
+        ], [
+            { ...user('Question'), ...shared }, { ...assistant('Answer'), date: shared.date }
+        ]);
+        for (const value of ['https://example.test/manual', 'input.txt', shared.date]) {
+            assert.equal(compact.content.split(value).length - 1, 1, 'same supplementary content is retained once');
+        }
+        const distinct = buildIntegratedMarkdown([
+            { ...assistant('same'), attachments: [{ name: 'a', extra: 'unrecognized-detail' }] }
+        ], [
+            { ...assistant('same'), attachments: [{ name: 'b', extra: 'different-detail' }] }
+        ]);
+        for (const value of ['unrecognized-detail', 'different-detail']) assert(distinct.content.includes(value));
+    }
     const progress = buildIntegratedMarkdown([
         { ...assistant('Checking sources'), channel: 'commentary' },
         { ...assistant('Final answer'), channel: 'final' }
