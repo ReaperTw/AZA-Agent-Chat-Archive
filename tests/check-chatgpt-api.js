@@ -52,6 +52,48 @@ assert.deepEqual(commentary.messages.map(m => m.text), ['question', 'unconfirmed
 assert.equal(commentary.incomplete, false);
 assert.equal(commentary.warning, null);
 assert(buildMarkdown(commentary).content.includes('unconfirmed progress'));
+
+const preamble = message('assistant', 'Checking sources.', {
+    channel: 'commentary', recipient: 'all',
+    metadata: { is_thinking_preamble_message: true, turn_exchange_id: 'exchange-1' }
+});
+const completedAnswer = message('assistant', 'Verified answer.', {
+    channel: 'final', status: 'finished_successfully',
+    metadata: { turn_exchange_id: 'exchange-1' }
+});
+const withoutPreamble = parseApiConversation(apiChain([
+    ['question', message('user', 'Question')], ['progress', preamble], ['answer', completedAnswer]
+]));
+assert.deepEqual(withoutPreamble.messages.map(m => m.text), ['Question', 'Verified answer.']);
+assert(!buildMarkdown(withoutPreamble).content.includes('Checking sources.'));
+assert(withoutPreamble.notice);
+assert.equal(withoutPreamble.incomplete, false);
+// An explicit preamble marker alone cannot justify dropping the only available response.
+for (const tail of [
+    [],
+    [['answer', { ...completedAnswer, status: 'in_progress' }]],
+    [['answer', { ...completedAnswer, content: { content_type: 'text', parts: [''] } }]],
+    [['answer', { ...completedAnswer, metadata: { turn_exchange_id: 'another-exchange' } }]],
+    [['answer', { ...completedAnswer, metadata: {} }]],
+    [['next-user', message('user', 'Next question')], ['answer', completedAnswer]]
+]) {
+    const result = parseApiConversation(apiChain([['progress', preamble], ...tail]));
+    assert(result.messages.some(m => m.text === preamble.content.parts[0]));
+}
+for (const metadata of [
+    { turn_exchange_id: 'exchange-1' },
+    { is_thinking_preamble_message: false, turn_exchange_id: 'exchange-1' },
+    { is_thinking_preamble_message: 'true', turn_exchange_id: 'exchange-1' }
+]) {
+    const result = parseApiConversation(apiChain([
+        ['progress', { ...preamble, metadata }], ['answer', completedAnswer]
+    ]));
+    assert.equal(result.messages.length, 2);
+}
+const finalWithMarker = parseApiConversation(apiChain([
+    ['first-answer', { ...preamble, channel: 'final' }], ['answer', completedAnswer]
+]));
+assert.equal(finalWithMarker.messages.length, 2);
 const unknownRole = parseApiConversation(apiChain([
     ['unknown', message('future-role', 'not an assistant answer')],
     ['answer', message('assistant', 'answer', { channel: 'final' })]

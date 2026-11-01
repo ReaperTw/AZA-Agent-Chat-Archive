@@ -128,6 +128,10 @@ Gemini 1.4.7 精簡整合檔的補充資訊：相同時間不再於 API／DOM �
 
 ### ChatGPT 綜合匯出
 
+ChatGPT 1.4.6 起，API／綜合匯出只排除同時符合以下條件的前置進度：助理 `commentary`、`metadata.is_thinking_preamble_message === true`，且目前分支同一 `turn_exchange_id` 後面已有成功完成、含可解析非空文字的 `final` 回答。缺少標記、回合 ID 不明或不同、未完成／空白回答、跨使用者訊息、一般 `commentary` 及正式回答均保留，不靠文字猜測或為了湊數而刪除。匯出提示記錄排除數量，不保存已排除的進度正文；正常模式不主動展開處理／思考區塊。
+
+同一登入樣本於 1.4.6 實測：API／正常／整合均為 18 則，三份下載均無該前置進度，原有 18 則正式正文全部保留。與獨立完整 DOM 的正文比對通過 `check-export-parity.js`（exit 0）；引用與進度 metadata 未驗證。`node tests/check-chatgpt-api.js` 涵蓋精確標記、缺少正式回答、空白／未完成回答、跨回合及誤標正式回答的保留邊界。下方 1.4.5 的 19／18／19 為過濾前歷史結果。
+
 ChatGPT 1.4.5 修正新版合併回合：辨識沒有 selection message ID 的助理正文，依 `data-dil-source-message-id` 分開保存回答，以訊息／搜尋單元識別避免同回合的第二則使用者訊息被覆蓋，並依頁面單元與 copy reference 還原順序。比較正文時保留表格列／欄分隔及儲存格內程式碼，不把 Tab／換行的展示差異誤報為內容衝突。
 
 2026-11-01 於隔離、已登入的同一選定對話實測：API 19 則、正常擷取 18 則、整合 19 則，正文差異 0；額外 1 則 API `commentary` 前進度保留另列，不刪除或偽造頁面訊息。完整歷史共 8 個頁面回合（其中一回合含兩組問答），API 目前父鏈、正常擷取及獨立 DOM 的 18 則正文比對通過 `check-export-parity.js`（exit 0）；引用與進度 metadata 為未驗證，不代表所有對話皆已驗證。私人證據不入庫。
