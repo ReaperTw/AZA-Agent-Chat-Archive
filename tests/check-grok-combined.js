@@ -13,3 +13,11 @@ assert(!compareTranscripts([user, { role: 'assistant', text: 'working', channel:
 assert.strictEqual(prepareComparisonMessage(api[1], 'api').citations, null, 'unknown citations are not claimed absent');
 assert(!compareTranscripts([{ role: 'user', text: 'First. \nSecond.' }], [{ role: 'user', text: 'First.\nSecond.' }]).match,
     'line-end source whitespace is diagnosed, not silently ignored');
+
+const literalTildes = '•~•~•《 Example 》•~•~•';
+assert.strictEqual(prepareComparisonMessage({ role: 'assistant', text: literalTildes }, 'api').body, literalTildes,
+    'Grok displays single tildes literally, not as strikethrough delimiters');
+assert.strictEqual(prepareComparisonMessage({ role: 'assistant', text: '~~removed~~' }, 'api').body, 'removed');
+assert(!compareTranscripts([{ role: 'assistant', text: literalTildes }],
+    [{ role: 'assistant', text: literalTildes.replaceAll('~', '') }]).match,
+    'missing literal tildes remain a real body difference');

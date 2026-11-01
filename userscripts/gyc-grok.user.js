@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        GYC - Grok
 // @namespace   https://github.com/ReaperTw/AZA-Agent-Chat-Archive
-// @version      1.4.8
+// @version      1.4.9
 // @description Grab Your Chat - Grok 端對話匯出器；最後更新於 20261101
 // @updateURL   https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-grok.user.js
 // @downloadURL https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-grok.user.js
@@ -300,6 +300,8 @@
             return key;
         };
         const inline = tokens => (tokens ?? []).map(token => {
+            // Grok preserves single tildes; only double tildes mark strikethrough.
+            if (token.type === 'del' && !token.raw.startsWith('~~')) return `~${inline(token.tokens)}~`;
             if (token.tokens) return inline(token.tokens);
             if (token.type === 'br') return '\n';
             if (token.type === 'codespan') return keepCode(decode(token.text));
@@ -1256,7 +1258,7 @@
 
         const fab = document.createElement('button');
         fab.innerText = '𝕏';
-        fab.title = "GYC - Grok - v1.4.8";
+        fab.title = "GYC - Grok - v1.4.9";
         fab.setAttribute('aria-label', '開啟 Grab Your Chat - Grok 工具');
         Object.assign(fab.style, {
             width: '56px',
