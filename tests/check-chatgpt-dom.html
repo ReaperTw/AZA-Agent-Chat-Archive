@@ -4,8 +4,12 @@
 <style>#conversation { height: 600px; overflow-y: auto; } [data-markdown-text-style] { white-space: normal; }</style>
 <div id="conversation">
   <div data-turn-key="grouped-turn">
-    <div class="group/user-message" data-chatgpt-search-unit-key="fallback-turn-1:0:user"><div class="whitespace-pre-wrap">Repeat question</div></div>
-    <div class="group/user-message" data-chatgpt-search-unit-key="fallback-turn-1:2:user"><div class="whitespace-pre-wrap">Repeat question</div></div>
+    <div class="group/user-message" data-chatgpt-search-unit-key="fallback-turn-1:0:user" data-chatgpt-search-message-ids="first-user"><div class="whitespace-pre-wrap">Repeat question</div></div>
+    <div class="group/user-message" data-chatgpt-search-unit-key="fallback-turn-1:2:user" data-chatgpt-search-message-ids="second-user"><div class="whitespace-pre-wrap">Repeat question</div></div>
+    <div>
+      <div><button aria-expanded="true">處理時間為 33s</button></div>
+      <div><div data-markdown-text-style="assistant-message"><p>Private processing detail</p></div></div>
+    </div>
     <div data-chatgpt-search-unit-key="fallback-turn-1:3:assistant">
       <div data-markdown-text-style="assistant-message">
         <div data-dil-source-message-id="interrupted-answer" data-chatgpt-copy-reference="0"><p>Interrupted answer</p></div>
@@ -21,7 +25,7 @@
     const source = await (await fetch('../userscripts/gyc-chatgpt.user.js')).text();
     // Expose the real DOM path only in this isolated fixture, not in the installed script.
     (0, eval)(source.replace('    const observer = new MutationObserver(createButton);',
-        '    window.collectFixture = { collectSnapshot, prepareComparisonMessage }; return;\n    const observer = new MutationObserver(createButton);'));
+        '    window.collectFixture = { collectSnapshot }; return;\n    const observer = new MutationObserver(createButton);'));
     const messages = new Map();
     const state = { seenKeys: new Set(), pendingEmpty: new Map(), timeMarkers: new Map(), nextSequence: 0, emptyObservations: 0 };
     const collect = () => collectFixture.collectSnapshot(document.getElementById('conversation'), messages, state);
@@ -31,7 +35,8 @@
     assert(rows.map(row => row.role).join(',') === 'user,assistant,user,assistant', 'Grouped messages lost chronological order');
     assert(rows[0].text === rows[2].text, 'Repeated user messages must both survive');
     assert(rows[1].text === 'Interrupted answer', 'Interrupted answer was lost or merged');
-    assert(collectFixture.prepareComparisonMessage(rows[3], 'dom').body === 'Final answer\nItem\tValue\nPrice\t399', 'Table cells or inline code changed');
+    assert(rows[3].text.includes('Item\tValue\nPrice\t399'), 'Table cells or inline code changed');
+    assert(rows.map(row => row.sourceIds.join(',')).join('|') === 'first-user|interrupted-answer|second-user|final-answer', 'Native message identities were lost or borrowed from the turn envelope');
     collect();
     assert(messages.size === 4, 'A second snapshot duplicated messages');
     document.getElementById('result').textContent = 'PASS: grouped replies, repeated users, chronological order, table/code text, snapshot deduplication';

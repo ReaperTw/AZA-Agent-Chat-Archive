@@ -3,7 +3,8 @@ const assert = require('node:assert/strict');
 const user = text => ({ role: 'user', text });
 const assistant = text => ({ role: 'assistant', text });
 
-for (const provider of ['chatgpt', 'claude', 'gemini', 'grok']) {
+require('./check-chatgpt-integrated.js');
+for (const provider of ['claude', 'gemini', 'grok']) {
     const { buildIntegratedMarkdown } = require(`../userscripts/gyc-${provider}.user.js`);
     const question = user('Question');
     const merged = buildIntegratedMarkdown([question, assistant('**Answer**')], [question, assistant('Answer')]);
@@ -67,11 +68,6 @@ for (const provider of ['chatgpt', 'claude', 'gemini', 'grok']) {
         { ...assistant('Checking sources'), channel: 'commentary' },
         { ...assistant('Final answer'), channel: 'final' }
     ], [assistant('Final answer')]);
-    if (provider === 'chatgpt') {
-        // Only ChatGPT's native channel metadata proves this is pre-answer progress.
-        assert.equal(progress.comparison.match, true);
-        assert.equal(progress.counts.progress, 1);
-    }
     assert(progress.content.includes('Checking sources'));
     assert(progress.content.indexOf('Checking sources') < progress.content.indexOf('Final answer'));
 
