@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        GYC - Grok
 // @namespace   https://github.com/ReaperTw/AZA-Agent-Chat-Archive
-// @version      1.4.7
+// @version      1.4.8
 // @description Grab Your Chat - Grok 端對話匯出器；最後更新於 20261101
 // @updateURL   https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-grok.user.js
 // @downloadURL https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-grok.user.js
@@ -817,9 +817,9 @@
         const originalText = btn.innerText;
         btn.disabled = true;
         try {
-            const convId = conversationIdFromPath(location.pathname);
+            const convId = conversationIdFromPath(location.pathname, location.search);
             if (location.hostname !== 'grok.com' || !convId) {
-                throw new Error('API匯出僅支援 grok.com 已保存的對話；請用正常匯出');
+                throw new Error('API匯出需在 grok.com 開啟含有效對話 ID 的對話網址；請用正常匯出');
             }
             btn.innerText = 'API 讀取中…';
             const data = await fetchConversationViaApi(convId);
@@ -1126,8 +1126,8 @@
         button.disabled = true;
         try {
             try {
-                const id = conversationIdFromPath(location.pathname);
-                if (location.hostname !== 'grok.com' || !id) throw new Error('API 僅支援 grok.com 已保存的對話');
+                const id = conversationIdFromPath(location.pathname, location.search);
+                if (location.hostname !== 'grok.com' || !id) throw new Error('API 需在 grok.com 開啟含有效對話 ID 的對話網址');
                 button.innerText = '取得 API 對話…';
                 const data = await fetchConversationViaApi(id);
                 checkScope();
@@ -1256,7 +1256,7 @@
 
         const fab = document.createElement('button');
         fab.innerText = '𝕏';
-        fab.title = "GYC - Grok - v1.4.7";
+        fab.title = "GYC - Grok - v1.4.8";
         fab.setAttribute('aria-label', '開啟 Grab Your Chat - Grok 工具');
         Object.assign(fab.style, {
             width: '56px',
@@ -1303,13 +1303,17 @@
         styleExportTools(container);
     }
     // Grok fields: responseId, parentResponseId, sender ('human'|'assistant'), message (string body), createTime (ISO or {seconds,nanos})
-    function conversationIdFromPath(pathname) {
+    function conversationIdFromPath(pathname, search = '') {
         const parts = String(pathname || '').split('/').filter(Boolean);
         for (let i = parts.length - 1; i >= 0; i--) {
             const p = parts[i];
             if (/^[0-9a-f-]{10,}$/i.test(p) && (parts[i-1] === 'c' || parts[i-1] === 'chat')) {
                 return p;
             }
+        }
+        if (parts.length === 2 && parts[0] === 'project') {
+            const chatId = new URLSearchParams(search).get('chat');
+            if (/^[0-9a-f-]{10,}$/i.test(chatId || '')) return chatId;
         }
         return null;
     }

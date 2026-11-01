@@ -2,7 +2,18 @@
 // Node tests for Grok API pure helpers (no DOM)
 
 const assert = require('assert');
-const { parseLoadResponses, chunkIds, buildActiveBranchTimeline, fetchConversationViaApi, compareTranscripts } = require('../userscripts/gyc-grok.user.js');
+const { conversationIdFromPath, parseLoadResponses, chunkIds, buildActiveBranchTimeline, fetchConversationViaApi, compareTranscripts } = require('../userscripts/gyc-grok.user.js');
+
+const conversationId = '11111111-2222-4333-8444-555555555555';
+const projectPath = '/project/aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
+assert.strictEqual(conversationIdFromPath(projectPath, `?chat=${conversationId}&rid=answer`), conversationId,
+  'project conversations use the chat query parameter, not the project ID');
+assert.strictEqual(conversationIdFromPath(`/c/${conversationId}`, '?chat=aaaaaaaaaa'), conversationId);
+assert.strictEqual(conversationIdFromPath(`/chat/${conversationId}`), conversationId);
+assert.strictEqual(conversationIdFromPath(`${projectPath}/`, `?chat=${conversationId}`), conversationId);
+assert.strictEqual(conversationIdFromPath(projectPath), null, 'project landing page is not a conversation');
+assert.strictEqual(conversationIdFromPath(projectPath, '?chat=invalid'), null);
+assert.strictEqual(conversationIdFromPath('/', `?chat=${conversationId}`), null);
 
 const mock = [
   { responseId: 'r3', sender: 'assistant', message: 'hi3', createTime: '2026-10-20T03:00:00Z', parentResponseId: 'r2' },
