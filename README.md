@@ -112,6 +112,22 @@ Gemini 1.4.7 精簡整合檔的補充資訊：相同時間不再於 API／DOM �
 
 `node tests/check-integrated-export.js`、`node tests/check-gemini-api.js` 通過；隔離瀏覽器操作綜合下載，確認問答正文保留、相同時間與 URL 各一次，並檢查結果視窗。四篇 Gemini 原站驗收另行進行；此版開始第一篇後 Chrome 回報 `canceled_by_user`，依規則停止該頁自動化。這些受控輸出檢查不代表四篇已完整或零差異。
 
+Gemini 1.4.8 修正實際歷史載入：頁頂除了設定 `scrollTop`，亦送出 Gemini 載入器需要的向上 wheel 事件；完整性仍由回合 ID、位置、穩定狀態及綜合模式的 API 回合下限共同判斷，不能以逾時或高度未增加宣稱全文。修正 query-line 樣板多加的一對空格（保留使用者本身縮排）、程式碼語言工具列混入正文，以及表格儲存格的版面換行。補齊原站的中文粗體、單波浪範圍、引用段落字面星號、display math 先於 Markdown 的處理、等價 TeX 分隔符與行距；程式碼、數字、公式方向及真正字面差異仍會報錯。隱藏側欄時的檔名改從目前頁面標題取得。
+
+四篇登入對話已各自取得 API／正常來源及獨立完整 DOM。API 均回報無後續歷史，回合 ID 順序逐一對應 DOM，回答選取 ID 可確認；獨立 DOM 使用另一份節點走訪器擷取，不由 API 或正常解析結果複製正文。私人證據在版本庫外執行 `node tests/check-export-parity.js`，四篇正文均 `bodyPassed: true`、差異 0：
+
+| 去識別案例 | API／正常／獨立 DOM 訊息數 | 正文差異 |
+| --- | ---: | ---: |
+| Gemini A | 98 | 0 |
+| Gemini B | 4 | 0 |
+| Gemini C | 90 | 0 |
+| Gemini D | 118 | 0 |
+
+驗收只宣稱上述四篇的可見文字完整、角色／順序／正文相符；引用及處理狀態 metadata 的跨來源一致性仍未驗證。D 的 20 則純圖片訊息依 API 空白正文與對應 DOM 圖片節點確認，三路證據保留相同圖片佔位，圖片本體不在文字驗收範圍。前三篇以原站綜合下載按鈕保存並核對 Blob 與實際檔案；D 的最終下載前專用測試頁失去連線，改以先前已完整擷取的真實 API／正常 DOM 資料及最終修正版產生整合檔，再核對同一份獨立 DOM，未重新請求 API 或手動補字。四份檔案均確認寫入 Downloads。測試使用另開的原生 Brave 專用視窗，Relay 重啟時恢復該測試 target，不操作其他工作分頁；測試注入擷取診斷鉤子，不代表 Tampermonkey 的永久安裝已更新。
+
+`node tests/check-gemini-api.js`、`node tests/check-integrated-export.js`、`node tests/check-export-parity-test.js` 通過；另有四份上述真實私人證據 CLI 驗收。私人正文、回應、登入資訊與獨立 DOM 節點樹未加入版本庫。
+
+
 
 
 
