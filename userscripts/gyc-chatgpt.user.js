@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GYC - ChatGPT
 // @namespace    https://github.com/ReaperTw/AZA-Agent-Chat-Archive
-// @version      1.4.6
+// @version      1.4.7
 // @description  Grab Your Chat - ChatGPT 端對話匯出器；最後更新於 20261101
 // @updateURL    https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-chatgpt.user.js
 // @downloadURL  https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-chatgpt.user.js
@@ -203,6 +203,8 @@
                 if (text || omitted || unknownContent) {
                     messages.push({
                         role, text: text || '> [此訊息內容格式無法解析]', channel: message.channel ?? null,
+                        ...(role === 'user' && message.metadata?.serialization_metadata?.render_format === 'markdown'
+                            ? { renderFormat: 'markdown' } : {}),
                         ...(omitted ? {
                             comparisonBody: parts.filter(part => typeof part === 'string').join('\n\n').trim(),
                             attachments: parts.filter(part => typeof part !== 'string')
@@ -263,7 +265,8 @@
         const attachments = source === 'dom' ? (message.attachments ?? null) : (message.attachments ?? []).slice();
         const normalizeLiteral = text => String(text ?? '').replace(/\r\n?/g, '\n').replace(/\u00a0/g, ' ').trim();
         const normalize = text => normalizeLiteral(text).replace(/[ \t]+\n/g, '\n').replace(/\n(?:[ \t]*\n)+/g, '\n');
-        if (message.role === 'user') {
+        const richUser = source === 'api' && message.role === 'user' && message.renderFormat === 'markdown';
+        if (message.role === 'user' && !richUser) {
             return { body: normalizeLiteral(message.comparisonBody ?? message.text), citations, attachments };
         }
         if (source === 'dom') {
@@ -287,7 +290,7 @@
             const body = unwrapLayout(lines.map(line => line.slice(Math.min(indent, line.match(/^[ \t]*/)[0].length))).join('\n')).trim();
             return tag === 'text' ? body : `\n${body}\n`;
         });
-        const text = unwrapLayout(original.replace(
+        const text = richUser ? original : unwrapLayout(original.replace(
             /^ {0,3}(`{3,}|~{3,})[^\n]*\n[\s\S]*?^ {0,3}\1[ \t]*(?:\n|$)|(`+)(?!`)[\s\S]*?\2(?!`)/gm,
             match => {
                 const key = `${prefix}${protectedCode.length}_END`;
@@ -297,9 +300,10 @@
         ).replace(/<Cite\b(?:[^>"']|"[^"]*"|'[^']*')*\/>/g, widget => {
             citations.push(widget);
             return '';
-        }).replace(/<Link\b(?:[^>"']|"[^"]*"|'[^']*')*\/>/g, widget => {
-            const title = widget.match(/\btitle=(["'])(.*?)\1/);
-            const url = widget.match(/\burl=(["'])(.*?)\1/);
+        }).replace(/<(Link|Entity)\b(?:[^>"']|"[^"]*"|'[^']*')*\/>/g, widget => {
+            const entity = widget.startsWith('<Entity');
+            const title = widget.match(entity ? /\bvalue=(["'])(.*?)\1/ : /\btitle=(["'])(.*?)\1/);
+            const url = entity ? null : widget.match(/\burl=(["'])(.*?)\1/);
             const label = title?.[2] ?? url?.[2];
             if (label === undefined) return widget;
             const key = `${prefix}LABEL_${widgetLabels.length}_END`;
@@ -343,7 +347,7 @@
                 default: return token.tokens ? inline(token.tokens) : decode(token.text ?? token.raw ?? '');
             }
         }).filter(Boolean).join('\n');
-        const body = normalize(blocks(markdown.lexer(text)))
+        const body = (richUser ? normalizeLiteral : normalize)(blocks(markdown.lexer(text)))
             .replace(new RegExp(`${prefix}BODY_(\\d+)_END`, 'g'), (_, index) => codeBodies[Number(index)])
             .replace(new RegExp(`${prefix}LABEL_(\\d+)_END`, 'g'), (_, index) => decode(widgetLabels[Number(index)]));
         return { body, citations, attachments };
@@ -1803,7 +1807,7 @@
                 <path fill="currentColor"
                     d="M22.2819 9.8211a5.9847 5.9847 0 0 0-.5157-4.9108 6.0462 6.0462 0 0 0-6.5098-2.9A6.0651 6.0651 0 0 0 4.9807 4.1818a5.9847 5.9847 0 0 0-3.9977 2.9 6.0462 6.0462 0 0 0 .7427 7.0966 5.98 5.98 0 0 0 .511 4.9107 6.051 6.051 0 0 0 6.5146 2.9001A5.9847 5.9847 0 0 0 13.2599 24a6.0557 6.0557 0 0 0 5.7718-4.2058 5.9894 5.9894 0 0 0 3.9977-2.9001 6.0557 6.0557 0 0 0-.7475-7.0729zm-9.022 12.6081a4.4755 4.4755 0 0 1-2.8764-1.0408l.1419-.0804 4.7783-2.7582a.7948.7948 0 0 0 .3927-.6813v-6.7369l2.02 1.1686a.071.071 0 0 1 .038.052v5.5826a4.504 4.504 0 0 1-4.4945 4.4944zm-9.6607-4.1254a4.4708 4.4708 0 0 1-.5346-3.0137l.142.0852 4.783 2.7582a.7712.7712 0 0 0 .7806 0l5.8428-3.3685v2.3324a.0804.0804 0 0 1-.0332.0615L9.74 19.9502a4.4992 4.4992 0 0 1-6.1408-1.6464zM2.3408 7.8956a4.485 4.485 0 0 1 2.3655-1.9728V11.6a.7664.7664 0 0 0 .3879.6765l5.8144 3.3543-2.0201 1.1685a.0757.0757 0 0 1-.071 0l-4.8303-2.7865A4.504 4.504 0 0 1 2.3408 7.872zm16.5963 3.8558L13.1038 8.364 15.1192 7.2a.0757.0757 0 0 1 .071 0l4.8303 2.7913a4.4944 4.4944 0 0 1-.6765 8.1042v-5.6772a.79.79 0 0 0-.407-.667zm2.0107-3.0231l-.142-.0852-4.7735-2.7818a.7759.7759 0 0 0-.7854 0L9.409 9.2297V6.8974a.0662.0662 0 0 1 .0284-.0615l4.8303-2.7866a4.4992 4.4992 0 0 1 6.6802 4.66zM8.3065 12.863l-2.02-1.1638a.0804.0804 0 0 1-.038-.0567V6.0742a4.4992 4.4992 0 0 1 7.3757-3.4537l-.142.0805L8.704 5.459a.7948.7948 0 0 0-.3927.6813zm1.0976-2.3654 2.602-1.4998 2.6069 1.4998v2.9994l-2.5974 1.4997-2.6067-1.4997Z"/>
             </svg>`;
-        fab.title = "GYC - ChatGPT 1.4.6";
+        fab.title = "GYC - ChatGPT 1.4.7";
         fab.setAttribute('aria-label', '開啟 Grab Your Chat - ChatGPT 工具');
         Object.assign(fab.style, {
             width: '56px',

@@ -236,6 +236,25 @@ const widget = prepareComparisonMessage(transcript('assistant', '<row><icon name
 assert.equal(widget.body, 'Attached: plan.pdf');
 assert.equal(compareTranscripts([transcript('user', '**literal** <Link title="input"/>')], [transcript('user', '**literal** <Link title="input"/>')]).match, true);
 assert.equal(compareTranscripts([transcript('user', '**literal**')], [transcript('user', 'literal')]).match, false);
+const entityAnswer = transcript('assistant', 'Song: <Entity category="song" value="A &amp; B" disambig="some song"/>.');
+assert.equal(compareTranscripts([entityAnswer], [transcript('assistant', 'Song: A & B.')]).match, true);
+assert.equal(compareTranscripts([entityAnswer], [transcript('assistant', 'Song: A & C.')]).match, false);
+assert.equal(prepareComparisonMessage(transcript('assistant', '<Entity category="song" disambig="unknown"/>'), 'api').body,
+    '<Entity category="song" disambig="unknown"/>');
+const entityCode = '<Entity category="song" value="Literal"/>';
+assert.equal(prepareComparisonMessage(transcript('assistant', '`' + entityCode + '`'), 'api').body, entityCode);
+assert.equal(prepareComparisonMessage(transcript('assistant', '```\n' + entityCode + '\n```'), 'api').body, entityCode);
+assert.equal(prepareComparisonMessage(transcript('user', entityCode), 'api').body, entityCode);
+const richInput = '\\\n[Visible words](https://example.test/words)\\\n**Title&#xA0;**&#x20;&#x20;\nNext';
+const richUser = parseApiConversation(apiChain([['rich-user', message('user', richInput, {
+    metadata: { serialization_metadata: { render_format: 'markdown' } }
+})]])).messages[0];
+assert.equal(compareTranscripts([richUser], [transcript('user', 'Visible words\nTitle   \nNext')]).match, true);
+assert.equal(compareTranscripts([richUser], [transcript('user', 'Visible words\nTitle  \nNext')]).match, false);
+assert.equal(compareTranscripts([richUser], [transcript('user', 'Changed words\nTitle   \nNext')]).match, false);
+assert.equal(prepareComparisonMessage(transcript('user', richInput), 'api').body, richInput.trim());
+const richCode = { ...transcript('user', '`a  b`\n\n`<Entity value="literal"/>`'), renderFormat: 'markdown' };
+assert.equal(prepareComparisonMessage(richCode, 'api').body, 'a  b\n<Entity value="literal"/>');
 assert.equal(compareTranscripts([transcript('assistant', '```\n  indented\n```')], [transcript('assistant', 'indented')]).match, false);
 assert.equal(compareTranscripts([transcript('assistant', 'a  b')], [transcript('assistant', 'a b')]).match, false);
 const roleMismatch = compareTranscripts([transcript('user', 'same')], [transcript('assistant', 'same')]);

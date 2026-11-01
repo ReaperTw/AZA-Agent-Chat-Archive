@@ -128,6 +128,10 @@ Gemini 1.4.7 精簡整合檔的補充資訊：相同時間不再於 API／DOM �
 
 ### ChatGPT 綜合匯出
 
+ChatGPT 1.4.7 修正兩種呈現正文誤報：助理的 `<Entity … value="可見名稱" …/>` 以 `value` 文字比較；使用者訊息只有 API 明確提供 `metadata.serialization_metadata.render_format === "markdown"` 時才比較 Markdown 呈現文字。一般使用者輸入維持字面比較，程式碼內的 Entity 標記不轉換，缺少可見名稱的未知元件不刪除；字詞、標點及使用者行內空白的真正變更仍會報差異。只調整比較層，API 原文及整合檔選用的 API 正文仍保留來源標記。
+
+2026-11-01 另一登入對話實測：原本 7 筆差異分別為 5 則 Entity 元件及 2 則 Markdown 使用者輸入；修正後 API／正常／整合均為 20 則、正文差異 0。獨立載入完整 10 回合 DOM，與 API／正常擷取的 20 則正文比對通過 `check-export-parity.js`（exit 0）；整合檔與比對報告下載內容亦確認無衝突。引用與進度 metadata 未驗證，私人證據不入庫。`node tests/check-chatgpt-api.js` 包含 Entity 可見文字、原樣程式碼、未標記使用者輸入及真實文字／空白差異的回歸。
+
 ChatGPT 1.4.6 起，API／綜合匯出只排除同時符合以下條件的前置進度：助理 `commentary`、`metadata.is_thinking_preamble_message === true`，且目前分支同一 `turn_exchange_id` 後面已有成功完成、含可解析非空文字的 `final` 回答。缺少標記、回合 ID 不明或不同、未完成／空白回答、跨使用者訊息、一般 `commentary` 及正式回答均保留，不靠文字猜測或為了湊數而刪除。匯出提示記錄排除數量，不保存已排除的進度正文；正常模式不主動展開處理／思考區塊。
 
 同一登入樣本於 1.4.6 實測：API／正常／整合均為 18 則，三份下載均無該前置進度，原有 18 則正式正文全部保留。與獨立完整 DOM 的正文比對通過 `check-export-parity.js`（exit 0）；引用與進度 metadata 未驗證。`node tests/check-chatgpt-api.js` 涵蓋精確標記、缺少正式回答、空白／未完成回答、跨回合及誤標正式回答的保留邊界。下方 1.4.5 的 19／18／19 為過濾前歷史結果。
