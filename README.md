@@ -144,6 +144,10 @@ Gemini 1.4.8 修正實際歷史載入：頁頂除了設定 `scrollTop`，亦送�
 
 ### ChatGPT 綜合匯出
 
+ChatGPT 1.4.8 將已確認呈現為 `data-d-component="title"` 標題的 API `<title …>文字</title>` 納入既有版面元件解析。比較時保留標題文字及段落分隔，不把字級／顏色屬性當成正文；一般使用者輸入、行內與區塊程式碼內的標記保持原樣。標題數字改變仍須報差異，不刪除訊息，也不泛用移除未知標籤。
+
+三回合登入樣本實測：原本兩筆差異均為標題元件標記；修正後 API／正常／整合均為 6 則、正文差異 0。API／正常擷取／獨立完整 DOM 的正文比對通過 `check-export-parity.js`（exit 0），整合檔與報告下載保留兩個重點金額、無衝突。`node tests/check-chatgpt-api.js` 的巢狀標題、數字變更及原樣程式碼回歸通過；引用與進度 metadata 未驗證，私人證據不入庫。
+
 ChatGPT 1.4.7 修正兩種呈現正文誤報：助理的 `<Entity … value="可見名稱" …/>` 以 `value` 文字比較；使用者訊息只有 API 明確提供 `metadata.serialization_metadata.render_format === "markdown"` 時才比較 Markdown 呈現文字。一般使用者輸入維持字面比較，程式碼內的 Entity 標記不轉換，缺少可見名稱的未知元件不刪除；字詞、標點及使用者行內空白的真正變更仍會報差異。只調整比較層，API 原文及整合檔選用的 API 正文仍保留來源標記。
 
 2026-11-01 另一登入對話實測：原本 7 筆差異分別為 5 則 Entity 元件及 2 則 Markdown 使用者輸入；修正後 API／正常／整合均為 20 則、正文差異 0。獨立載入完整 10 回合 DOM，與 API／正常擷取的 20 則正文比對通過 `check-export-parity.js`（exit 0）；整合檔與比對報告下載內容亦確認無衝突。引用與進度 metadata 未驗證，私人證據不入庫。`node tests/check-chatgpt-api.js` 包含 Entity 可見文字、原樣程式碼、未標記使用者輸入及真實文字／空白差異的回歸。

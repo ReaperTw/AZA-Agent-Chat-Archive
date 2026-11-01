@@ -224,6 +224,13 @@ assert.equal(compareTranscripts([taggedProgress, taggedFinal], [taggedProgress, 
 const layout = '<row align="center">\n  <icon name="calendar"/>\n  <box>\n    **Application period**\n\n    2026/1/1～2026/2/1\n  </box>\n</row>';
 assert.equal(prepareComparisonMessage(transcript('assistant', layout), 'api').body, 'Application period\n2026/1/1～2026/2/1');
 assert.equal(prepareComparisonMessage(transcript('assistant', '<row>\n  <text><Link title="Entry" url="https://example.test"/></text>\n</row>'), 'api').body, 'Entry');
+const titleWidget = '<box><title size="2xl" color="success">US$2,240</title><text>Monthly value</text></box>';
+assert.equal(compareTranscripts([transcript('assistant', titleWidget)], [transcript('assistant', 'US$2,240\nMonthly value')]).match, true);
+assert.equal(compareTranscripts([transcript('assistant', titleWidget)], [transcript('assistant', 'US$2,241\nMonthly value')]).match, false);
+const literalTitle = '<title size="2xl">Keep this tag</title>';
+assert.equal(prepareComparisonMessage(transcript('assistant', '`' + literalTitle + '`'), 'api').body, literalTitle);
+assert.equal(prepareComparisonMessage(transcript('assistant', '```\n' + literalTitle + '\n```'), 'api').body, literalTitle);
+assert.equal(prepareComparisonMessage(transcript('user', literalTitle), 'api').body, literalTitle);
 assert.equal(compareTranscripts([transcript('assistant', 'Claim <Cite ref="r"/>\n\nNext')], [transcript('assistant', 'Claim\nNext')]).match, true);
 const duplicateText = compareTranscripts(
     [transcript('user', 'repeat'), transcript('assistant', 'repeat'), transcript('assistant', 'repeat')],
