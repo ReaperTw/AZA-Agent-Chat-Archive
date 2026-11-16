@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         GYC - Claude
 // @namespace    https://github.com/ReaperTw/AZA-Agent-Chat-Archive
-// @version      1.4.5
-// @description  Grab Your Chat - Claude 端對話匯出器；最後更新於 20261101
+// @version      1.4.6
+// @description  Grab Your Chat - Claude 端對話匯出器；最後更新於 20261116
 // @updateURL    https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-claude.user.js
 // @downloadURL  https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-claude.user.js
 // @match        https://claude.ai/*
@@ -1463,15 +1463,15 @@
         const exportButton = makeButton('API匯出', event => processApiExport(event.currentTarget));
         exportButton.title = 'API匯出：讀目前分支，不靠捲動';
         const domButton = makeButton('正常匯出', event => processDomExport(event.currentTarget));
-        const topButton = makeButton('到頂端', event => runExclusive(event.currentTarget, async () => {
+        const topButton = makeButton('↑  到頂端', event => runExclusive(event.currentTarget, async () => {
             const scroller = findConversationScroller();
             scroller.scrollTop = getScrollBounds(scroller).top;
         }));
-        menu.append(combinedButton, exportButton, domButton, topButton);
+        menu.append(topButton, combinedButton, exportButton, domButton);
 
         const fab = root.document.createElement('button');
         fab.textContent = '✳';
-        fab.title = "GYC - Claude - v1.4.5";
+        fab.title = "GYC - Claude - v1.4.6";
         fab.setAttribute('aria-label', '開啟 Grab Your Chat - Claude 工具');
         Object.assign(fab.style, {
             width: '56px',
