@@ -116,6 +116,8 @@ try {
     $ompText = Get-Content -LiteralPath $ompExport -Raw -Encoding UTF8
     Assert-True ($ompText -match 'OMP visible' -and $ompText -match 'OMP reply') 'OMP visible messages missing'
     Assert-True ($ompText -notmatch 'secret') 'OMP internal content leaked'
+    # Windows PowerShell 5.1 reads a BOM-less script as the ANSI code page and garbles the CJK header.
+    Assert-True ($ompText -match '> \*\*\u5c0d\u8a71\u6642\u9593\*\*\uff1a\d{4}\u5e74' -and -not $ompText.Contains('@{Harness=')) 'Archive header garbled (exporter must be saved as UTF-8 with BOM)'
     $ompBundle = Split-Path -Parent $ompExport
     $ompManifestPath = Join-Path $ompBundle 'manifest.json'
     $ompManifest = Get-Content -LiteralPath $ompManifestPath -Raw -Encoding UTF8 | ConvertFrom-Json

@@ -1,4 +1,4 @@
-[CmdletBinding(DefaultParameterSetName = 'Latest')]
+﻿[CmdletBinding(DefaultParameterSetName = 'Latest')]
 param(
     [Parameter(ParameterSetName = 'Latest')]
     [switch]$Latest,
