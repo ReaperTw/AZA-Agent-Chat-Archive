@@ -253,7 +253,14 @@ try {
         [ordered]@{ type = 'user'; uuid = 'meta'; parentUuid = 'a1b'; isMeta = $true; timestamp = '2026-08-13T05:00:06Z'; sessionId = $claudeId; message = [ordered]@{ role = 'user'; content = 'meta secret' } },
         [ordered]@{ type = 'user'; uuid = 'tool'; parentUuid = 'a1b'; timestamp = '2026-08-13T05:00:07Z'; sessionId = $claudeId; message = [ordered]@{ role = 'user'; content = @([ordered]@{ type = 'tool_result'; content = 'tool secret' }) } },
         [ordered]@{ type = 'user'; uuid = 'ucmd'; parentUuid = 'tool'; timestamp = '2026-08-13T05:00:08Z'; sessionId = $claudeId; message = [ordered]@{ role = 'user'; content = '<command-name>/archive</command-name><command-args>now</command-args>injected skill secret' } },
-        [ordered]@{ type = 'assistant'; uuid = 'a2'; parentUuid = 'ucmd'; timestamp = '2026-08-13T05:00:09Z'; sessionId = $claudeId; message = [ordered]@{ id = 'msg_b'; role = 'assistant'; content = @([ordered]@{ type = 'text'; text = 'Claude final' }) } }
+        [ordered]@{ type = 'assistant'; uuid = 'a2'; parentUuid = 'ucmd'; timestamp = '2026-08-13T05:00:09Z'; sessionId = $claudeId; message = [ordered]@{ id = 'msg_b'; role = 'assistant'; content = @([ordered]@{ type = 'text'; text = 'Claude final' }) } },
+        [ordered]@{ type = 'attachment'; uuid = 'att'; parentUuid = 'a2'; timestamp = '2026-08-13T05:00:10Z'; sessionId = $claudeId; attachment = [ordered]@{ type = 'edited_text_file'; content = 'attachment secret' } },
+        [ordered]@{ type = 'user'; uuid = 'u3'; parentUuid = 'att'; timestamp = '2026-08-13T05:00:11Z'; sessionId = $claudeId; message = [ordered]@{ role = 'user'; content = 'Claude after attachment' } },
+        [ordered]@{ type = 'assistant'; uuid = 'a3'; parentUuid = 'u3'; timestamp = '2026-08-13T05:00:12Z'; sessionId = $claudeId; message = [ordered]@{ id = 'msg_c'; role = 'assistant'; content = @([ordered]@{ type = 'text'; text = 'Claude block one' }) } },
+        [ordered]@{ type = 'assistant'; uuid = 'a3b'; parentUuid = 'a3'; timestamp = '2026-08-13T05:00:13Z'; sessionId = $claudeId; message = [ordered]@{ id = 'msg_c'; role = 'assistant'; content = @([ordered]@{ type = 'tool_use'; name = 'secret-tool'; input = [ordered]@{ path = 'secret' } }) } },
+        [ordered]@{ type = 'user'; uuid = 'tool2'; parentUuid = 'a3b'; timestamp = '2026-08-13T05:00:14Z'; sessionId = $claudeId; message = [ordered]@{ role = 'user'; content = @([ordered]@{ type = 'tool_result'; content = 'tool secret' }) } },
+        [ordered]@{ type = 'assistant'; uuid = 'a4'; parentUuid = 'tool2'; timestamp = '2026-08-13T05:00:15Z'; sessionId = $claudeId; message = [ordered]@{ id = 'msg_d'; role = 'assistant'; content = @([ordered]@{ type = 'text'; text = 'Claude block two' }) } },
+        [ordered]@{ type = 'queue-operation'; timestamp = '2026-08-14T00:00:00Z'; sessionId = $claudeId }
     )
     Write-JsonLines (Join-Path $claudeDir "$claudeId\subagents\$subId.jsonl") @(
         [ordered]@{ type = 'user'; uuid = 'sub'; parentUuid = $null; sessionId = $subId; cwd = 'C:\Work\ClaudeRepo'; message = [ordered]@{ role = 'user'; content = 'subagent secret' } }
@@ -264,7 +271,9 @@ try {
     $claudeText = Get-Content -LiteralPath $claudeExport -Raw -Encoding UTF8
     Assert-True ($claudeText -match 'Claude visible' -and $claudeText -match 'Claude reply' -and $claudeText -match '/archive now' -and $claudeText -match 'Claude final') 'Claude visible messages missing'
     Assert-True ($claudeText -notmatch 'secret') 'Claude internal content leaked'
-    Assert-True ([bool](@($claudeResult) -match 'messages=4')) 'Claude visible message count mismatch'
+    Assert-True ($claudeText -match 'Claude after attachment' -and $claudeText -match '(?s)Claude block one\s+Claude block two') 'Claude per-block text or attachment-linked chain missing'
+    Assert-True ($claudeText -match '2026\u5e748\u670813\u65e5') 'Claude start time not taken from first conversation event'
+    Assert-True ([bool](@($claudeResult) -match 'messages=6')) 'Claude visible message count mismatch'
     $claudeList = @(& $exporter -Harness Claude -List -ClaudeHome $claudeHome -WorkingDirectory 'C:\Work\ClaudeRepo')
     Assert-True (@($claudeList | Select-Object -ExpandProperty SessionId) -contains $claudeId) 'Claude session missing from list'
     Assert-True (-not (@($claudeList | Select-Object -ExpandProperty SessionId) -contains $subId)) 'Claude subagent transcript listed'

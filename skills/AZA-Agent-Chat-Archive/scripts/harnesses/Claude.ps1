@@ -20,7 +20,7 @@ function Get-AgentChatSessionFiles {
 function Get-ClaudeMessageKey {
     param($Event)
 
-    if ($Event.message -and (Test-Property $Event.message 'id') -and $Event.message.id) {
+    if ((Test-Property $Event 'message') -and $Event.message -and (Test-Property $Event.message 'id') -and $Event.message.id) {
         return [string]$Event.message.id
     }
     if ((Test-Property $Event 'uuid') -and $Event.uuid) {
@@ -75,7 +75,9 @@ function Get-AgentChatSessionRecord {
         if ((Test-Property $event 'cwd') -and $event.cwd -and -not $record.Cwd) {
             $record.Cwd = [string]$event.cwd
         }
-        if ((Test-Property $event 'timestamp') -and $event.timestamp -and -not $state.HasStarted) {
+        # Bookkeeping entries (queue-operation etc.) can be appended with later timestamps; date the
+        # session from its first conversation event.
+        if ($event.type -in @('user', 'assistant') -and (Test-Property $event 'timestamp') -and $event.timestamp -and -not $state.HasStarted) {
             $record.Started = Convert-ToLocalDateTime $event.timestamp $File.CreationTime
             $state.HasStarted = $true
         }
@@ -88,15 +90,16 @@ function Get-AgentChatSessionRecord {
             $record.Title = [string]$event.summary
             return
         }
-        if ($event.type -notin @('user', 'assistant')) { return }
         if ((Test-Property $event 'isSidechain') -and $event.isSidechain) { return }
+        $isMessage = $event.type -in @('user', 'assistant')
         if (-not (Test-Property $event 'uuid') -or -not $event.uuid) {
-            $record.WarningCount++
+            if ($isMessage) { $record.WarningCount++ }
             return
         }
+        # Attachments and system entries sit inside the parentUuid chain; keep them as links.
         $id = [string]$event.uuid
         $nodes[$id] = $event
-        $state.LastMessageId = $id
+        if ($isMessage) { $state.LastMessageId = $id }
     }
 
     if (-not $record.Id) { $record.Id = $File.BaseName }
@@ -110,30 +113,57 @@ function Get-AgentChatSessionRecord {
         $branch.Add($event)
         $current = if ((Test-Property $event 'parentUuid') -and $event.parentUuid) {
             [string]$event.parentUuid
+        } elseif ((Test-Property $event 'logicalParentUuid') -and $event.logicalParentUuid) {
+            [string]$event.logicalParentUuid
         } else { '' }
     }
     $ordered = $branch.ToArray()
     [array]::Reverse($ordered)
 
+    # Current Claude Code stores one API message as several events, one content block each, so
+    # a text block followed by a tool_use shares its message id: keep every block. An event that
+    # carries several blocks is a cumulative snapshot instead; for such ids only the last counts.
     $lastIndex = @{}
-    for ($i = 0; $i -lt $ordered.Count; $i++) {
-        $key = Get-ClaudeMessageKey $ordered[$i]
-        if ($key) { $lastIndex[$key] = $i }
-    }
+    $snapshotKeys = @{}
     for ($i = 0; $i -lt $ordered.Count; $i++) {
         $event = $ordered[$i]
         $key = Get-ClaudeMessageKey $event
-        if ($key -and $lastIndex[$key] -ne $i) { continue }
+        if (-not $key) { continue }
+        $lastIndex[$key] = $i
+        if ((Test-Property $event 'message') -and $event.message -and (Test-Property $event.message 'content') -and
+            $event.message.content -isnot [string] -and @($event.message.content).Count -gt 1) {
+            $snapshotKeys[$key] = $true
+        }
+    }
+    # Merge consecutive same-role text (separated only by tool activity) into one turn.
+    $seenText = @{}
+    $last = $null
+    for ($i = 0; $i -lt $ordered.Count; $i++) {
+        $event = $ordered[$i]
+        if ($event.type -notin @('user', 'assistant')) { continue }
+        $key = Get-ClaudeMessageKey $event
+        if ($key -and $snapshotKeys.ContainsKey($key) -and $lastIndex[$key] -ne $i) { continue }
         $text = Get-ClaudeVisibleText $event
         if (-not $text) { continue }
+        if ($key) {
+            $textKey = "$key`n$text"
+            if ($seenText.ContainsKey($textKey)) { continue }
+            $seenText[$textKey] = $true
+        }
+        $role = [string]$event.message.role
+        if ($null -ne $last -and $last.Role -eq $role) {
+            $last.Text = $last.Text + "`r`n`r`n" + $text
+            continue
+        }
         $timestamp = if ((Test-Property $event 'timestamp') -and $event.timestamp) {
             Convert-ToLocalDateTime $event.timestamp $record.Started
         } else { $record.Started }
-        $record.Messages.Add([pscustomobject]@{
-            Role = [string]$event.message.role
+        $last = [pscustomobject]@{
+            Role = $role
             Text = $text
             Timestamp = $timestamp
-        })
+        }
+        $record.Messages.Add($last)
     }
     return [pscustomobject]$record
 }
