@@ -1,5 +1,5 @@
 const assert = require('node:assert/strict');
-const { parseGeminiRpc, parseGeminiApiData, collectGeminiHistory, renderGeminiApiMarkdown, compareTranscripts, prepareComparisonMessage } = require('../userscripts/gyc-gemini.user.js');
+const { parseGeminiRpc, parseGeminiApiData, collectGeminiHistory, renderGeminiApiMarkdown, compareTranscripts, prepareComparisonMessage, buildIntegratedMarkdown } = require('../userscripts/gyc-gemini.user.js');
 const turn = i => [['c_chat', 'r_' + i], [], [['question-' + i]], [[['rc_' + i, ['answer-' + i]]]], [1780000000 + i, 0]];
 const frame = data => ")]}'\n\n123\n" + JSON.stringify([['wrb.fr', 'hNvQHb', JSON.stringify(data)]]) + '\n';
 const tokens = { SNlM0e: 'token', cfb2h: 'build', FdrFJe: 'session' };
@@ -114,6 +114,26 @@ const tokens = { SNlM0e: 'token', cfb2h: 'build', FdrFJe: 'session' };
     assert(equivalent('$\\vert{}x\\vert{}$', '$|x|$'));
     assert(equivalent('> $$a\n> b$$', '$a > b$'), 'math sees quote characters before Markdown');
     assert(equivalent('```tex\n$$x$$\n```', '$$x$$'), 'math syntax in code stays literal');
+    const followups = '<ElicitationsGroup message="Explore &amp; learn">\n  <Elicitation label="A *literal* label" query="Hidden click payload"/>\n</ElicitationsGroup>';
+    const oldFollowup = turn(8), latestFollowup = turn(9);
+    oldFollowup[3][0][0][1][0] = 'Earlier answer\n' + followups;
+    latestFollowup[3][0][0][1][0] = 'Latest answer\n' + followups;
+    const actions = parseGeminiApiData([latestFollowup, oldFollowup]).turns.map(t => ({ ...t, role: t.type === 'user' ? 'user' : 'assistant' }));
+    const visibleActions = [
+        { role: 'user', text: 'question-8' }, { role: 'assistant', text: 'Earlier answer' },
+        { role: 'user', text: 'question-9' }, { role: 'assistant', text: 'Latest answer\nExplore & learn\nA *literal* label' }
+    ];
+    assert.equal(compareTranscripts(actions, visibleActions).match, true, 'only latest follow-up labels are visible');
+    const combinedActions = buildIntegratedMarkdown(actions, visibleActions).content;
+    assert(combinedActions.includes('A \\*literal\\* label'));
+    assert(!combinedActions.includes('Hidden click payload'));
+    assert(!combinedActions.includes('<ElicitationsGroup'));
+    assert(renderGeminiApiMarkdown(actions).includes(followups), 'standalone API retains original source');
+    const literalAction = turn(10);
+    literalAction[3][0][0][1][0] = '```xml\n' + followups + '\n```';
+    assert.equal(parseGeminiApiData([literalAction]).turns[1].comparisonBody, literalAction[3][0][0][1][0], 'code examples are not follow-up controls');
+    literalAction[3][0][0][1][0] = 'Unknown\n<ElicitationsGroup message="Keep"><Other/></ElicitationsGroup>';
+    assert.equal(parseGeminiApiData([literalAction]).turns[1].comparisonBody, literalAction[3][0][0][1][0], 'unknown widgets remain diagnosable');
     assert.throws(() => parseGeminiRpc(")]}'\n" + JSON.stringify([['wrb.fr', 'hNvQHb', null]])));
     console.log('ok Gemini API: framed RPC, >100 history, no-progress warning, dates, answer alternatives');
 })().catch(error => { console.error(error); process.exitCode = 1; });

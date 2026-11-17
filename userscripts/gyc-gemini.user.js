@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GYC - Gemini
 // @namespace    https://github.com/ReaperTw/AZA-Agent-Chat-Archive
-// @version      1.4.9
+// @version      1.4.10
 // @description  Grab Your Chat - Gemini 端對話匯出器；最後更新於 20261101
 // @updateURL    https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-gemini.user.js
 // @downloadURL  https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-gemini.user.js
@@ -252,6 +252,16 @@ function cleanContent(text) {
     return String(text || '').replace(/\r\n?/g, '\n').trim();
 }
 
+// Only the latest answer displays follow-up actions. Standalone API retains
+// the source; combined export uses labels, never hidden click-query values.
+function renderElicitations(text, latest) {
+    const group = /\n?<ElicitationsGroup message="([^"]*)">\s*((?:<Elicitation label="[^"]*" query="[^"]*"\s*\/>\s*)+)<\/ElicitationsGroup>\s*$/.exec(text);
+    if (!group || markdown.lexer(text).some(token => token.type === 'code' && token.raw.includes(group[0].trim()))) return text;
+    const decode = value => value.replace(/&(amp|quot|apos|lt|gt|#39);/g, (_, name) => ({ amp: '&', quot: '"', apos: "'", lt: '<', gt: '>', '#39': "'" })[name]);
+    const labels = [group[1], ...[...group[2].matchAll(/<Elicitation label="([^"]*)"/g)].map(match => match[1])];
+    const visible = latest ? labels.map(value => decode(value).replace(/([\\`*_{}[\]<>#+.!|~-])/g, '\\$1')).join('\n\n') : '';
+    return text.slice(0, group.index).trimEnd() + (visible ? '\n\n' + visible : '');
+}
 // Protocol fields verified against the user's hNvQHb response, not UI text.
 function parseGeminiApiData(rawTurns) {
     if (!Array.isArray(rawTurns)) throw new Error('Gemini 回合格式已改變');
@@ -305,9 +315,9 @@ function parseGeminiApiData(rawTurns) {
                 }
             }
             const prefix = isAlt ? `**候選回答 ${index + 1}（目前選取未確認）**\n\n` : '';
-            return { text: prefix + text, comparisonBody: prefix + comparisonBody };
+            return { text: prefix + text, comparisonBody: prefix + (hasText ? renderElicitations(comparisonBody, turn === rawTurns[0]) : '') };
         });
-        if (answers.length) turns.push({ type: 'ai', text: answers.map(answer => answer.text).join('\n\n---\n\n'), comparisonBody: answers.map(answer => answer.comparisonBody).join('\n\n---\n\n'), citations: citations.length ? citations : null, timestamp, dateStr, isAlt });
+        if (answers.length) turns.push({ type: 'ai', text: answers.map(answer => answer.text).join('\n\n---\n\n'), comparisonBody: answers.map(answer => answer.comparisonBody).join('\n\n---\n\n'), visibleText: answers.map(answer => answer.comparisonBody || answer.text).join('\n\n---\n\n'), citations: citations.length ? citations : null, timestamp, dateStr, isAlt });
     }
     return { turns, parseWarnings: [...warnings] };
 }
@@ -451,7 +461,7 @@ function buildRpcRequest(cid, limit) {
         if (!apiAvailable || !domAvailable) content += `> **來源取得失敗**：${apiAvailable ? 'DOM' : domAvailable ? 'API' : 'API、DOM'}。\n\n`;
         if (notes.length) content += notes.map(note => `> **來源提醒**：${note}\n\n`).join('');
         let users = 0, models = 0, previousTimestamp = '';
-        const body = message => String(message?.text ?? '');
+        const body = message => String(message?.visibleText ?? message?.text ?? '');
         const supplement = entry => {
             const messages = [entry.api, entry.dom].filter(Boolean);
             const lines = [];
@@ -790,6 +800,12 @@ if (typeof document !== 'undefined') {
         function readDomBody(body) {
             const clone = body.cloneNode(true);
             const citations = [...clone.querySelectorAll('.source-inline-chip-container')].map(node => ({ label: node.textContent.trim() }));
+            // Preserve visible follow-up labels before removing action buttons.
+            for (const button of clone.querySelectorAll('elicitations button.elicitation-item')) {
+                const label = document.createElement('div');
+                label.textContent = button.querySelector('.elicitation-label')?.textContent || '';
+                button.replaceWith(label);
+            }
             clone.querySelectorAll('.source-inline-chip-container').forEach(node => node.remove());
             for (const math of clone.querySelectorAll('[data-math], .katex')) {
                 if (!clone.contains(math)) continue;

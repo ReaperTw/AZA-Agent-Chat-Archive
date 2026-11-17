@@ -48,6 +48,8 @@ ChatGPT 1.4.12：一篇新樣本的額外 DOM 訊息位於原生 `hidden` 容器
 
 Gemini 1.4.8：四篇獨立 API／正常匯出／DOM 樣本，正文訊息數分別為 98／4／90／118，正文差異為 0；引用與進度 metadata 尚未獨立驗證。這不是所有 Gemini 對話的完整性保證。Claude、Grok 不在本次登入對話驗收範圍。
 
+Gemini 1.4.10：修正已識別的尾端 `ElicitationsGroup` 追問元件。即時頁面只在最新回答顯示追問；綜合正文保留該元件的提示與全部按鈕標籤，不輸出隱藏的點擊 query 或原始標記；舊回答不把未顯示的追問混入正文。單獨 API 仍保留原文，未知元件及程式碼範例不套用此轉換。新增兩回合登入樣本的 API／正常／獨立 DOM 正文皆為 4 則，兩筆差異降為 0；歷史已讀盡、回合 ID 與目前選取回答均確認。引用及處理進度 metadata 未獨立驗證。
+
 ## 回歸與瀏覽器驗證
 
 在專案根目錄執行對應回歸：`node tests/check-chatgpt-api.js`、`node tests/check-integrated-export.js`、`node tests/check-gemini-api.js`、`node tests/check-claude-export.js`、`node tests/check-claude-combined.js`、`node tests/check-grok-api.js`、`node tests/check-grok-combined.js`。這些合成資料檢查不證明真實頁面完整。
