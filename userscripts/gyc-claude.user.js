@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         GYC - Claude
 // @namespace    https://github.com/ReaperTw/AZA-Agent-Chat-Archive
-// @version      1.4.6
-// @description  Grab Your Chat - Claude 端對話匯出器；最後更新於 20261116
+// @version      1.4.7
+// @description  Grab Your Chat - Claude 端對話匯出器；最後更新於 20261117
 // @updateURL    https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-claude.user.js
 // @downloadURL  https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-claude.user.js
 // @match        https://claude.ai/*
@@ -1177,8 +1177,8 @@
         });
     }
 
-    // Snapshots overlap while moving from oldest to newest. Stable ids/indexes
-    // win; otherwise retain the longest matching overlap, not a text set.
+    // Stable keys anchor late-loaded messages in snapshot order. Without keys,
+    // retain the longest matching overlap rather than deduplicating by text.
     function mergeDomSnapshot(messages, snapshot) {
         const same = (a, b) => a.key && b.key ? a.key === b.key : a.role === b.role && a.text === b.text;
         let overlap = 0;
@@ -1192,11 +1192,26 @@
             const old = messages[messages.length - overlap + i];
             if (snapshot[i].text.length > old.text.length) Object.assign(old, snapshot[i]);
         }
-        for (const item of snapshot.slice(overlap)) {
-            const existing = item.key && messages.find(message => message.key === item.key);
-            if (existing) {
+        let cursor = messages.length;
+        for (let i = overlap; i < snapshot.length; i++) {
+            const item = snapshot[i];
+            const existingIndex = item.key ? messages.findIndex(message => message.key === item.key) : -1;
+            if (existingIndex >= 0) {
+                const existing = messages[existingIndex];
                 if (item.text.length > existing.text.length) Object.assign(existing, item);
-            } else messages.push(item);
+                cursor = existingIndex + 1;
+            } else {
+                // Before the first shared key, use the next anchor; afterwards
+                // cursor places new rows immediately after the preceding row.
+                if (cursor === messages.length) {
+                    for (let next = i + 1; next < snapshot.length; next++) {
+                        if (!snapshot[next].key) continue;
+                        const anchor = messages.findIndex(message => message.key === snapshot[next].key);
+                        if (anchor >= 0) { cursor = anchor; break; }
+                    }
+                }
+                messages.splice(cursor++, 0, item);
+            }
         }
     }
 

@@ -53,4 +53,24 @@ const noIds = [];
 api.mergeDomSnapshot(noIds, [item('', 'first'), item('', 'same')]);
 api.mergeDomSnapshot(noIds, [item('', 'same'), item('', 'last')]);
 assert.deepStrictEqual(noIds.map(row => row.text), ['first', 'same', 'last']);
+
+// A virtualized snapshot can expose the tail before the middle finishes loading.
+const chronological = Array.from({ length: 16 }, (_, i) => ({
+    key: `id:${i + 1}`, role: i % 2 ? 'assistant' : 'user', text: `message-${i + 1}`
+}));
+const delayed = [];
+api.mergeDomSnapshot(delayed, [...chronological.slice(0, 4), ...chronological.slice(13)]);
+api.mergeDomSnapshot(delayed, chronological);
+assert.deepStrictEqual(delayed.map(row => row.key), chronological.map(row => row.key));
+const integrated = api.integrateTranscripts(chronological, delayed);
+assert.strictEqual(integrated.comparison.match, true);
+assert.strictEqual(integrated.entries.length, 16);
+
+// Partial snapshots must also insert before/after an anchor, not at the end.
+const partial = [item('2', 'same'), item('4', 'same')];
+api.mergeDomSnapshot(partial, [item('1', 'same'), item('2', 'same')]);
+api.mergeDomSnapshot(partial, [item('2', 'same'), item('3', 'same')]);
+api.mergeDomSnapshot(partial, [item('3', 'same'), item('4', 'longer')]);
+assert.deepStrictEqual(partial.map(row => row.key), ['1', '2', '3', '4']);
+assert.strictEqual(partial[3].text, 'longer');
 console.log('ok Claude combined behavior');
