@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GYC - Gemini
 // @namespace    https://github.com/ReaperTw/AZA-Agent-Chat-Archive
-// @version      1.4.10
+// @version      1.4.11
 // @description  Grab Your Chat - Gemini 端對話匯出器；最後更新於 20261117
 // @updateURL    https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-gemini.user.js
 // @downloadURL  https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-gemini.user.js
@@ -82,6 +82,13 @@
         tokenizer(source) {
             const match = /^\$\$([\s\S]+?)\$\$/.exec(source) || /^\$([^\n$]+?)\$/.exec(source);
             if (match) return { type: 'gycMath', raw: match[0], text: mathBody(match[1]) };
+        }
+    }, {
+        name: 'gycEm', level: 'inline',
+        start: source => source.indexOf('*'),
+        tokenizer(source) {
+            const match = /^\*(?!\*)((?:\*\*[^\n]+?\*\*|[^*\n])+)\*(?!\*)/.exec(source);
+            if (match && !/^\s|\s$/.test(match[1])) return { type: 'gycEm', raw: match[0], tokens: this.lexer.inlineTokens(match[1]) };
         }
     }, {
         name: 'gycStrong', level: 'inline',
@@ -252,14 +259,17 @@ function cleanContent(text) {
     return String(text || '').replace(/\r\n?/g, '\n').trim();
 }
 
-// Only the latest answer displays follow-up actions. Standalone API retains
-// the source; combined export uses labels, never hidden click-query values.
+// Grouped suggestions are latest-answer-only; single FollowUp labels remain
+// visible on earlier answers too. Never render hidden click-query payloads.
 function renderElicitations(text, latest) {
+    const decode = value => value.replace(/&(amp|quot|apos|lt|gt|#39);/g, (_, name) => ({ amp: '&', quot: '"', apos: "'", lt: '<', gt: '>', '#39': "'" })[name]);
+    const label = value => decode(value).replace(/([\\`*_{}[\]<>#+.!|~-])/g, '\\$1');
+    text = text.replace(/(`{3,})[\s\S]*?\1|(~{3,})[\s\S]*?\2|(`+)[^\n]*?\3|^ {0,3}<FollowUp label="([^"]*)" query="[^"]*"\s*\/>[ \t]*$/gm,
+        (raw, fence, tilde, code, value) => value === undefined ? raw : label(value));
     const group = /\n?<ElicitationsGroup message="([^"]*)">\s*((?:<Elicitation label="[^"]*" query="[^"]*"\s*\/>\s*)+)<\/ElicitationsGroup>\s*$/.exec(text);
     if (!group || markdown.lexer(text).some(token => token.type === 'code' && token.raw.includes(group[0].trim()))) return text;
-    const decode = value => value.replace(/&(amp|quot|apos|lt|gt|#39);/g, (_, name) => ({ amp: '&', quot: '"', apos: "'", lt: '<', gt: '>', '#39': "'" })[name]);
     const labels = [group[1], ...[...group[2].matchAll(/<Elicitation label="([^"]*)"/g)].map(match => match[1])];
-    const visible = latest ? labels.map(value => decode(value).replace(/([\\`*_{}[\]<>#+.!|~-])/g, '\\$1')).join('\n\n') : '';
+    const visible = latest ? labels.map(label).join('\n\n') : '';
     return text.slice(0, group.index).trimEnd() + (visible ? '\n\n' + visible : '');
 }
 // Protocol fields verified against the user's hNvQHb response, not UI text.
@@ -298,12 +308,27 @@ function parseGeminiApiData(rawTurns) {
             warnings.add(candidates.length ? '無法確認目前回答，已保留可取得的候選回答' : '部分回合沒有回答正文，可能仍在生成');
         }
         const citations = [];
+        const attachments = [];
         const answers = selected.map((candidate, index) => {
             const rawText = candidate?.[1]?.[0];
             const hasText = typeof rawText === 'string' && Boolean(rawText.trim());
             if (!hasText) warnings.add('部分回答沒有文字正文');
             const text = hasText ? cleanContent(rawText) : '> [非文字或空白回答；本體未嵌入]';
-            const comparisonBody = hasText ? text : '';
+            let comparisonBody = hasText ? text : '';
+            // Typed YouTube resource records identify a non-visible trailing
+            // renderer token. Preserve its real link separately, not as prose.
+            const resources = candidate?.[12]?.[4];
+            for (const resource of Array.isArray(resources) ? resources : []) {
+                const marker = resource?.[0]?.[0];
+                const video = resource?.[4]?.[0]?.[0];
+                if (resource?.[0]?.[6]?.[0] !== 'YouTube' ||
+                    typeof marker !== 'string' || !/^http:\/\/googleusercontent\.com\/youtube_content\/\d+$/.test(marker) ||
+                    !Array.isArray(video) || typeof video[0] !== 'string' || typeof video[2] !== 'string' ||
+                    !/^https?:\/\/(?:www\.)?youtube\.com\/watch\?v=/.test(video[2]) ||
+                    !comparisonBody.endsWith('\n' + marker) || markdown.lexer(comparisonBody).at(-1)?.type === 'code') continue;
+                attachments.push({ type: 'video', name: video[0], url: video[2] });
+                comparisonBody = comparisonBody.slice(0, -marker.length).trimEnd();
+            }
             // Native source-chip metadata identifies these markers as citations;
             // ordinary text that merely looks like a marker remains body text.
             const sources = candidate?.[12]?.[0]?.['44'];
@@ -317,7 +342,7 @@ function parseGeminiApiData(rawTurns) {
             const prefix = isAlt ? `**候選回答 ${index + 1}（目前選取未確認）**\n\n` : '';
             return { text: prefix + text, comparisonBody: prefix + (hasText ? renderElicitations(comparisonBody, turn === rawTurns[0]) : '') };
         });
-        if (answers.length) turns.push({ type: 'ai', text: answers.map(answer => answer.text).join('\n\n---\n\n'), comparisonBody: answers.map(answer => answer.comparisonBody).join('\n\n---\n\n'), visibleText: answers.map(answer => answer.comparisonBody || answer.text).join('\n\n---\n\n'), citations: citations.length ? citations : null, timestamp, dateStr, isAlt });
+        if (answers.length) turns.push({ type: 'ai', text: answers.map(answer => answer.text).join('\n\n---\n\n'), comparisonBody: answers.map(answer => answer.comparisonBody).join('\n\n---\n\n'), visibleText: answers.map(answer => answer.comparisonBody || answer.text).join('\n\n---\n\n'), citations: citations.length ? citations : null, attachments, timestamp, dateStr, isAlt });
     }
     return { turns, parseWarnings: [...warnings] };
 }
@@ -1234,7 +1259,7 @@ if (typeof document !== 'undefined') {
 
             const fab = document.createElement('button');
             fab.textContent = '✦';
-            fab.title = "GYC - Gemini - v1.4.10";
+            fab.title = "GYC - Gemini - v1.4.11";
             fab.setAttribute('aria-label', '開啟 Grab Your Chat - Gemini 工具');
             Object.assign(fab.style, {
                 width: '56px',

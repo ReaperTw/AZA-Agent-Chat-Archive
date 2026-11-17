@@ -50,6 +50,8 @@ Gemini 1.4.8：四篇獨立 API／正常匯出／DOM 樣本，正文訊息數分
 
 Gemini 1.4.10：修正已識別的尾端 `ElicitationsGroup` 追問元件。即時頁面只在最新回答顯示追問；綜合正文保留該元件的提示與全部按鈕標籤，不輸出隱藏的點擊 query 或原始標記；舊回答不把未顯示的追問混入正文。單獨 API 仍保留原文，未知元件及程式碼範例不套用此轉換。新增兩回合登入樣本的 API／正常／獨立 DOM 正文皆為 4 則，兩筆差異降為 0；歷史已讀盡、回合 ID 與目前選取回答均確認。引用及處理進度 metadata 未獨立驗證。
 
+Gemini 1.4.11：另一篇 11 回合即時登入樣本，API／正常／獨立 DOM 皆為 22 則，五筆正文差異降為 0；歷史已讀盡、回合 ID 與目前回答分支均已確認。支援較舊回答仍可見的單一 `FollowUp` 標籤，排除其隱藏 query；修正斜體內嵌粗體的解析。僅在 API 有已識別的 YouTube 型別與實際連結映射時，將尾端影片資源代號改存附件，真實連結保留；未映射文字不忽略，程式碼及未知元件不套用轉換。實際整合下載檔與 Blob 一致，影片連結及追問文字保留；引用、進度 metadata 未獨立驗證。
+
 ## 回歸與瀏覽器驗證
 
 在專案根目錄執行對應回歸：`node tests/check-chatgpt-api.js`、`node tests/check-integrated-export.js`、`node tests/check-gemini-api.js`、`node tests/check-claude-export.js`、`node tests/check-claude-combined.js`、`node tests/check-grok-api.js`、`node tests/check-grok-combined.js`。這些合成資料檢查不證明真實頁面完整。
