@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GYC - Claude
 // @namespace    https://github.com/ReaperTw/AZA-Agent-Chat-Archive
-// @version      1.4.7
+// @version      1.4.8
 // @description  Grab Your Chat - Claude 端對話匯出器；最後更新於 20261117
 // @updateURL    https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-claude.user.js
 // @downloadURL  https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-claude.user.js
@@ -161,40 +161,89 @@
         } };
     }
 
-    function buildIntegratedMarkdown(apiMessages, domMessages, { apiAvailable = true, domAvailable = true, notes = [] } = {}) {
+    // Reading-first COM layout: one short header, warnings only when real,
+    // no per-message timestamps or raw JSON (those stay in API/DOM/report files).
+    function formatTimeRange(messages, fallback = '') {
+        const times = messages.map(message => message?.createdAt || message?.date || message?.time)
+            .filter(Boolean).map(value => value instanceof Date ? value.toLocaleString('zh-TW') : String(value));
+        const first = times[0] || fallback, last = times.at(-1);
+        if (!first || !last || first === last) return first || '';
+        const [firstDay] = first.split(' '), [lastDay, ...lastRest] = last.split(' ');
+        return `${first} – ${firstDay === lastDay && lastRest.length ? lastRest.join(' ') : last}`;
+    }
+
+    function buildComHeader({ site = '', url = '', time = '', warnings = [] } = {}) {
+        const lines = [time && `> **對話時間**：${time}`, site && `> **來源網站**：${site}`,
+            url && `> **網址**：${String(url).replace(/#.*$/, '')}`].filter(Boolean);
+        let header = lines.length ? lines.join('\n>\n') + '\n\n' : '';
+        const notes = [...new Set(warnings.filter(Boolean).map(note => String(note).trim()))];
+        if (notes.length) header += '> **注意**\n' + notes.map(note => `> - ${note.replace(/\r?\n/g, '\n>   ')}`).join('\n') + '\n\n';
+        return header;
+    }
+
+    function formatComMetadata(message, bodyText = '') {
+        if (!message) return [];
+        const urlOf = value => {
+            if (!value || typeof value !== 'object') return '';
+            const direct = value.url || value.href || value.link || value.metadata?.url;
+            if (typeof direct === 'string' && /^https?:/i.test(direct)) return direct;
+            for (const link of Array.isArray(value.links) ? value.links : []) {
+                const found = typeof link === 'string' ? link : link?.url || link?.href;
+                if (typeof found === 'string' && /^https?:/i.test(found)) return found;
+            }
+            return '';
+        };
+        const nameOf = value => String(value?.title || value?.metadata?.title || value?.label || value?.name ||
+            value?.file_name || value?.filename || value?.alt || '').replace(/\s+/g, ' ').trim();
+        const render = value => {
+            if (typeof value === 'string') return bodyText.includes(value.trim()) ? '' : value.trim();
+            if (!value || typeof value !== 'object') return '';
+            const url = urlOf(value), name = nameOf(value).replace(/\s*\+\d+$/, '');
+            if (url) return bodyText.includes(url) ? '' : name && name !== url ? `[${name.replace(/[[\]]/g, '')}](${url})` : url;
+            if (/^\[cite(?:_start)?(?::[^\]]*)?\]$/.test(name)) return '';
+            // Nameless image pointers duplicate the body placeholder; other unknown shapes stay visible.
+            return name || (/image/i.test(String(value.type || value.content_type || '')) ? '' : JSON.stringify(value));
+        };
+        const lines = [];
+        if (message.note) lines.push(String(message.note));
+        for (const [field, label] of [['citations', '引用'], ['attachments', '附件'], ['process', '處理狀態']]) {
+            const values = [...new Set((Array.isArray(message[field]) ? message[field] : []).map(render).filter(Boolean))];
+            if (values.length) lines.push(`${label}：${values.join('；')}`);
+        }
+        return lines;
+    }
+
+    function buildIntegratedMarkdown(apiMessages, domMessages, { apiAvailable = true, domAvailable = true, notes = [], site = '', url = '' } = {}) {
         const result = integrateTranscripts(apiMessages, domMessages);
-        let content = `> **匯出來源**：${[apiAvailable && 'API', domAvailable && 'DOM'].filter(Boolean).join(' + ')}（整合匯出）\n\n`;
-        if (apiAvailable && domAvailable && result.comparison.differences.length) content += `> **正文差異**：${result.comparison.differences.length} 筆；單邊訊息及衝突版本均已保留，未自動覆蓋。\n\n`;
-        if (!apiAvailable || !domAvailable) content += `> **來源取得失敗**：${apiAvailable ? 'DOM' : domAvailable ? 'API' : 'API、DOM'}。\n\n`;
-        if (notes.length) content += notes.map(note => `> **來源提醒**：${note}\n\n`).join('');
+        const compared = apiAvailable && domAvailable;
+        const warnings = [
+            (!apiAvailable || !domAvailable) && `來源取得失敗：${apiAvailable ? 'DOM' : domAvailable ? 'API' : 'API、DOM'}`,
+            compared && result.comparison.differences.length && `API／DOM 正文差異 ${result.comparison.differences.length} 筆；衝突處兩版並列`,
+            ...notes
+        ];
+        let content = buildComHeader({ site, url, warnings, time: formatTimeRange([apiMessages, domMessages].find(list => list.some(message => message?.createdAt || message?.date || message?.time)) || []) });
         let users = 0, models = 0;
         const body = message => String(message?.text ?? '');
-        const supplement = (message, source) => {
-            if (!message) return '';
-            const lines = [];
-            const timestamp = message.createdAt || message.date || message.time;
-            if (timestamp) lines.push(`> **${source} 時間**：${timestamp}`);
-            if (message.note) lines.push(`**${source} 備註**\n\n${message.note}`);
-            for (const [field, label] of [['citations', '引用'], ['attachments', '附件'], ['process', '處理狀態']]) {
-                if (!Array.isArray(message[field]) || !message[field].length) continue;
-                lines.push(`**${source} ${label}**\n\n\`\`\`json\n${JSON.stringify(message[field], null, 2)}\n\`\`\``);
-            }
+        const supplement = (...messages) => {
+            const present = messages.filter(Boolean);
+            const text = present.map(body).join('\n');
+            const lines = [...new Set(present.flatMap(message => formatComMetadata(message, text)))];
             return lines.length ? `\n\n${lines.join('\n\n')}` : '';
         };
         for (const entry of result.entries) {
             const primary = entry.api || entry.dom;
             const role = primary.role === 'user' ? `User ${++users}` : `Model ${++models}`;
-            const sources = [entry.api && `API #${entry.apiIndex}`, entry.dom && `DOM #${entry.domIndex}`].filter(Boolean).join(' · ');
-            content += `--- [${role}] ---\n`;
-            if (entry.kind !== 'match') content += `> **訊息來源**：${sources}${entry.kind === 'progress' ? '（前進度）' : ''}\n`;
-            content += '\n';
+            content += `--- [${role}] ---\n\n`;
+            if (compared && ['api-only', 'dom-only', 'progress'].includes(entry.kind)) {
+                content += `> ${entry.kind === 'progress' ? '前進度；' : ''}僅 ${entry.api ? 'API' : 'DOM'} 有此訊息\n\n`;
+            }
             if (entry.kind === 'text' || entry.kind === 'role') {
-                content += `> **來源衝突：兩版均保留**${entry.kind === 'role' ? '（角色也不同）' : ''}\n\n`;
+                content += `> **來源衝突，兩版並列**${entry.kind === 'role' ? '（角色也不同）' : ''}\n\n`;
                 content += `### API 版本（${entry.api.role}）\n\n${body(entry.api)}\n\n### DOM 版本（${entry.dom.role}）\n\n${body(entry.dom)}`;
             } else {
                 content += body(primary);
             }
-            content += supplement(entry.api, 'API') + supplement(entry.dom, 'DOM') + '\n\n';
+            content += supplement(entry.api, entry.dom) + '\n\n';
         }
         return { ...result, compared: apiAvailable && domAvailable, content: content.trimEnd() + '\n' };
     }
@@ -615,7 +664,7 @@
             inlined.push(`> **附件：${name}**\n>\n${quoted}`);
         }
         const summary = notes.length
-            ? `> [非文字內容：${notes.join('；')}；附件本體未嵌入匯出檔]`
+            ? `> [非文字內容：${notes.join('；')}]`
             : '';
         return [summary, ...inlined].filter(Boolean).join('\n\n');
     }
@@ -644,8 +693,8 @@
             warnings.push('文字區塊缺少正文，文字解析未完成');
             return '';
         }
-        if (block.type === 'image') return '> [非文字內容：訊息內圖片；本體未嵌入匯出檔]';
-        if (block.type === 'document') return '> [非文字內容：訊息內文件；本體未嵌入匯出檔]';
+        if (block.type === 'image') return '> [圖片]';
+        if (block.type === 'document') return '> [文件]';
         if (['thinking', 'redacted_thinking', 'tool_result'].includes(block.type)) return '';
         if (block.type === 'tool_use') return renderToolUse(block, artifacts, info);
         warnings.push(`訊息含未支援的內容類型「${String(block.type ?? 'unknown')}」，正文可能不完整`);
@@ -1168,7 +1217,7 @@
             const attachments = [...node.querySelectorAll('img, [data-testid*="attachment"], a[download]')]
                 .map(item => ({ type: item.tagName === 'IMG' ? 'image' : 'file',
                     name: item.getAttribute('alt') || item.getAttribute('download') || item.getAttribute('aria-label') || '' }));
-            if (!text && attachments.length) text = '> [非文字內容：附件本體未嵌入匯出檔]';
+            if (!text && attachments.length) text = '> [附件]';
             return { role, text, comparisonBody, comparisonCode: { prefix, values }, process,
                 createdAt: node.querySelector('[data-cds="MessageActions"] time[datetime]')?.getAttribute('datetime') || '',
                 key: id ? `id:${id}` : index !== null ? `index:${index}:${role}` : '',
@@ -1325,7 +1374,8 @@
             ...(domResult?.warnings || []).map(warning => `DOM：${warning}`)
         ];
         const integration = buildIntegratedMarkdown(apiResult?.messages || [], domResult?.messages || [], {
-            apiAvailable: Boolean(apiResult), domAvailable: Boolean(domResult), notes
+            apiAvailable: Boolean(apiResult), domAvailable: Boolean(domResult), notes,
+            site: 'Claude', url: root.location.href
         });
         const base = `CLD_${sanitizeFileName(title) || 'Claude-Chat'}_${getTimestamp()}`;
         showIntegratedDialog({
@@ -1486,7 +1536,7 @@
 
         const fab = root.document.createElement('button');
         fab.textContent = '✳';
-        fab.title = "GYC - Claude - v1.4.6";
+        fab.title = "GYC - Claude - v1.4.8";
         fab.setAttribute('aria-label', '開啟 Grab Your Chat - Claude 工具');
         Object.assign(fab.style, {
             width: '56px',

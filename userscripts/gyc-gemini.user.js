@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GYC - Gemini
 // @namespace    https://github.com/ReaperTw/AZA-Agent-Chat-Archive
-// @version      1.4.14
+// @version      1.4.15
 // @description  Grab Your Chat - Gemini 端對話匯出器；最後更新於 20261119
 // @updateURL    https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-gemini.user.js
 // @downloadURL  https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-gemini.user.js
@@ -326,7 +326,7 @@ function parseGeminiApiData(rawTurns) {
             turns.push({ type: 'user', text: cleanContent(user), timestamp, dateStr });
         } else {
             warnings.add('部分使用者訊息沒有文字，可能含未嵌入的附件');
-            turns.push({ type: 'user', text: '> [非文字或空白使用者訊息；附件本體未嵌入]', comparisonBody: '', timestamp, dateStr });
+            turns.push({ type: 'user', text: '> [非文字內容]', comparisonBody: '', timestamp, dateStr });
         }
         const candidates = Array.isArray(turn[3]?.[0]) ? turn[3][0] : [];
         const selectedId = turn[3]?.[3];
@@ -347,7 +347,7 @@ function parseGeminiApiData(rawTurns) {
             const rawText = candidate?.[1]?.[0];
             const hasText = typeof rawText === 'string' && Boolean(rawText.trim());
             if (!hasText) warnings.add('部分回答沒有文字正文');
-            const text = hasText ? cleanContent(rawText) : '> [非文字或空白回答；本體未嵌入]';
+            const text = hasText ? cleanContent(rawText) : '> [非文字回答]';
             let comparisonBody = hasText ? text : '';
             // Typed YouTube resource records identify a non-visible trailing
             // renderer token. Preserve its real link separately, not as prose.
@@ -513,54 +513,95 @@ function buildRpcRequest(cid, limit) {
         } };
     }
 
-    function buildIntegratedMarkdown(apiMessages, domMessages, { apiAvailable = true, domAvailable = true, notes = [] } = {}) {
+    // Reading-first COM layout: one short header, warnings only when real,
+    // no per-message timestamps or raw JSON (those stay in API/DOM/report files).
+    function formatTimeRange(messages, fallback = '') {
+        const times = messages.map(message => message?.createdAt || message?.date || message?.time)
+            .filter(Boolean).map(value => value instanceof Date ? value.toLocaleString('zh-TW') : String(value));
+        const first = times[0] || fallback, last = times.at(-1);
+        if (!first || !last || first === last) return first || '';
+        const [firstDay] = first.split(' '), [lastDay, ...lastRest] = last.split(' ');
+        return `${first} – ${firstDay === lastDay && lastRest.length ? lastRest.join(' ') : last}`;
+    }
+
+    function buildComHeader({ site = '', url = '', time = '', warnings = [] } = {}) {
+        const lines = [time && `> **對話時間**：${time}`, site && `> **來源網站**：${site}`,
+            url && `> **網址**：${String(url).replace(/#.*$/, '')}`].filter(Boolean);
+        let header = lines.length ? lines.join('\n>\n') + '\n\n' : '';
+        const notes = [...new Set(warnings.filter(Boolean).map(note => String(note).trim()))];
+        if (notes.length) header += '> **注意**\n' + notes.map(note => `> - ${note.replace(/\r?\n/g, '\n>   ')}`).join('\n') + '\n\n';
+        return header;
+    }
+
+    function formatComMetadata(message, bodyText = '') {
+        if (!message) return [];
+        const urlOf = value => {
+            if (!value || typeof value !== 'object') return '';
+            const direct = value.url || value.href || value.link || value.metadata?.url;
+            if (typeof direct === 'string' && /^https?:/i.test(direct)) return direct;
+            for (const link of Array.isArray(value.links) ? value.links : []) {
+                const found = typeof link === 'string' ? link : link?.url || link?.href;
+                if (typeof found === 'string' && /^https?:/i.test(found)) return found;
+            }
+            return '';
+        };
+        const nameOf = value => String(value?.title || value?.metadata?.title || value?.label || value?.name ||
+            value?.file_name || value?.filename || value?.alt || '').replace(/\s+/g, ' ').trim();
+        const render = value => {
+            if (typeof value === 'string') return bodyText.includes(value.trim()) ? '' : value.trim();
+            if (!value || typeof value !== 'object') return '';
+            const url = urlOf(value), name = nameOf(value).replace(/\s*\+\d+$/, '');
+            if (url) return bodyText.includes(url) ? '' : name && name !== url ? `[${name.replace(/[[\]]/g, '')}](${url})` : url;
+            if (/^\[cite(?:_start)?(?::[^\]]*)?\]$/.test(name)) return '';
+            // Nameless image pointers duplicate the body placeholder; other unknown shapes stay visible.
+            return name || (/image/i.test(String(value.type || value.content_type || '')) ? '' : JSON.stringify(value));
+        };
+        const lines = [];
+        if (message.note) lines.push(String(message.note));
+        for (const [field, label] of [['citations', '引用'], ['attachments', '附件'], ['process', '處理狀態']]) {
+            const values = [...new Set((Array.isArray(message[field]) ? message[field] : []).map(render).filter(Boolean))];
+            if (values.length) lines.push(`${label}：${values.join('；')}`);
+        }
+        return lines;
+    }
+
+    // Gemini file-citation markers are renderer tokens, not readable prose.
+    function stripGeminiCiteMarkers(text) {
+        return text.split(/(```[\s\S]*?```|`[^`\n]*`)/).map((part, index) => index % 2 ? part
+            : part.replace(/ ?\[cite(?:_start|_end)?(?::\s*[\d,\s]+)?\]/g, '')).join('');
+    }
+
+    function buildIntegratedMarkdown(apiMessages, domMessages, { apiAvailable = true, domAvailable = true, notes = [], site = '', url = '' } = {}) {
         const result = integrateTranscripts(apiMessages, domMessages);
-        let content = `> **匯出來源**：${[apiAvailable && 'API', domAvailable && 'DOM'].filter(Boolean).join(' + ')}（整合匯出）\n\n`;
-        if (apiAvailable && domAvailable && result.comparison.differences.length) content += `> **正文差異**：${result.comparison.differences.length} 筆；單邊訊息及衝突版本均已保留，未自動覆蓋。\n\n`;
-        if (!apiAvailable || !domAvailable) content += `> **來源取得失敗**：${apiAvailable ? 'DOM' : domAvailable ? 'API' : 'API、DOM'}。\n\n`;
-        if (notes.length) content += notes.map(note => `> **來源提醒**：${note}\n\n`).join('');
-        let users = 0, models = 0, previousTimestamp = '';
-        const body = message => String(message?.visibleText ?? message?.text ?? '');
-        const supplement = entry => {
-            const messages = [entry.api, entry.dom].filter(Boolean);
-            const lines = [];
-            const timestamps = [...new Set(messages.map(message => message.createdAt || message.date || message.time).filter(Boolean))];
-            const timestamp = timestamps.join(' / ');
-            if (timestamp && timestamp !== previousTimestamp) {
-                lines.push(`> 時間：${timestamp}`);
-                previousTimestamp = timestamp;
-            }
-            const notes = [...new Set(messages.map(message => message.note).filter(Boolean))];
-            lines.push(...notes);
-            for (const [field, label] of [['citations', '引用'], ['attachments', '附件'], ['process', '處理狀態']]) {
-                const values = [...new Set(messages.flatMap(message => (message[field] || []).map(value => {
-                    if (typeof value === 'string') return value;
-                    if (value && typeof value === 'object') {
-                        const keys = Object.keys(value);
-                        if (keys.every(key => ['label', 'url', 'name', 'type'].includes(key))) {
-                            return [...new Set([value.label || value.name, value.url, value.type].filter(Boolean))].join(' — ');
-                        }
-                    }
-                    return JSON.stringify(value);
-                })))].filter(value => value && !messages.some(message => body(message).includes(value)));
-                if (values.length) lines.push(`${label}：${values.join('；')}`);
-            }
+        const compared = apiAvailable && domAvailable;
+        const warnings = [
+            (!apiAvailable || !domAvailable) && `來源取得失敗：${apiAvailable ? 'DOM' : domAvailable ? 'API' : 'API、DOM'}`,
+            compared && result.comparison.differences.length && `API／DOM 正文差異 ${result.comparison.differences.length} 筆；衝突處兩版並列`,
+            ...notes
+        ];
+        let content = buildComHeader({ site, url, warnings, time: formatTimeRange([apiMessages, domMessages].find(list => list.some(message => message?.createdAt || message?.date || message?.time)) || []) });
+        let users = 0, models = 0;
+        const body = message => stripGeminiCiteMarkers(String(message?.visibleText ?? message?.text ?? ''));
+        const supplement = (...messages) => {
+            const present = messages.filter(Boolean);
+            const text = present.map(body).join('\n');
+            const lines = [...new Set(present.flatMap(message => formatComMetadata(message, text)))];
             return lines.length ? `\n\n${lines.join('\n\n')}` : '';
         };
         for (const entry of result.entries) {
             const primary = entry.api || entry.dom;
             const role = primary.role === 'user' ? `User ${++users}` : `Model ${++models}`;
-            const sources = [entry.api && `API #${entry.apiIndex}`, entry.dom && `DOM #${entry.domIndex}`].filter(Boolean).join(' · ');
-            content += `--- [${role}] ---\n`;
-            if (entry.kind !== 'match') content += `> **訊息來源**：${sources}${entry.kind === 'progress' ? '（前進度）' : ''}\n`;
-            content += '\n';
+            content += `--- [${role}] ---\n\n`;
+            if (compared && ['api-only', 'dom-only', 'progress'].includes(entry.kind)) {
+                content += `> ${entry.kind === 'progress' ? '前進度；' : ''}僅 ${entry.api ? 'API' : 'DOM'} 有此訊息\n\n`;
+            }
             if (entry.kind === 'text' || entry.kind === 'role') {
-                content += `> **來源衝突：兩版均保留**${entry.kind === 'role' ? '（角色也不同）' : ''}\n\n`;
+                content += `> **來源衝突，兩版並列**${entry.kind === 'role' ? '（角色也不同）' : ''}\n\n`;
                 content += `### API 版本（${entry.api.role}）\n\n${body(entry.api)}\n\n### DOM 版本（${entry.dom.role}）\n\n${body(entry.dom)}`;
             } else {
                 content += body(primary);
             }
-            content += supplement(entry) + '\n\n';
+            content += supplement(entry.api, entry.dom) + '\n\n';
         }
         return { ...result, compared: apiAvailable && domAvailable, content: content.trimEnd() + '\n' };
     }
@@ -940,7 +981,7 @@ if (typeof document !== 'undefined') {
                 if (!result.text) {
                     const image = user && node.querySelector('img');
                     if (!image && !warnings.includes('部分頁面訊息沒有可識別的文字正文')) warnings.push('部分頁面訊息沒有可識別的文字正文');
-                    result = { text: image ? '> [圖片附件；本體未嵌入]' : '> [非文字或空白訊息；正文未確認]', comparisonBody: '' };
+                    result = { text: image ? '> [圖片]' : '> [非文字內容]', comparisonBody: '' };
                 }
                 const turn = { type, ...result };
                 domTurnCache.set(node, { fingerprint, turn });
@@ -1135,7 +1176,8 @@ if (typeof document !== 'undefined') {
             const domMessages = dom ? toMessages(dom) : [];
             const integration = buildIntegratedMarkdown(apiMessages, domMessages, {
                 apiAvailable: Boolean(api), domAvailable: Boolean(dom),
-                notes: [...(api?.warnings || []).map(note => `API：${note}`), ...(dom?.warnings || []).map(note => `DOM：${note}`)]
+                notes: [...(api?.warnings || []).map(note => `API：${note}`), ...(dom?.warnings || []).map(note => `DOM：${note}`)],
+                site: 'Gemini', url: location.href
             });
             const comparison = integration.comparison;
             const formatDifference = difference => {
@@ -1304,7 +1346,7 @@ if (typeof document !== 'undefined') {
 
             const fab = document.createElement('button');
             fab.textContent = '✦';
-            fab.title = "GYC - Gemini - v1.4.14";
+            fab.title = "GYC - Gemini - v1.4.15";
             fab.setAttribute('aria-label', '開啟 Grab Your Chat - Gemini 工具');
             Object.assign(fab.style, {
                 width: '56px',

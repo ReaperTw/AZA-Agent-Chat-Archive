@@ -35,7 +35,7 @@ for (const provider of ['claude', 'gemini', 'grok']) {
     assert(!oneSide.content.includes('**正文差異**'));
     assert(!oneSide.content.includes('API + DOM'));
     const domOnly = buildIntegratedMarkdown([], [user('page only')], { apiAvailable: false });
-    assert(domOnly.content.includes('DOM #1'));
+    assert(!domOnly.content.includes('DOM #1'), 'single-source export has no per-message source labels');
     assert(domOnly.content.includes('page only'));
 
     const withMetadata = buildIntegratedMarkdown([
@@ -46,6 +46,21 @@ for (const provider of ['claude', 'gemini', 'grok']) {
     assert.equal(withMetadata.comparison.match, true);
     for (const value of ['api.example.test', 'dom.example.test', 'api.txt', 'dom.txt', 'Visible status', '2026-10-29']) {
         assert(withMetadata.content.includes(value));
+    }
+    // Reading-first COM: one header with the time range, no per-message timestamps,
+    // no raw JSON, no link-less citation labels, no provenance/disclaimer lines.
+    const compactCom = buildIntegratedMarkdown([
+        { ...user('Q'), date: '2026/11/8 下午6:04:06' }, { ...assistant('A'), date: '2026/11/8 下午6:04:13' },
+        { ...user('Q2'), date: '2026/11/8 下午6:15:27' }
+    ], [
+        user('Q'), { ...assistant('A'), citations: [{ label: 'NHS\n+1', links: [] }] }, user('Q2')
+    ], { site: 'Test', url: 'https://example.test/c/1#frag' }).content;
+    assert(compactCom.startsWith('> **對話時間**：2026/11/8 下午6:04:06 – 下午6:15:27\n>\n> **來源網站**：Test\n>\n> **網址**：https://example.test/c/1\n\n'));
+    for (const noise of ['下午6:04:13', '```json', '+1', '匯出來源', '核對結果', '注意']) assert(!compactCom.includes(noise), noise);
+    assert(compactCom.includes('A\n\n引用：NHS\n'), 'link-less source chip kept as one line');
+    if (provider === 'gemini') {
+        const cited = buildIntegratedMarkdown([assistant('Rule [cite: 4].\n`[cite: 9]`')], [assistant('Rule [cite: 4].\n`[cite: 9]`')]).content;
+        assert(cited.includes('Rule.') && cited.includes('`[cite: 9]`'), 'cite markers stripped outside code only');
     }
     if (provider === 'gemini') {
         const shared = { citations: [{ label: 'Manual', url: 'https://example.test/manual' }], attachments: [{ name: 'input.txt', type: 'file' }], date: '2026-11-01 10:00' };
@@ -62,7 +77,7 @@ for (const provider of ['claude', 'gemini', 'grok']) {
         ], [
             { ...assistant('same'), attachments: [{ name: 'b', extra: 'different-detail' }] }
         ]);
-        for (const value of ['unrecognized-detail', 'different-detail']) assert(distinct.content.includes(value));
+        for (const value of ['附件：a', '附件：b']) assert(distinct.content.includes(value));
     }
     const progress = buildIntegratedMarkdown([
         { ...assistant('Checking sources'), channel: 'commentary' },
