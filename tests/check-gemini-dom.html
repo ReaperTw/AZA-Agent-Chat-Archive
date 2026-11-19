@@ -1,0 +1,32 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Gemini query DOM regression</title>
+<pre id="result">Running</pre>
+<script>window.module = { exports: {} };</script>
+<script src="../userscripts/gyc-gemini.user.js"></script>
+<script>
+(() => {
+    const cases = [
+        ['<span>  </span>', '', '  '],
+        ['<span>  indented text  </span>', '', '  indented text  '],
+        ['<!--before--><span> x </span><!--after-->', '', ' x '],
+        [' <!--template--><span>  body  </span> ', '', '  body  '],
+        ['  ', '', '  '],
+        ['<br>', '', ''],
+        ['<span> item </span>', 'query-bullet-item', '-  item ']
+    ];
+    try {
+        for (const [html, className, expected] of cases) {
+            const line = document.createElement('p');
+            line.innerHTML = html;
+            line.className = className;
+            const actual = module.exports.readGeminiQueryLine(line);
+            if (actual !== expected) throw new Error(`Expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
+        }
+        document.getElementById('result').textContent = `PASS: ${cases.length} cases; whitespace-only lines, indentation, template wrappers, bullets`;
+    } catch (error) {
+        document.getElementById('result').textContent = 'FAIL: ' + error.message;
+        throw error;
+    }
+})();
+</script>

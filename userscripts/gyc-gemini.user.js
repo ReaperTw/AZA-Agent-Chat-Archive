@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GYC - Gemini
 // @namespace    https://github.com/ReaperTw/AZA-Agent-Chat-Archive
-// @version      1.4.13
+// @version      1.4.14
 // @description  Grab Your Chat - Gemini 端對話匯出器；最後更新於 20261119
 // @updateURL    https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-gemini.user.js
 // @downloadURL  https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-gemini.user.js
@@ -144,10 +144,8 @@
                 displayMathKeys.push(key);
                 return key + (marker && !literalMarker ? marker : '');
             });
-        const inline = (tokens, quoted = false) => (tokens ?? []).map((token, index, all) => {
-            if (quoted && token.type === 'gycStrong' && /^\*\*[「『]/u.test(token.raw) &&
-                /[\p{L}\p{N}]$/u.test(all[index - 1]?.raw || '') && /^[\p{L}\p{N}]/u.test(all[index + 1]?.raw || '')) return token.raw;
-            if (token.tokens) return inline(token.tokens, quoted);
+        const inline = tokens => (tokens ?? []).map(token => {
+            if (token.tokens) return inline(token.tokens);
             if (token.type === 'gycMath') return keepCode(token.text);
             if (token.type === 'br') return '\n';
             if (token.type === 'html' && /^<br\s*\/?>$/i.test(token.raw)) return '\n';
@@ -162,15 +160,15 @@
             }
             return value;
         }).join('');
-        const blocks = (tokens, quoted = false) => (tokens ?? []).map(token => {
+        const blocks = tokens => (tokens ?? []).map(token => {
             switch (token.type) {
                 case 'space': case 'def': case 'hr': return '';
-                case 'list': return token.items.map(item => blocks(item.tokens, quoted).replace(/^ {1,3}(?=\S)/gm, '')).join('\n');
-                case 'blockquote': return blocks(token.tokens, true);
-                case 'table': return [token.header, ...token.rows].map(row => row.map(cell => inline(cell.tokens, quoted)).join('\t')).join('\n');
+                case 'list': return token.items.map(item => blocks(item.tokens).replace(/^ {1,3}(?=\S)/gm, '')).join('\n');
+                case 'blockquote': return blocks(token.tokens);
+                case 'table': return [token.header, ...token.rows].map(row => row.map(cell => inline(cell.tokens)).join('\t')).join('\n');
                 case 'code': return keepCode(token.text);
                 case 'html': return token.text;
-                default: return token.tokens ? inline(token.tokens, quoted) : decode(token.text ?? token.raw ?? '');
+                default: return token.tokens ? inline(token.tokens) : decode(token.text ?? token.raw ?? '');
             }
         }).filter(Boolean).join('\n');
         let renderedBody = blocks(markdown.lexer(renderedText));
@@ -257,6 +255,15 @@ function getTimestamp() {
 
 function cleanContent(text) {
     return String(text || '').replace(/\r\n?/g, '\n').trim();
+}
+
+function readGeminiQueryLine(line) {
+    let text = line.textContent;
+    // Only remove proven template wrapper nodes, never the user's own spaces.
+    const nodes = [...line.childNodes].filter(node => node.nodeType !== 8);
+    if (nodes.length > 2 && nodes[0].nodeType === 3 && nodes[0].textContent === ' ' &&
+        nodes.at(-1).nodeType === 3 && nodes.at(-1).textContent === ' ') text = text.slice(1, -1);
+    return line.classList.contains('query-bullet-item') ? '- ' + text : text;
 }
 
 // Grouped suggestions are latest-answer-only; single FollowUp labels remain
@@ -927,13 +934,7 @@ if (typeof document !== 'undefined') {
                 const lines = user ? [...node.querySelectorAll('.query-text-line, .query-bullet-item')] : [];
                 const body = user ? node.querySelector('.query-text') : node.querySelector('message-content .markdown, .markdown');
                 let result = user
-                    ? { text: cleanContent(lines.length ? lines.map(line => {
-                        // Gemini's query-line template pads each nonempty line with
-                        // one ASCII space; retain the user's internal indentation.
-                        let text = line.textContent;
-                        if (text.startsWith(' ') && text.endsWith(' ')) text = text.slice(1, -1);
-                        return line.classList.contains('query-bullet-item') ? '- ' + text : text;
-                    }).join('\n') : body?.textContent || '') }
+                    ? { text: cleanContent(lines.length ? lines.map(readGeminiQueryLine).join('\n') : body?.textContent || '') }
                     : body ? readDomBody(body) : { text: '', comparisonBody: '' };
                 for (const warning of result.warnings || []) if (!warnings.includes(warning)) warnings.push(warning);
                 if (!result.text) {
@@ -1303,7 +1304,7 @@ if (typeof document !== 'undefined') {
 
             const fab = document.createElement('button');
             fab.textContent = '✦';
-            fab.title = "GYC - Gemini - v1.4.13";
+            fab.title = "GYC - Gemini - v1.4.14";
             fab.setAttribute('aria-label', '開啟 Grab Your Chat - Gemini 工具');
             Object.assign(fab.style, {
                 width: '56px',
@@ -1370,6 +1371,7 @@ if (typeof module !== 'undefined' && module.exports) {
         geminiFetchHistory,
         collectGeminiHistory,
         cleanContent,
+        readGeminiQueryLine,
         sanitizeFileName,
         integrateTranscripts,
         buildIntegratedMarkdown,

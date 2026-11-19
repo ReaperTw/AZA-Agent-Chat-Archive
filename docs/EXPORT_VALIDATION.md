@@ -56,6 +56,8 @@ Gemini 1.4.12：修正商品網格的兩側擷取。API 依字串商品 ID 對�
 
 Gemini 1.4.13：依實測同時辨識網頁與檔案引用的來源欄位；僅有來源證據的引用標記移出正文，未知標記保留。行內數學不接受分隔符內緣空白，避免普通價格中的美元符號被誤判並吞掉空格。新增檔案引用與相同貨幣文字不應產生差異的回歸；登入樣本 API／正常／獨立 DOM 均為 28 則，四筆誤報降為 0。引用及處理進度 metadata 未完整獨立驗證；不代表所有 Gemini 格式均已支援，也未變更為 DOM 優先契約。
 
+Gemini 1.4.14：離散作業即時樣本重現兩筆差異，1.4.8 比較器對目前資料也會失敗。修正使用者行文字擷取：只移除具體辨識的模板外層空白節點，不再依字串首尾空格刪字，因此保留純空白行及原始縮排。移除區塊引用中把中文粗體強制當成字面星號的舊特判；跳脫星號仍保留。原站 API／正常／獨立 DOM 各 118 則、正文差異降為 0，回合 ID／目前分支／歷史讀盡均確認；20 則已確認純圖片訊息保留位置，圖片本體未嵌入。引用與處理進度 metadata 未獨立驗證。既有 API／整合回歸通過，新增 `tests/check-gemini-dom.html` 以實際 DOM 驗證 7 種純空白、縮排、模板包裝與清單行情境。
+
 ## 回歸與瀏覽器驗證
 
 在專案根目錄執行對應回歸：`node tests/check-chatgpt-api.js`、`node tests/check-integrated-export.js`、`node tests/check-gemini-api.js`、`node tests/check-claude-export.js`、`node tests/check-claude-combined.js`、`node tests/check-grok-api.js`、`node tests/check-grok-combined.js`。這些合成資料檢查不證明真實頁面完整。
