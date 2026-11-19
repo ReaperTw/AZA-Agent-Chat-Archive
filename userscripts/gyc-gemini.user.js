@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GYC - Gemini
 // @namespace    https://github.com/ReaperTw/AZA-Agent-Chat-Archive
-// @version      1.4.12
+// @version      1.4.13
 // @description  Grab Your Chat - Gemini 端對話匯出器；最後更新於 20261119
 // @updateURL    https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-gemini.user.js
 // @downloadURL  https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-gemini.user.js
@@ -80,7 +80,7 @@
         name: 'gycMath', level: 'inline',
         start: source => source.indexOf('$'),
         tokenizer(source) {
-            const match = /^\$\$([\s\S]+?)\$\$/.exec(source) || /^\$([^\n$]+?)\$/.exec(source);
+            const match = /^\$\$([\s\S]+?)\$\$/.exec(source) || /^\$(?!\s)([^\n$]*?[^\s$])\$/.exec(source);
             if (match) return { type: 'gycMath', raw: match[0], text: mathBody(match[1]) };
         }
     }, {
@@ -358,7 +358,7 @@ function parseGeminiApiData(rawTurns) {
             }
             // Native source-chip metadata identifies these markers as citations;
             // ordinary text that merely looks like a marker remains body text.
-            const sources = candidate?.[12]?.[0]?.['44'];
+            const sources = [candidate?.[12]?.[0]?.['44'], candidate?.[12]?.[8]?.['44']].flatMap(records => Array.isArray(records) ? records : []);
             if (Array.isArray(sources)) {
                 for (const source of sources) {
                     const marker = source?.[0]?.[0];
@@ -1303,7 +1303,7 @@ if (typeof document !== 'undefined') {
 
             const fab = document.createElement('button');
             fab.textContent = '✦';
-            fab.title = "GYC - Gemini - v1.4.12";
+            fab.title = "GYC - Gemini - v1.4.13";
             fab.setAttribute('aria-label', '開啟 Grab Your Chat - Gemini 工具');
             Object.assign(fab.style, {
                 width: '56px',

@@ -98,6 +98,11 @@ const tokens = { SNlM0e: 'token', cfb2h: 'build', FdrFJe: 'session' };
     assert.equal(citedAnswer.text, 'Answer [cite: 2]; literal [cite: 9]');
     assert.equal(prepareComparisonMessage({ ...citedAnswer, role: 'assistant' }, 'api').body, 'Answer ; literal [cite: 9]');
     assert.deepEqual(citedAnswer.citations, [{ label: '[cite: 2]' }]);
+    cited[3][0][0][12] = [null, null, null, null, null, null, null, [], { 44: [[['[cite: 2]', 0]]] }];
+    const fileCited = parseGeminiApiData([cited]).turns[1];
+    assert.equal(prepareComparisonMessage({ ...fileCited, role: 'assistant' }, 'api').body, 'Answer ; literal [cite: 9]', 'file citations are metadata; unverified markers remain literal');
+    const prices = 'Price $539, versus $500.';
+    assert(compareTranscripts([{ role: 'assistant', text: prices }], [{ role: 'assistant', text: prices }]).match, 'ordinary currency is not math');
 
     const equivalent = (api, dom) => compareTranscripts([{ role: 'assistant', text: api }], [{ role: 'assistant', text: dom }]).match;
     assert(equivalent('判斷**真值**是否一致', '判斷真值是否一致'));

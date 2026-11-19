@@ -54,6 +54,8 @@ Gemini 1.4.11：另一篇 11 回合即時登入樣本，API／正常／獨立 DO
 
 Gemini 1.4.12：修正商品網格的兩側擷取。API 依字串商品 ID 對應已識別的商品資料，只輸出網格選取的名稱、價格、商家與連結；缺資料或對應不唯一時保留原標記並警告。DOM 商品資訊雖以 `aria-hidden` 避免朗讀重複，仍實際顯示，須在通用輔助內容排除前擷取；不輸出「在新視窗中開啟」控制文字，也不放寬其他隱藏內容規則。即時登入樣本 API／正常／獨立 DOM 均為 20 則、正文差異由 1 降至 0；8 張商品卡片文字、價格、商家與原連結保留，歷史讀盡、回合 ID 及目前回答分支確認。實際下載與整合內容一致；引用及處理進度 metadata 未獨立驗證。合成回歸涵蓋商品順序、大整數 ID、缺欄位／歧義與程式碼字面內容，Chromium DOM 檢查另涵蓋可見商品、操作文字排除及快取警告保留。
 
+Gemini 1.4.13：依實測同時辨識網頁與檔案引用的來源欄位；僅有來源證據的引用標記移出正文，未知標記保留。行內數學不接受分隔符內緣空白，避免普通價格中的美元符號被誤判並吞掉空格。新增檔案引用與相同貨幣文字不應產生差異的回歸；登入樣本 API／正常／獨立 DOM 均為 28 則，四筆誤報降為 0。引用及處理進度 metadata 未完整獨立驗證；不代表所有 Gemini 格式均已支援，也未變更為 DOM 優先契約。
+
 ## 回歸與瀏覽器驗證
 
 在專案根目錄執行對應回歸：`node tests/check-chatgpt-api.js`、`node tests/check-integrated-export.js`、`node tests/check-gemini-api.js`、`node tests/check-claude-export.js`、`node tests/check-claude-combined.js`、`node tests/check-grok-api.js`、`node tests/check-grok-combined.js`。這些合成資料檢查不證明真實頁面完整。
