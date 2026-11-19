@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         GYC - Gemini
 // @namespace    https://github.com/ReaperTw/AZA-Agent-Chat-Archive
-// @version      1.4.11
-// @description  Grab Your Chat - Gemini 端對話匯出器；最後更新於 20261117
+// @version      1.4.12
+// @description  Grab Your Chat - Gemini 端對話匯出器；最後更新於 20261119
 // @updateURL    https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-gemini.user.js
 // @downloadURL  https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-gemini.user.js
 // @match        https://gemini.google.com/*
@@ -272,6 +272,33 @@ function renderElicitations(text, latest) {
     const visible = latest ? labels.map(label).join('\n\n') : '';
     return text.slice(0, group.index).trimEnd() + (visible ? '\n\n' + visible : '');
 }
+
+function renderProductGrids(text, candidate, warnings) {
+    if (!text.includes('<ProductGrid')) return text;
+    const groups = candidate?.[12]?.[0]?.['16'];
+    const products = new Map();
+    for (const group of Array.isArray(groups) ? groups : []) {
+        for (const product of Array.isArray(group?.[3]) ? group[3] : []) {
+            const id = product?.[19];
+            if (typeof id !== 'string') continue;
+            if (!products.has(id)) products.set(id, []);
+            products.get(id).push(product);
+        }
+    }
+    const escape = value => value.replace(/&/g, '&amp;').replace(/([\\`*_{}[\]<>#+.!|~-])/g, '\\$1');
+    // Only native standalone grids are interpreted; code and unknown markup stay.
+    return text.replace(/(`{3,})[\s\S]*?\1|(~{3,})[\s\S]*?\2|(`+)[^\n]*?\3|^ {0,3}<ProductGrid title="[^"]*">\s*((?:<Product id="[^"]+"\s*\/>\s*)+)<\/ProductGrid>[ \t]*(?=\n|$)/gm,
+        (raw, fence, tilde, code, items) => {
+            if (items === undefined) return raw;
+            const selected = [...items.matchAll(/<Product id="([^"]+)"/g)].map(match => products.get(match[1]));
+            if (selected.some(matches => matches?.length !== 1 || ![10, 12, 13, 27].every(index => typeof matches[0][index] === 'string' && matches[0][index].trim()) ||
+                !/^https?:\/\//.test(matches[0][12]))) {
+                warnings.add('部分商品卡片缺少唯一對應或完整文字，已保留原始商品標記');
+                return raw;
+            }
+            return selected.map(([product]) => `[${escape(product[10])}](<${product[12].replace(/[<>\s]/g, char => encodeURIComponent(char))}>)\n\n${escape(product[13])}\n\n${escape(product[27])}`).join('\n\n');
+        });
+}
 // Protocol fields verified against the user's hNvQHb response, not UI text.
 function parseGeminiApiData(rawTurns) {
     if (!Array.isArray(rawTurns)) throw new Error('Gemini 回合格式已改變');
@@ -340,7 +367,7 @@ function parseGeminiApiData(rawTurns) {
                 }
             }
             const prefix = isAlt ? `**候選回答 ${index + 1}（目前選取未確認）**\n\n` : '';
-            return { text: prefix + text, comparisonBody: prefix + (hasText ? renderElicitations(comparisonBody, turn === rawTurns[0]) : '') };
+            return { text: prefix + text, comparisonBody: prefix + (hasText ? renderElicitations(renderProductGrids(comparisonBody, candidate, warnings), turn === rawTurns[0]) : '') };
         });
         if (answers.length) turns.push({ type: 'ai', text: answers.map(answer => answer.text).join('\n\n---\n\n'), comparisonBody: answers.map(answer => answer.comparisonBody).join('\n\n---\n\n'), visibleText: answers.map(answer => answer.comparisonBody || answer.text).join('\n\n---\n\n'), citations: citations.length ? citations : null, attachments, timestamp, dateStr, isAlt });
     }
@@ -825,6 +852,21 @@ if (typeof document !== 'undefined') {
         function readDomBody(body) {
             const clone = body.cloneNode(true);
             const citations = [...clone.querySelectorAll('.source-inline-chip-container')].map(node => ({ label: node.textContent.trim() }));
+            const bodyWarnings = [];
+            // Product info is visually displayed but aria-hidden because the card
+            // link repeats it for accessibility. Preserve its visible text.
+            for (const grid of clone.querySelectorAll('product-grid')) {
+                const rows = [...grid.querySelectorAll('[role="listitem"]')].map(card =>
+                    ['.product-name', '.product-price', '.merchant-name'].map(selector => card.querySelector(selector)?.textContent.trim()));
+                if (!rows.length || rows.some(row => row.some(value => !value))) {
+                    bodyWarnings.push('部分商品卡片格式無法解析，商品文字未確認');
+                    continue;
+                }
+                const content = document.createElement('div');
+                content.style.whiteSpace = 'pre-wrap';
+                content.textContent = rows.flat().join('\n');
+                grid.replaceWith(content);
+            }
             // Preserve visible follow-up labels before removing action buttons.
             for (const button of clone.querySelectorAll('elicitations button.elicitation-item')) {
                 const label = document.createElement('div');
@@ -862,7 +904,7 @@ if (typeof document !== 'undefined') {
             finally { clone.remove(); }
             let text = comparisonBody;
             values.forEach((value, index) => { text = text.replaceAll(`${prefix}${index}_END`, value); });
-            return { text, comparisonBody, comparisonCode: { prefix, values }, citations };
+            return { text, comparisonBody, comparisonCode: { prefix, values }, citations, warnings: bodyWarnings };
         }
 
         const domTurnCache = new WeakMap();
@@ -878,6 +920,7 @@ if (typeof document !== 'undefined') {
                 const fingerprint = node.textContent;
                 const cached = domTurnCache.get(node);
                 if (cached?.fingerprint === fingerprint) {
+                    for (const warning of cached.turn.warnings || []) if (!warnings.includes(warning)) warnings.push(warning);
                     timeline.set(key, cached.turn);
                     continue;
                 }
@@ -892,6 +935,7 @@ if (typeof document !== 'undefined') {
                         return line.classList.contains('query-bullet-item') ? '- ' + text : text;
                     }).join('\n') : body?.textContent || '') }
                     : body ? readDomBody(body) : { text: '', comparisonBody: '' };
+                for (const warning of result.warnings || []) if (!warnings.includes(warning)) warnings.push(warning);
                 if (!result.text) {
                     const image = user && node.querySelector('img');
                     if (!image && !warnings.includes('部分頁面訊息沒有可識別的文字正文')) warnings.push('部分頁面訊息沒有可識別的文字正文');
@@ -1259,7 +1303,7 @@ if (typeof document !== 'undefined') {
 
             const fab = document.createElement('button');
             fab.textContent = '✦';
-            fab.title = "GYC - Gemini - v1.4.11";
+            fab.title = "GYC - Gemini - v1.4.12";
             fab.setAttribute('aria-label', '開啟 Grab Your Chat - Gemini 工具');
             Object.assign(fab.style, {
                 width: '56px',

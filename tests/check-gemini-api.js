@@ -160,6 +160,39 @@ const tokens = { SNlM0e: 'token', cfb2h: 'build', FdrFJe: 'session' };
     const earlierSingle = turn(12);
     earlierSingle[3][0][0][1][0] = 'Earlier\n\n' + singleFollowup;
     assert.equal(prepareComparisonMessage({ ...parseGeminiApiData([turn(13), earlierSingle]).turns[1], role: 'assistant' }, 'api').body, 'Earlier\nA & *literal* choice', 'single follow-up labels remain visible on older answers');
+    const productTurn = turn(14);
+    const grid = '<ProductGrid title="Choices">\n  <Product id="9007199254740993"/>\n  <Product id="2"/>\n</ProductGrid>';
+    productTurn[3][0][0][1][0] = 'Before\n\n' + grid + '\n\nAfter';
+    const product = (id, name, price, merchant) => {
+        const row = [];
+        row[19] = id; row[10] = name; row[13] = price; row[27] = merchant;
+        row[12] = 'https://example.test/product/' + id;
+        return row;
+    };
+    const products = [
+        product('2', 'Second *literal* frame', 'NT$200.00', 'Shop B'),
+        product('9007199254740993', 'First frame', 'NT$100.00', 'Shop A'),
+        product('unused', 'Not selected', 'NT$999.00', 'Other')
+    ];
+    productTurn[3][0][0][12] = [{ 16: [[null, null, null, products]] }];
+    const productAnswer = () => parseGeminiApiData([productTurn]).turns[1];
+    assert.equal(prepareComparisonMessage({ ...productAnswer(), role: 'assistant' }, 'api').body,
+        'Before\nFirst frame\nNT$100.00\nShop A\nSecond *literal* frame\nNT$200.00\nShop B\nAfter', 'product text follows grid IDs, not catalog order');
+    const productOutput = buildIntegratedMarkdown([{ ...productAnswer(), role: 'assistant' }], []).content;
+    assert(productOutput.includes('https://example.test/product/9007199254740993'));
+    assert(!productOutput.includes('Not selected'));
+    assert(productAnswer().text.includes(grid), 'standalone API preserves original product markup');
+    products.push(product('2', 'Ambiguous', 'NT$201.00', 'Shop B'));
+    assert(parseGeminiApiData([productTurn]).parseWarnings.length > 0);
+    assert(productAnswer().comparisonBody.includes(grid), 'ambiguous product mappings are not silently discarded');
+    products.pop();
+    products[1][13] = null;
+    assert(productAnswer().comparisonBody.includes(grid), 'missing product text retains the unknown grid');
+    products[1][13] = 'NT$100.00';
+    for (const literal of ['```xml\n' + grid + '\n```', 'Example\n\n    ' + grid.replace(/\n/g, '\n    ')]) {
+        productTurn[3][0][0][1][0] = literal;
+        assert.equal(productAnswer().comparisonBody, literal, 'product examples in code remain literal');
+    }
     assert.throws(() => parseGeminiRpc(")]}'\n" + JSON.stringify([['wrb.fr', 'hNvQHb', null]])));
     console.log('ok Gemini API: framed RPC, >100 history, no-progress warning, dates, answer alternatives');
 })().catch(error => { console.error(error); process.exitCode = 1; });
