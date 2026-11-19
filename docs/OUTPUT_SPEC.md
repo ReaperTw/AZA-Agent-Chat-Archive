@@ -74,7 +74,7 @@ Ref = string | { label?|title?|name?|file_name?, url?|href?|links?, type? }
 
 ## 5. 交付
 
-- 檔名：`{站碼}_{對話名稱}_{yyyyMMdd_HHmmss}_{API|DOM|COM}.md`，報告為 `_REPORT.md`。站碼為 `GPT`／`CLD`／`GEM`／`Grok`。
+- 檔名：`{站碼}_{對話名稱}_{yyyyMMdd_HHmmss}_{API|DOM|COM}.md`，報告為 `_REPORT.md`。站碼為 `GPT`／`CLD`／`GEM`／`Grok`。單獨匯出與綜合對話框的副本用同一格式；歷史不完整時在模式後加 `_INCOMPLETE`（例如 `_API_INCOMPLETE.md`）。舊檔不改名。
 - 工具選單由上到下：到頂端、綜合匯出、API 匯出、正常匯出。
 - 版本顯示：`@version` 與按鈕提示一致，格式為 `AZA-Agent-Chat-Archive - {站名} {版本}`。版本只遞增最後一位。
 
@@ -82,7 +82,3 @@ Ref = string | { label?|title?|name?|file_name?, url?|href?|links?, type? }
 
 - 共用渲染以 fixture 測試鎖定：同一份訊息模型在四站產生**逐字相同**的 COM 正文，只有來源網站一行不同。
 - 站點擷取仍依 `EXPORT_VALIDATION.md` 做三來源驗收。未完成即時登入驗收時，必須明確標示。
-
-## 待使用者確認
-
-- §5 檔名統一會改變現有 API／DOM 與報告檔名（目前有 `GPT_DOM_標題`、`_VERIFICATION`、`_DIFFERENCES` 等），與 `AGENTS.md`「API／DOM 保留原有檔名格式」衝突。Ticket 04 依此標為需確認，確認前不實作。
