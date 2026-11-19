@@ -56,7 +56,7 @@ Skill 只匯出可見對話，不保存隱藏推理、工具活動或引用檔�
 
 ## 開發與驗收
 
-解析契約、三來源核對方式及已知驗證範圍，請見[匯出驗收規格](docs/EXPORT_VALIDATION.md)；修改本專案前先讀 [AGENTS.md](AGENTS.md)。
+四站共用的輸出格式見[輸出規範](docs/OUTPUT_SPEC.md)。解析契約、三來源核對方式及已知驗證範圍，請見[匯出驗收規格](docs/EXPORT_VALIDATION.md)；修改本專案前先讀 [AGENTS.md](AGENTS.md)。
 
 Grok 1.4.8 修正專案對話網址的 `chat` 參數辨識，API／綜合匯出皆適用；沒有對話 ID 的專案首頁仍不支援 API。網址回歸及兩個實際匯出入口的合成 HTTP smoke 通過；未完成登入 API／DOM 三方驗收，隔離瀏覽器啟動失敗，未驗證實際畫面。
 
