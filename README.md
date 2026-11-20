@@ -38,6 +38,22 @@ API／DOM／COM 共用閱讀格式：檔頭只列對話時間範圍、來源網�
 - 網站內部 API、頁面結構可能改版。未知內容、歷史不完整、分支不明或來源失敗會以警告呈現；訊息 ID／角色／順序對上，不等於正文逐字相同或未知元件完整。
 - ChatGPT 綜合匯出只核對 API 訊息結構，不做 API 與 DOM 正文逐字比對。未配對 API 內容另列待確認，不混入正式正文。
 
+### 舊網頁匯出檔轉換
+
+本機工具 `scripts/migrate-web-exports.js` 將四站舊 API／DOM／COM／COMBINED 檔案轉為目前格式。先自行指定資料夾預覽，確認摘要與改名清單後才套用：
+
+```sh
+node scripts/migrate-web-exports.js "D:/Exports" --rename
+node scripts/migrate-web-exports.js "D:/Exports" --apply --backup-dir "D:/Export-Backups/content"
+node scripts/migrate-web-exports.js "D:/Exports" --apply --rename --backup-dir "D:/Export-Backups/rename"
+```
+
+- 預設 dry-run；`--rename` 只把改名加入計畫，沒有 `--apply` 不會寫入。`--apply` 單獨使用只轉內容；加 `--rename` 才同時改名。
+- 套用前備份原始位元組到指定資料夾，保留相對路徑；備份資料夾須在來源之外，既有備份不覆寫。請先關閉可能同時修改來源的程式。
+- 套用改名需 Windows PowerShell，使用 [.NET `File.Move` 的不覆寫版本](https://learn.microsoft.com/en-us/dotnet/api/system.io.file.move)；其他平台僅支援 dry-run 與內容轉換，不退回會覆寫目標的改名方式。
+- 目標已存在或多檔指向同一名稱時，整檔跳過；`(1)` 等重複檔只列報告，不刪除。catalog 與筆記中指向舊檔名的連結不會自動更新。
+- 僅辨識的匯出中繼資料、佔位字及 Gemini 引用標記會轉換；程式碼區塊與一般正文保留。合成回歸：`node tests/check-web-export-migration.js`。真實封存資料由使用者自行執行，測試不讀取個人對話。
+
 ## 本機 Agent Skill
 
 [AZA-Agent-Chat-Archive Skill](skills/AZA-Agent-Chat-Archive/) 可歸檔 Antigravity、Codex、Grok Build、Command Code、OMP、Claude Code 與 Hermes 的可見對話。將 skill 目錄安裝到 Agent 支援的 Skills 位置，再要求 Agent「使用 AZA-Agent-Chat-Archive 歸檔目前對話」。首次使用依提示設定輸出資料夾與命名方式。
