@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        GYC - Grok
 // @namespace   https://github.com/ReaperTw/AZA-Agent-Chat-Archive
-// @version      1.4.13
+// @version      1.4.14
 // @description Grab Your Chat - Grok 端對話匯出器；最後更新於 20261101
 // @updateURL   https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-grok.user.js
 // @downloadURL https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-grok.user.js
@@ -475,6 +475,13 @@
         lines.push(...details.filter(Boolean), ...new Set(notes.filter(Boolean).map(String)));
         return lines.join('\n\n') + '\n';
     }
+
+    function buildExportFilename(code, title, timestamp, debugKind = '') {
+        if (!['GPT', 'CLD', 'GEM', 'Grok'].includes(code)) throw new Error(`Unknown export site code: ${code}`);
+        if (!['', 'API', 'DOM', 'REPORT'].includes(debugKind)) throw new Error(`Unknown debug export kind: ${debugKind}`);
+        const name = String(title || '').replace(/[<>:"/\\|?*\u0000-\u001f]/g, '').trim() || 'Chat';
+        return `${code}_${name}_${timestamp}${debugKind ? `_${debugKind}` : ''}.md`;
+    }
     // END GENERATED EXPORT RENDERER
 
     function styleExportTools(container) {
@@ -881,7 +888,7 @@
     }
 
 
-    function buildTimelineMarkdown(timeline, scanWarnings = [], method = 'DOM') {
+    function buildTimelineMarkdown(timeline, scanWarnings = []) {
         const warnings = scanWarnings.slice();
         const exportTimeline = timeline.filter(message => message.type !== 'gap').map(message => {
             const text = cleanContent(message.text || '');
@@ -902,10 +909,9 @@
         return { content, warning, messageCount: exportTimeline.length };
     }
 
-    function openTimelineSaveModal(timeline, scanWarnings = [], method = 'DOM') {
-        const { content: finalOutput, warning, messageCount } = buildTimelineMarkdown(timeline, scanWarnings, method);
-        let title = determineTitle();
-        if (warning) title += '_INCOMPLETE';
+    function openTimelineSaveModal(timeline, scanWarnings = []) {
+        const { content: finalOutput, warning, messageCount } = buildTimelineMarkdown(timeline, scanWarnings);
+        const title = determineTitle();
         showSaveModal(title, finalOutput, {
             messageCount,
             warning
@@ -916,8 +922,7 @@
             const url = URL.createObjectURL(blob);
             const anchor = document.createElement('a');
             anchor.href = url;
-            anchor.download =
-                `Grok_${method}_${sanitizeFileName(finalTitle)}_${getTimestamp()}.md`;
+            anchor.download = buildExportFilename('Grok', finalTitle, getTimestamp());
             document.body.appendChild(anchor);
             anchor.click();
             anchor.remove();
@@ -1019,7 +1024,7 @@
             const data = await fetchConversationViaApi(convId);
             const branch = buildActiveBranchTimeline(data.responses, convId, new URLSearchParams(location.search).get('rid'));
             if (!branch.timeline.length) throw new Error('API 沒有可匯出的訊息；請用正常匯出');
-            openTimelineSaveModal(branch.timeline, [data.warning, branch.warning].filter(Boolean), 'API');
+            openTimelineSaveModal(branch.timeline, [data.warning, branch.warning].filter(Boolean));
         } catch (error) {
             showNotification(`❌ API匯出失敗：${error.message}`, true, 6000);
         } finally {
@@ -1219,7 +1224,7 @@
             if (captureOnly) return {
                 messages: globalTimeline.map(toComparisonTurn),
                 warning: scanWarnings.join('；'),
-                out: buildTimelineMarkdown(globalTimeline, scanWarnings, 'DOM').content
+                out: buildTimelineMarkdown(globalTimeline, scanWarnings).content
             };
             const report = openTimelineSaveModal(globalTimeline, scanWarnings);
             btn.innerText = `整理內容｜有效 ${report.messageCount} 則`;
@@ -1244,11 +1249,11 @@
         }
     }
 
-    function downloadCombinedFile(name, content) {
+    function downloadCombinedFile(filename, content) {
         const url = URL.createObjectURL(new Blob(['\uFEFF' + content.replace(/^\uFEFF/, '')], { type: 'text/markdown;charset=utf-8' }));
         const anchor = document.createElement('a');
         anchor.href = url;
-        anchor.download = `${name}.md`;
+        anchor.download = filename;
         document.body.appendChild(anchor);
         anchor.click();
         anchor.remove();
@@ -1283,14 +1288,14 @@
             site: 'Grok', apiMessages: api ? apiMessages : null,
             domMessages: dom ? domMessages : null, integration, errors, notes: warnings, details
         });
-        const base = `Grok_${sanitizeFileName(title) || 'Grok-Chat'}_${getTimestamp()}`;
+        const timestamp = getTimestamp();
         showIntegratedDialog({
             id: 'grok-export-save-overlay', site: 'Grok', title, apiCount: api ? apiMessages.length : null, domCount: dom ? domMessages.length : null,
             integration, errors, notes: warnings, report,
-            onDownload: () => downloadCombinedFile(`${base}_COM`, integration.content),
-            onApi: api && (() => downloadCombinedFile(`${base}_API`, api.out)),
-            onDom: dom && (() => downloadCombinedFile(`${base}_DOM`, dom.out)),
-            onReport: () => downloadCombinedFile(`${base}_DIFFERENCES`, report)
+            onDownload: () => downloadCombinedFile(buildExportFilename('Grok', title, timestamp), integration.content),
+            onApi: api && (() => downloadCombinedFile(buildExportFilename('Grok', title, timestamp, 'API'), api.out)),
+            onDom: dom && (() => downloadCombinedFile(buildExportFilename('Grok', title, timestamp, 'DOM'), dom.out)),
+            onReport: () => downloadCombinedFile(buildExportFilename('Grok', title, timestamp, 'REPORT'), report)
         });
     }
 
@@ -1320,7 +1325,7 @@
                 api = {
                     messages: branch.timeline.map(toComparisonTurn),
                     warning: warnings.join('；'),
-                    out: buildTimelineMarkdown(branch.timeline, warnings, 'API').content
+                    out: buildTimelineMarkdown(branch.timeline, warnings).content
                 };
             } catch (error) { errors.api = error.message || String(error); }
             checkScope();
@@ -1444,7 +1449,7 @@
 
         const fab = document.createElement('button');
         fab.innerText = '𝕏';
-        fab.title = 'AZA-Agent-Chat-Archive - Grok 1.4.13';
+        fab.title = 'AZA-Agent-Chat-Archive - Grok 1.4.14';
         fab.setAttribute('aria-label', fab.title);
         Object.assign(fab.style, {
             width: '56px',

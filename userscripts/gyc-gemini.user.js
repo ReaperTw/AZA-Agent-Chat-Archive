@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GYC - Gemini
 // @namespace    https://github.com/ReaperTw/AZA-Agent-Chat-Archive
-// @version      1.4.18
+// @version      1.4.19
 // @description  Grab Your Chat - Gemini 端對話匯出器；最後更新於 20261119
 // @updateURL    https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-gemini.user.js
 // @downloadURL  https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-gemini.user.js
@@ -885,6 +885,13 @@ function buildRpcRequest(cid, limit) {
         lines.push(...details.filter(Boolean), ...new Set(notes.filter(Boolean).map(String)));
         return lines.join('\n\n') + '\n';
     }
+
+    function buildExportFilename(code, title, timestamp, debugKind = '') {
+        if (!['GPT', 'CLD', 'GEM', 'Grok'].includes(code)) throw new Error(`Unknown export site code: ${code}`);
+        if (!['', 'API', 'DOM', 'REPORT'].includes(debugKind)) throw new Error(`Unknown debug export kind: ${debugKind}`);
+        const name = String(title || '').replace(/[<>:"/\\|?*\u0000-\u001f]/g, '').trim() || 'Chat';
+        return `${code}_${name}_${timestamp}${debugKind ? `_${debugKind}` : ''}.md`;
+    }
     // END GENERATED EXPORT RENDERER
 
     function styleExportTools(container) {
@@ -1173,14 +1180,12 @@ if (typeof document !== 'undefined') {
         }
 
         // Shared download helper (extracted for reuse in DOM + API paths)
-        function performDownload(finalTitle, content, method, filenameKind = method) {
+        function performDownload(finalTitle, content, debugKind = '') {
             const blob = new Blob(['\uFEFF' + content.replace(/^\uFEFF/, '')], { type: 'text/markdown;charset=utf-8' });
             const anchor = document.createElement('a');
             const url = URL.createObjectURL(blob);
             anchor.href = url;
-            anchor.download = filenameKind === method
-                ? `GEM_${method}_${sanitizeFileName(finalTitle)}_${getTimestamp()}.md`
-                : `GEM_${sanitizeFileName(finalTitle)}_${getTimestamp()}_${filenameKind}.md`;
+            anchor.download = buildExportFilename('GEM', finalTitle, getTimestamp(), debugKind);
             document.body.appendChild(anchor);
             anchor.click();
             anchor.remove();
@@ -1232,14 +1237,13 @@ if (typeof document !== 'undefined') {
                 const exportTurns = [...timeline.values()];
                 const out = renderGeminiApiMarkdown(exportTurns, warnings);
                 if (captureOnly) return { turns: exportTurns, warnings, out };
-                let title = determineTitle();
-                if (warnings.length) title += '_INCOMPLETE';
+                const title = determineTitle();
                 showSaveModal(title, out, {
                     heading: '掃描完成',
                     messageCount: exportTurns.length,
                     warning: warnings.length ? `⚠️ ${warnings.join('\n')}` : '',
                     status: warnings.length ? '' : '未發現掃描斷層'
-                }, finalTitle => performDownload(finalTitle, out, 'DOM'));
+                }, finalTitle => performDownload(finalTitle, out));
             } catch (error) {
                 if (captureOnly) throw error;
                 console.error('[Gemini Exporter] 匯出失敗', error);
@@ -1285,19 +1289,14 @@ if (typeof document !== 'undefined') {
                 if (!exhausted) warnings.push('API 尚未確認歷史已讀取完畢');
                 const parsedTurns = parseRes.turns;
                 if (captureOnly) return { turns: parsedTurns, warnings, out: renderGeminiApiMarkdown(parsedTurns, warnings), exhausted };
-                let title = determineTitle();
-                const hadIssue = warnings.length > 0 || !exhausted;
-                if (hadIssue) {
-                    if (warnings.length === 0) warnings.push('API 尚未確認歷史已讀取完畢');
-                    title += '_INCOMPLETE';
-                }
+                const title = determineTitle();
                 const finalOutput = renderGeminiApiMarkdown(parsedTurns, warnings);
                 showSaveModal(title, finalOutput, {
                     heading: 'API 讀取完成',
                     messageCount: parsedTurns.length,
                     warning: warnings.length ? `⚠️ ${warnings.join('\n')}` : '',
                     status: exhausted ? 'API 已回報無後續歷史；內容疑慮會另外列出。' : 'API 歷史可能尚未完整'
-                }, finalTitle => performDownload(finalTitle, finalOutput, 'API'));
+                }, finalTitle => performDownload(finalTitle, finalOutput));
             } catch (error) {
                 if (captureOnly) throw error;
                 showNotification(`❌ API匯出失敗：${error.message}。可改用正常匯出。`, true);
@@ -1329,10 +1328,10 @@ if (typeof document !== 'undefined') {
                 id: 'gemini-export-modal', site: 'Gemini', title,
                 apiCount: api ? apiMessages.length : null, domCount: dom ? domMessages.length : null,
                 integration, errors, notes, report,
-                onDownload: () => performDownload(title, integration.content, '整合匯出', 'COM'),
+                onDownload: () => performDownload(title, integration.content),
                 onApi: api && (() => performDownload(title, api.out, 'API')),
                 onDom: dom && (() => performDownload(title, dom.out, 'DOM')),
-                onReport: () => performDownload(title, report, '比對報告', 'DIFFERENCES')
+                onReport: () => performDownload(title, report, 'REPORT')
             });
         }
 
@@ -1478,7 +1477,7 @@ if (typeof document !== 'undefined') {
 
             const fab = document.createElement('button');
             fab.textContent = '✦';
-            fab.title = 'AZA-Agent-Chat-Archive - Gemini 1.4.18';
+            fab.title = 'AZA-Agent-Chat-Archive - Gemini 1.4.19';
             fab.setAttribute('aria-label', fab.title);
             Object.assign(fab.style, {
                 width: '56px',

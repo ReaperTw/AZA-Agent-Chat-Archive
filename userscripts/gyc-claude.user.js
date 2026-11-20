@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GYC - Claude
 // @namespace    https://github.com/ReaperTw/AZA-Agent-Chat-Archive
-// @version      1.4.11
+// @version      1.4.12
 // @description  Grab Your Chat - Claude 端對話匯出器；最後更新於 20261117
 // @updateURL    https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-claude.user.js
 // @downloadURL  https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-claude.user.js
@@ -535,6 +535,13 @@
         lines.push(...details.filter(Boolean), ...new Set(notes.filter(Boolean).map(String)));
         return lines.join('\n\n') + '\n';
     }
+
+    function buildExportFilename(code, title, timestamp, debugKind = '') {
+        if (!['GPT', 'CLD', 'GEM', 'Grok'].includes(code)) throw new Error(`Unknown export site code: ${code}`);
+        if (!['', 'API', 'DOM', 'REPORT'].includes(debugKind)) throw new Error(`Unknown debug export kind: ${debugKind}`);
+        const name = String(title || '').replace(/[<>:"/\\|?*\u0000-\u001f]/g, '').trim() || 'Chat';
+        return `${code}_${name}_${timestamp}${debugKind ? `_${debugKind}` : ''}.md`;
+    }
     // END GENERATED EXPORT RENDERER
 
     function styleExportTools(container) {
@@ -614,10 +621,6 @@
         const pad = n => String(n).padStart(2, '0');
         return `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}` +
             `_${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`;
-    }
-
-    function buildDownloadName(title, timestamp) {
-        return `CLD_API_${sanitizeFileName(title) || 'Claude-Chat'}_${timestamp}.md`;
     }
 
     function readCookie(cookie, name) {
@@ -964,7 +967,6 @@
         conversationIdFromPath,
         exportConversation,
         sanitizeFileName,
-        buildDownloadName,
         buildMarkdown,
         nextPageUrl,
         mergeConversationPages
@@ -1125,7 +1127,7 @@
         });
         cancel.onclick = () => overlay.remove();
         save.onclick = () => {
-            onSave(input.value.trim() || 'Untitled');
+            onSave(input.value.trim());
             overlay.remove();
         };
         input.addEventListener('keydown', event => {
@@ -1150,7 +1152,7 @@
             const url = URL.createObjectURL(blob);
             const anchor = root.document.createElement('a');
             anchor.href = url;
-            anchor.download = buildDownloadName(finalTitle, getTimestamp());
+            anchor.download = buildExportFilename('CLD', finalTitle, getTimestamp());
             root.document.body.appendChild(anchor);
             anchor.click();
             anchor.remove();
@@ -1287,8 +1289,7 @@
                 interrupted: result.info.interrupted
             });
             const warning = result.warnings.join('\n');
-            let title = determineTitle(data.name);
-            if (warning) title += '_INCOMPLETE';
+            const title = determineTitle(data.name);
             openSave(title, result.markdown, {
                 heading: '讀取完成',
                 messageCount: result.messages.length,
@@ -1477,7 +1478,7 @@
         const url = URL.createObjectURL(new Blob(['\uFEFF' + content], { type: 'text/markdown;charset=utf-8' }));
         const anchor = root.document.createElement('a');
         anchor.href = url;
-        anchor.download = name + '.md';
+        anchor.download = name;
         root.document.body.appendChild(anchor);
         anchor.click();
         anchor.remove();
@@ -1513,16 +1514,16 @@
                 return `${item.source} #${item.index}：${fields.join('；')}`;
             })
         });
-        const base = `CLD_${sanitizeFileName(title) || 'Claude-Chat'}_${getTimestamp()}`;
+        const timestamp = getTimestamp();
         showIntegratedDialog({
             id: 'claude-export-save-overlay', site: 'Claude', title,
             apiCount: apiResult ? apiResult.messages.length : null,
             domCount: domResult ? domResult.messages.length : null,
             integration, errors, notes, report,
-            onDownload: () => downloadResult(`${base}_COM`, integration.content),
-            onApi: apiResult ? () => downloadResult(`${base}_API`, apiResult.markdown) : null,
-            onDom: domResult ? () => downloadResult(`${base}_DOM`, domResult.markdown) : null,
-            onReport: () => downloadResult(`${base}_DIFFERENCES`, report)
+            onDownload: () => downloadResult(buildExportFilename('CLD', title, timestamp), integration.content),
+            onApi: apiResult ? () => downloadResult(buildExportFilename('CLD', title, timestamp, 'API'), apiResult.markdown) : null,
+            onDom: domResult ? () => downloadResult(buildExportFilename('CLD', title, timestamp, 'DOM'), domResult.markdown) : null,
+            onReport: () => downloadResult(buildExportFilename('CLD', title, timestamp, 'REPORT'), report)
         });
     }
 
@@ -1535,7 +1536,7 @@
             const result = await scanDom(btn, checkScope);
             showSaveModal(determineTitle(), result.markdown, { messageCount: result.messages.length,
                 warning: result.warnings.join('\n') }, title =>
-                downloadResult(`CLD_DOM_${sanitizeFileName(title)}_${getTimestamp()}`, result.markdown));
+                downloadResult(buildExportFilename('CLD', title, getTimestamp()), result.markdown));
         });
     }
 
@@ -1672,7 +1673,7 @@
 
         const fab = root.document.createElement('button');
         fab.textContent = '✳';
-        fab.title = "AZA-Agent-Chat-Archive - Claude 1.4.11";
+        fab.title = "AZA-Agent-Chat-Archive - Claude 1.4.12";
         fab.setAttribute('aria-label', fab.title);
         Object.assign(fab.style, {
             width: '56px',

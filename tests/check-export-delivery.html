@@ -20,7 +20,7 @@
         const standalone = provider === 'gemini' ? 'renderGeminiApiMarkdown' : provider === 'grok' ? 'buildTimelineMarkdown' : 'buildMarkdown';
         const observer = /const observer = new MutationObserver\([^\n]+\);/;
         assert(observer.test(source), `${site}: missing fixture injection seam`);
-        win.eval(source.replace(observer, `globalThis.deliveryFixture = {showCombinedResults, createButton, standalone: ${standalone}}; createButton(); return;`));
+        win.eval(source.replace(observer, `globalThis.deliveryFixture = {showCombinedResults, createButton, standalone: ${standalone}}; getTimestamp = () => '20261108_181527'; createButton(); return;`));
         const fixture = win.deliveryFixture;
         assert(fixture, `${site}: fixture exposure failed`);
         const version = source.match(/^\/\/ @version\s+(\S+)/m)[1];
@@ -67,25 +67,31 @@
             dom = { messages, warning: warnings.join('；'), out: expectedDom };
         }
         fixture.showCombinedResults('Synthetic', api, dom, {});
-        const clickDownload = async (label, expected) => {
+        const code = { chatgpt: 'GPT', claude: 'CLD', gemini: 'GEM', grok: 'Grok' }[provider];
+        const base = `${code}_Synthetic_20261108_181527`;
+        doc.querySelector('[data-gyc-integrated] .gyc-primary').click();
+        assert(downloads.at(-1)?.name === `${base}.md`, `${site}: daily COM filename`);
+        const clickDownload = async (label, expected, kind) => {
             const button = [...doc.querySelectorAll('[data-gyc-integrated] button')].find(node => node.textContent === label);
             assert(button, `${site}: missing ${label}`);
             button.click();
             const download = downloads.at(-1);
             assert(download?.blob, `${site}: ${label} did not create a Blob`);
+            assert(download.name === `${base}_${kind}.md`, `${site}: debug ${kind} filename ${download.name}`);
             const text = (await download.blob.text()).replace(/^\uFEFF/, '');
             assert(text === expected, `${site}: ${label} differs from standalone export`);
             assert(!/擷取方式|匯出來源|```json/.test(text), `${site}: extra debug body formatting`);
         };
-        await clickDownload('API 原始匯出', expectedApi);
-        await clickDownload('頁面原始匯出', expectedDom);
+        await clickDownload('API 原始匯出', expectedApi, 'API');
+        await clickDownload('頁面原始匯出', expectedDom, 'DOM');
         const reportButton = [...doc.querySelectorAll('[data-gyc-integrated] button')].find(node => /下載.*報告/.test(node.textContent));
         reportButton.click();
+        assert(downloads.at(-1)?.name === `${base}_REPORT.md`, `${site}: report filename`);
         const report = await downloads.at(-1).blob.text();
         assert(report.includes('API：取得成功，2 則') && report.includes('DOM：取得成功，2 則'), `${site}: source acquisition report`);
         assert(report.includes('引用：API') && report.includes('附件：API'), `${site}: metadata counts missing`);
         assert(report.includes(provider === 'chatgpt' ? '已排除 2 則思考前置進度' : warnings[0]), `${site}: informational note missing`);
-        rows.push(`PASS ${site}: real menu order, version tooltip, API/DOM Blob equality, report`);
+        rows.push(`PASS ${site}: menu, version, API/DOM Blob equality, daily/API/DOM/REPORT filenames`);
         doc.querySelector('button[aria-label="關閉整合匯出結果"]').click();
     }
     document.getElementById('result').textContent = rows.join('\n');

@@ -370,3 +370,10 @@
         lines.push(...details.filter(Boolean), ...new Set(notes.filter(Boolean).map(String)));
         return lines.join('\n\n') + '\n';
     }
+
+    function buildExportFilename(code, title, timestamp, debugKind = '') {
+        if (!['GPT', 'CLD', 'GEM', 'Grok'].includes(code)) throw new Error(`Unknown export site code: ${code}`);
+        if (!['', 'API', 'DOM', 'REPORT'].includes(debugKind)) throw new Error(`Unknown debug export kind: ${debugKind}`);
+        const name = String(title || '').replace(/[<>:"/\\|?*\u0000-\u001f]/g, '').trim() || 'Chat';
+        return `${code}_${name}_${timestamp}${debugKind ? `_${debugKind}` : ''}.md`;
+    }
