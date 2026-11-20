@@ -5,7 +5,7 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { isUtf8 } = require('node:buffer');
 
-const VERSION = '1.0.0';
+const VERSION = '1.0.1';
 const LINK_REMINDER = '提醒：catalog 與筆記中指向舊檔名的連結不會自動更新。';
 const NO_FOLLOW = fs.constants.O_NOFOLLOW || 0;
 
@@ -133,7 +133,12 @@ function moveNoReplace(source, target) {
     if (result.status !== 0) throw new Error(`Native no-clobber move failed: ${(result.stderr || result.stdout || `exit ${result.status}, signal ${result.signal}`).trim()}`);
 }
 
-function runMigration({ input, apply = false, rename = false, backupDir } = {}) {
+function isProtected(name, exclude) {
+    return name.startsWith('AUTO_BACKUP_') || exclude.some(word => name.includes(word));
+}
+
+function runMigration({ input, apply = false, rename = false, backupDir, exclude = [] } = {}) {
+    if (!Array.isArray(exclude) || exclude.some(word => typeof word !== 'string' || !word)) throw new Error('exclude must be nonempty strings');
     if (typeof input !== 'string' || !input) throw new Error('An input file or directory is required');
     if (typeof apply !== 'boolean' || typeof rename !== 'boolean') throw new Error('apply and rename must be booleans');
     if (backupDir !== undefined && (typeof backupDir !== 'string' || !backupDir)) throw new Error('backupDir must be a nonempty path');
@@ -175,6 +180,9 @@ function runMigration({ input, apply = false, rename = false, backupDir } = {}) 
             } else if (!stat.isFile()) {
                 entry.status = 'skipped-non-file';
                 entry.warnings.push('Not a regular file; ignored.');
+            } else if (isProtected(path.basename(source), exclude)) {
+                entry.status = 'skipped-protected';
+                entry.warnings.push('Protected by AUTO_BACKUP_ prefix or --exclude; not read or changed.');
             } else {
                 const filename = convertFilename(path.basename(source));
                 if (!filename) {
@@ -309,6 +317,11 @@ function parseArgs(args) {
         if (!positionalOnly && arg === '--') positionalOnly = true;
         else if (!positionalOnly && arg === '--apply') options.apply = true;
         else if (!positionalOnly && arg === '--rename') options.rename = true;
+        else if (!positionalOnly && (arg === '--exclude' || arg.startsWith('--exclude='))) {
+            const value = arg === '--exclude' ? args[++index] : arg.slice('--exclude='.length);
+            if (!value || value.startsWith('--')) throw new Error('--exclude requires WORD[,WORD...]');
+            options.exclude = [...(options.exclude || []), ...value.split(',').map(word => word.trim()).filter(Boolean)];
+        }
         else if (!positionalOnly && (arg === '--help' || arg === '-h')) options.help = true;
         else if (!positionalOnly && arg === '--version') options.version = true;
         else if (!positionalOnly && (arg === '--backup-dir' || arg.startsWith('--backup-dir='))) {
@@ -329,7 +342,7 @@ if (require.main === module) {
     try {
         const options = parseArgs(process.argv.slice(2));
         if (options.help) {
-            console.log('Usage: node scripts/migrate-web-exports.js INPUT [--rename] [--apply --backup-dir PATH]\nDefault: dry-run, no writes. --rename plans name changes; --apply executes.\nContent-only apply is portable; applying renames requires Windows.\n--help / --version do not scan or write files.');
+            console.log('Usage: node scripts/migrate-web-exports.js INPUT [--rename] [--exclude WORD[,WORD...]] [--apply --backup-dir PATH]\nDefault: dry-run, no writes. --rename plans name changes; --apply executes.\nFiles starting with AUTO_BACKUP_ or whose name contains an --exclude word are never read or changed.\nContent-only apply is portable; applying renames requires Windows.\n--help / --version do not scan or write files.');
         } else if (options.version) {
             console.log(VERSION);
         } else {

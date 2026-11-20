@@ -48,6 +48,7 @@ node scripts/migrate-web-exports.js "D:/Exports" --apply --backup-dir "D:/Export
 node scripts/migrate-web-exports.js "D:/Exports" --apply --rename --backup-dir "D:/Export-Backups/rename"
 ```
 
+- `--exclude 詞1,詞2` 排除檔名含這些詞的檔案，`AUTO_BACKUP_` 開頭的檔案一律排除；被排除的檔案不讀取、不轉換、不改名。
 - 預設 dry-run；`--rename` 只把改名加入計畫，沒有 `--apply` 不會寫入。`--apply` 單獨使用只轉內容；加 `--rename` 才同時改名。
 - 套用前備份原始位元組到指定資料夾，保留相對路徑；備份資料夾須在來源之外，既有備份不覆寫。請先關閉可能同時修改來源的程式。
 - 套用改名需 Windows PowerShell，使用 [.NET `File.Move` 的不覆寫版本](https://learn.microsoft.com/en-us/dotnet/api/system.io.file.move)；其他平台僅支援 dry-run 與內容轉換，不退回會覆寫目標的改名方式。

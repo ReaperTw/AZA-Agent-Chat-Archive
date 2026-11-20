@@ -109,5 +109,21 @@ const legacy = site => [
         assert.notEqual(invalid.status, 0, 'invalid UTF-8 cannot be silently replaced');
         assert.deepEqual(fs.readFileSync(path.join(invalidInput, name)), invalidBytes);
     } finally { fs.rmSync(temp, { recursive: true, force: true }); }
+    {
+        const guarded = fs.mkdtempSync(path.join(os.tmpdir(), 'aza-protect-'));
+        try {
+            const names = ['GEM_角色甲_20250101_000000_COM.md', 'AUTO_BACKUP_GPT_x_20250101_000000_COM.md', 'GPT_normal_20250101_000000_COM.md'];
+            for (const name of names) fs.writeFileSync(path.join(guarded, name), legacy('Gemini'));
+            const report = runMigration({ input: guarded, rename: true, exclude: ['角色甲'] });
+            const status = Object.fromEntries(report.entries.map(entry => [path.basename(entry.source), entry]));
+            for (const name of names.slice(0, 2)) {
+                assert.equal(status[name].status, 'skipped-protected', name);
+                assert.equal(status[name].target, status[name].source, `${name}: never renamed`);
+            }
+            assert.notEqual(status[names[2]].status, 'skipped-protected');
+            const cli = spawnSync(process.execPath, [path.resolve(__dirname, '../scripts/migrate-web-exports.js'), guarded, '--rename', '--exclude', '角色甲'], { encoding: 'utf8' });
+            assert(cli.stdout.includes('[skipped-protected]'), 'CLI --exclude reaches the migration');
+        } finally { fs.rmSync(guarded, { recursive: true, force: true }); }
+    }
     console.log('ok migration: four legacy formats, literal bodies/code, idempotence, dry-run, backups, explicit rename and collisions');
 })().catch(error => { console.error(error); process.exitCode = 1; });
