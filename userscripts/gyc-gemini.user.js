@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GYC - Gemini
 // @namespace    https://github.com/ReaperTw/AZA-Agent-Chat-Archive
-// @version      1.4.17
+// @version      1.4.18
 // @description  Grab Your Chat - Gemini 端對話匯出器；最後更新於 20261119
 // @updateURL    https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-gemini.user.js
 // @downloadURL  https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-gemini.user.js
@@ -725,7 +725,7 @@ function buildRpcRequest(cid, limit) {
         const close = () => { overlay.remove(); previousFocus?.focus?.(); };
         const top = el('div', 'gyc-heading');
         const heading = el('div');
-        heading.append(el('div', 'gyc-eyebrow', `${EXPORT_RENDERER_PROVIDER === 'chatgpt' ? 'AZA-Agent-Chat-Archive' : 'GRAB YOUR CHAT'} / ${site}`), el('h2', '', '對話已整合'));
+        heading.append(el('div', 'gyc-eyebrow', `AZA-Agent-Chat-Archive / ${site}`), el('h2', '', '對話已整合'));
         const closeButton = el('button', 'gyc-close', '×');
         closeButton.setAttribute('aria-label', '關閉整合匯出結果');
         closeButton.onclick = close;
@@ -851,13 +851,47 @@ function buildRpcRequest(cid, limit) {
         document.body.append(overlay);
         (actions.querySelector('button') || closeButton).focus({ preventScroll: true });
     }
+
+    function buildExportReport({ site = '', apiMessages = null, domMessages = null,
+        integration, errors = {}, notes = [], details = [] }) {
+        const state = (name, messages) => `${name}：${messages === null
+            ? `取得失敗：${errors[name.toLowerCase()] || '未取得來源'}`
+            : `取得成功，${messages.length} 則`}`;
+        const count = (messages, field) => {
+            if (messages === null || messages.some(message => !Array.isArray(message[field]))) return '未知';
+            return messages.reduce((sum, message) => sum + message[field].length, 0);
+        };
+        const lines = [site && `來源網站：${site}`, state('API', apiMessages), state('DOM', domMessages),
+            `正式正文：${integration.entries.length} 則`].filter(Boolean);
+        if (integration.verification) {
+            lines.push(`訊息結構：${integration.verification.complete ? 'ID、角色、順序已核對' : '尚待確認'}`,
+                'API／DOM 正文逐字一致性：未驗證（採 DOM 正文）',
+                `待確認 API：${integration.pending.length} 則`);
+        } else {
+            lines.push(integration.compared
+                ? `正文核對：${integration.comparison.match ? '相符' : `差異 ${integration.comparison.differences.length} 筆`}`
+                : '正文核對：未完成（單一來源）');
+        }
+        for (const [field, label] of [['citations', '引用'], ['attachments', '附件'], ['process', '處理狀態']]) {
+            lines.push(`${label}：API ${count(apiMessages, field)} 項／DOM ${count(domMessages, field)} 項`);
+        }
+        if (integration.compared) {
+            const side = (name, message, index) => message
+                ? `${name} #${index} (${message.role})\n${String(message.text ?? '')}` : `${name}：沒有此訊息`;
+            for (const [index, difference] of integration.comparison.differences.entries()) {
+                lines.push(`差異 ${index + 1}（${difference.kind}）\n${side('API', difference.api, difference.apiIndex)}\n\n${side('DOM', difference.dom, difference.domIndex)}`);
+            }
+        }
+        lines.push(...details.filter(Boolean), ...new Set(notes.filter(Boolean).map(String)));
+        return lines.join('\n\n') + '\n';
+    }
     // END GENERATED EXPORT RENDERER
 
     function styleExportTools(container) {
-        const fab = container.querySelector('button[aria-label*="Grab Your Chat"]');
+        const fab = container.querySelector('button[aria-label*="AZA-Agent-Chat-Archive"]');
         if (!fab) return;
         const style = document.createElement('style');
-        style.textContent = `#${container.id} button:not([aria-label*="Grab Your Chat"]){font-family:system-ui,sans-serif!important;font-size:13px!important;font-weight:600!important;border-radius:10px!important;border:1px solid #71809655!important;box-shadow:0 4px 16px #0002!important;background:#202b3c!important;color:#f5f8ff!important;padding:10px 15px!important}#${container.id} button:focus-visible{outline:3px solid #89b4ff!important;outline-offset:3px}#${container.id} button:disabled{opacity:.65!important;cursor:wait!important}`;
+        style.textContent = `#${container.id} button:not([aria-label*="AZA-Agent-Chat-Archive"]){font-family:system-ui,sans-serif!important;font-size:13px!important;font-weight:600!important;border-radius:10px!important;border:1px solid #71809655!important;box-shadow:0 4px 16px #0002!important;background:#202b3c!important;color:#f5f8ff!important;padding:10px 15px!important}#${container.id} button:focus-visible{outline:3px solid #89b4ff!important;outline-offset:3px}#${container.id} button:disabled{opacity:.65!important;cursor:wait!important}`;
         container.append(style);
     }
 
@@ -1276,7 +1310,7 @@ if (typeof document !== 'undefined') {
         }
 
         function showCombinedResults(title, api, dom, errors) {
-            const toMessages = result => result.turns.map(turn => ({ ...turn, role: turn.type === 'user' ? 'user' : 'assistant', text: turn.visibleText ?? turn.text, time: turn.timestamp || turn.dateStr || turn.date || turn.createdAt }));
+            const toMessages = result => result.turns.map(turn => ({ ...turn, role: turn.type === 'user' ? 'user' : 'assistant', text: turn.visibleText ?? turn.text, time: turn.time || turn.timestamp || turn.dateStr || turn.date || turn.createdAt }));
             const apiMessages = api ? toMessages(api) : [];
             const domMessages = dom ? toMessages(dom) : [];
             const integration = buildIntegratedMarkdown(apiMessages, domMessages, {
@@ -1286,24 +1320,15 @@ if (typeof document !== 'undefined') {
                 notes: [...(api?.warnings || []).map(note => `API：${note}`), ...(dom?.warnings || []).map(note => `DOM：${note}`)],
                 site: 'Gemini', url: typeof location === 'undefined' ? '' : location.href
             });
-            const comparison = integration.comparison;
-            const formatDifference = difference => {
-                const labels = { text: '文字不同', role: '角色不同', 'api-only': '僅 API 有此訊息', 'dom-only': '僅 DOM 有此訊息' };
-                const side = (label, index, message) => message ? `${label} #${index} (${message.role})：\n${prepareComparisonMessage(message, label.toLowerCase()).body}` : `${label}：無`;
-                return `${labels[difference.kind]}\n${side('API', difference.apiIndex, difference.api)}\n\n${side('DOM', difference.domIndex, difference.dom)}`;
-            };
-            const summary = [
-                `API：${api ? apiMessages.length + ' 則' : '失敗：' + errors.api}`,
-                `DOM：${dom ? domMessages.length + ' 則' : '失敗：' + errors.dom}`,
-                integration.compared ? (comparison.match ? '角色、順序與呈現正文相符' : `正文差異：${comparison.differences.length} 筆\n\n第一筆差異：\n${formatDifference(comparison.differences[0])}`) : '未進行比對',
-                '引用：API 未知 項／DOM 未知 項；附件：API 未知 項／DOM 未知 項（另列報告）',
-                ...[...(api?.warnings || []).map(w => `API：${w}`), ...(dom?.warnings || []).map(w => `DOM：${w}`)]
-            ].join('\n');
-            const report = summary + (integration.compared && comparison.differences.length ? '\n\n' + comparison.differences.map(formatDifference).join('\n\n--------------------\n\n') : '') + '\n';
+            const notes = [...(api?.warnings || []).map(note => `API：${note}`), ...(dom?.warnings || []).map(note => `DOM：${note}`)];
+            const report = buildExportReport({
+                site: 'Gemini', apiMessages: api ? apiMessages : null,
+                domMessages: dom ? domMessages : null, integration, errors, notes
+            });
             showIntegratedDialog({
                 id: 'gemini-export-modal', site: 'Gemini', title,
                 apiCount: api ? apiMessages.length : null, domCount: dom ? domMessages.length : null,
-                integration, errors, report,
+                integration, errors, notes, report,
                 onDownload: () => performDownload(title, integration.content, '整合匯出', 'COM'),
                 onApi: api && (() => performDownload(title, api.out, 'API')),
                 onDom: dom && (() => performDownload(title, dom.out, 'DOM')),
@@ -1453,8 +1478,8 @@ if (typeof document !== 'undefined') {
 
             const fab = document.createElement('button');
             fab.textContent = '✦';
-            fab.title = "GYC - Gemini - v1.4.17";
-            fab.setAttribute('aria-label', '開啟 Grab Your Chat - Gemini 工具');
+            fab.title = 'AZA-Agent-Chat-Archive - Gemini 1.4.18';
+            fab.setAttribute('aria-label', fab.title);
             Object.assign(fab.style, {
                 width: '56px',
                 height: '56px',

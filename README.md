@@ -64,6 +64,8 @@ Skill 只匯出可見對話，不保存隱藏推理、工具活動或引用檔�
 
 啟動驗收規格中的本機 HTTP server 後，可開啟 `tests/check-shared-dialog.html`，以純合成資料操作四站共用對話框、下載 callback 與 Gemini 差異分頁；此頁不讀取登入對話。
 
+`tests/check-export-delivery.html` 在隔離 iframe 驗證四站真實選單排列、版本提示，以及 API／DOM 副本與單獨匯出的 Blob 正文逐字一致。下載介面以合成替身接收 Blob，不會下載真實對話；報告另驗來源取得狀態、引用／附件計數與資訊提示。`check-export-delivery.js` 鎖定完整差異不截短及未知 metadata 不冒稱為零。
+
 Grok 1.4.8 修正專案對話網址的 `chat` 參數辨識，API／綜合匯出皆適用；沒有對話 ID 的專案首頁仍不支援 API。網址回歸及兩個實際匯出入口的合成 HTTP smoke 通過；未完成登入 API／DOM 三方驗收，隔離瀏覽器啟動失敗，未驗證實際畫面。
 
 Grok 1.4.9 修正 API 比較正文誤吃單個 `~` 的問題，保留頁面原樣顯示的符號，雙 `~~` 刪除線仍按 Markdown 呈現。即時差異報告已確認 7 筆為此解析問題；另 2 筆僅 API 有的訊息仍待分支／DOM 完整性確認。回歸與合成 16／14 則比較 smoke 通過；偵錯連線中斷後未重連，未宣稱修正版已通過即時三方驗收。

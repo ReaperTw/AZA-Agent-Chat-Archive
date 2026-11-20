@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        GYC - Grok
 // @namespace   https://github.com/ReaperTw/AZA-Agent-Chat-Archive
-// @version      1.4.12
+// @version      1.4.13
 // @description Grab Your Chat - Grok 端對話匯出器；最後更新於 20261101
 // @updateURL   https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-grok.user.js
 // @downloadURL https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-grok.user.js
@@ -315,7 +315,7 @@
         const close = () => { overlay.remove(); previousFocus?.focus?.(); };
         const top = el('div', 'gyc-heading');
         const heading = el('div');
-        heading.append(el('div', 'gyc-eyebrow', `${EXPORT_RENDERER_PROVIDER === 'chatgpt' ? 'AZA-Agent-Chat-Archive' : 'GRAB YOUR CHAT'} / ${site}`), el('h2', '', '對話已整合'));
+        heading.append(el('div', 'gyc-eyebrow', `AZA-Agent-Chat-Archive / ${site}`), el('h2', '', '對話已整合'));
         const closeButton = el('button', 'gyc-close', '×');
         closeButton.setAttribute('aria-label', '關閉整合匯出結果');
         closeButton.onclick = close;
@@ -441,13 +441,47 @@
         document.body.append(overlay);
         (actions.querySelector('button') || closeButton).focus({ preventScroll: true });
     }
+
+    function buildExportReport({ site = '', apiMessages = null, domMessages = null,
+        integration, errors = {}, notes = [], details = [] }) {
+        const state = (name, messages) => `${name}：${messages === null
+            ? `取得失敗：${errors[name.toLowerCase()] || '未取得來源'}`
+            : `取得成功，${messages.length} 則`}`;
+        const count = (messages, field) => {
+            if (messages === null || messages.some(message => !Array.isArray(message[field]))) return '未知';
+            return messages.reduce((sum, message) => sum + message[field].length, 0);
+        };
+        const lines = [site && `來源網站：${site}`, state('API', apiMessages), state('DOM', domMessages),
+            `正式正文：${integration.entries.length} 則`].filter(Boolean);
+        if (integration.verification) {
+            lines.push(`訊息結構：${integration.verification.complete ? 'ID、角色、順序已核對' : '尚待確認'}`,
+                'API／DOM 正文逐字一致性：未驗證（採 DOM 正文）',
+                `待確認 API：${integration.pending.length} 則`);
+        } else {
+            lines.push(integration.compared
+                ? `正文核對：${integration.comparison.match ? '相符' : `差異 ${integration.comparison.differences.length} 筆`}`
+                : '正文核對：未完成（單一來源）');
+        }
+        for (const [field, label] of [['citations', '引用'], ['attachments', '附件'], ['process', '處理狀態']]) {
+            lines.push(`${label}：API ${count(apiMessages, field)} 項／DOM ${count(domMessages, field)} 項`);
+        }
+        if (integration.compared) {
+            const side = (name, message, index) => message
+                ? `${name} #${index} (${message.role})\n${String(message.text ?? '')}` : `${name}：沒有此訊息`;
+            for (const [index, difference] of integration.comparison.differences.entries()) {
+                lines.push(`差異 ${index + 1}（${difference.kind}）\n${side('API', difference.api, difference.apiIndex)}\n\n${side('DOM', difference.dom, difference.domIndex)}`);
+            }
+        }
+        lines.push(...details.filter(Boolean), ...new Set(notes.filter(Boolean).map(String)));
+        return lines.join('\n\n') + '\n';
+    }
     // END GENERATED EXPORT RENDERER
 
     function styleExportTools(container) {
-        const fab = container.querySelector('button[aria-label*="Grab Your Chat"]');
+        const fab = container.querySelector('button[aria-label*="AZA-Agent-Chat-Archive"]');
         if (!fab) return;
         const style = document.createElement('style');
-        style.textContent = `#${container.id} button:not([aria-label*="Grab Your Chat"]){font-family:system-ui,sans-serif!important;font-size:13px!important;font-weight:600!important;border-radius:10px!important;border:1px solid #71809655!important;box-shadow:0 4px 16px #0002!important;background:#202b3c!important;color:#f5f8ff!important;padding:10px 15px!important}#${container.id} button:focus-visible{outline:3px solid #89b4ff!important;outline-offset:3px}#${container.id} button:disabled{opacity:.65!important;cursor:wait!important}`;
+        style.textContent = `#${container.id} button:not([aria-label*="AZA-Agent-Chat-Archive"]){font-family:system-ui,sans-serif!important;font-size:13px!important;font-weight:600!important;border-radius:10px!important;border:1px solid #71809655!important;box-shadow:0 4px 16px #0002!important;background:#202b3c!important;color:#f5f8ff!important;padding:10px 15px!important}#${container.id} button:focus-visible{outline:3px solid #89b4ff!important;outline-offset:3px}#${container.id} button:disabled{opacity:.65!important;cursor:wait!important}`;
         container.append(style);
     }
 
@@ -876,7 +910,7 @@
             messageCount,
             warning
         }, finalTitle => {
-            const blob = new Blob(['\uFEFF' + finalOutput], {
+            const blob = new Blob(['\uFEFF' + finalOutput.replace(/^\uFEFF/, '')], {
                 type: 'text/markdown;charset=utf-8'
             });
             const url = URL.createObjectURL(blob);
@@ -1182,7 +1216,11 @@
 
             checkScope();
             if (!globalTimeline.length) throw new Error('DOM 沒有取得任何有效對話');
-            if (captureOnly) return { messages: globalTimeline.map(toComparisonTurn), warning: scanWarnings.join('；') };
+            if (captureOnly) return {
+                messages: globalTimeline.map(toComparisonTurn),
+                warning: scanWarnings.join('；'),
+                out: buildTimelineMarkdown(globalTimeline, scanWarnings, 'DOM').content
+            };
             const report = openTimelineSaveModal(globalTimeline, scanWarnings);
             btn.innerText = `整理內容｜有效 ${report.messageCount} 則`;
 
@@ -1207,7 +1245,7 @@
     }
 
     function downloadCombinedFile(name, content) {
-        const url = URL.createObjectURL(new Blob(['\uFEFF' + content], { type: 'text/markdown;charset=utf-8' }));
+        const url = URL.createObjectURL(new Blob(['\uFEFF' + content.replace(/^\uFEFF/, '')], { type: 'text/markdown;charset=utf-8' }));
         const anchor = document.createElement('a');
         anchor.href = url;
         anchor.download = `${name}.md`;
@@ -1226,51 +1264,32 @@
             site: 'Grok', url: typeof location === 'undefined' ? '' : location.href
         });
         const comparison = integration.comparison;
-        const formatDifference = difference => {
-            const labels = { text: '文字不同', role: '角色不同', 'api-only': '僅 API 有此訊息', 'dom-only': '僅 DOM 有此訊息' };
-            const source = (label, index, message) => message ? `${label} #${index} (${message.role})：\n${prepareComparisonMessage(message, label === 'API' ? 'api' : 'dom').body}` : `${label}：無`;
-            const lineEndSpacesOnly = difference.kind === 'text' &&
-                prepareComparisonMessage(difference.api, 'api').body.replace(/[ \t]+\n/g, '\n') ===
-                prepareComparisonMessage(difference.dom, 'dom').body.replace(/[ \t]+\n/g, '\n');
-            return `${lineEndSpacesOnly ? '文字不同（僅換行前空白，未忽略差異）' : labels[difference.kind]}\n${source('API', difference.apiIndex, difference.api)}\n\n${source('DOM', difference.domIndex, difference.dom)}`;
-        };
-        const metadata = api && dom ? [
+        const metadata = [
             ...apiMessages.map((message, index) => ({ source: 'API', index: index + 1, ...prepareComparisonMessage(message, 'api') })),
             ...domMessages.map((message, index) => ({ source: 'DOM', index: index + 1, ...prepareComparisonMessage(message, 'dom') }))
-        ].filter(item => item.citations === null || item.attachments === null || item.citations.length || item.attachments.length) : [];
+        ];
         const metadataNotice = '引用與附件為獨立診斷，未驗證兩來源是否相同；API 引用 ID 不可直接推定 DOM 標籤或網域。';
-        const metadataCount = (source, field) => {
-            const items = metadata.filter(item => item.source === source);
-            return items.some(item => item[field] === null) ? '未知' : items.reduce((sum, item) => sum + item[field].length, 0);
-        };
-        const summary = [
-            `API：${api ? `${apiMessages.length} 則` : `失敗：${errors.api}`}`,
-            `DOM：${dom ? `${domMessages.length} 則` : `失敗：${errors.dom}`}`,
-            api && dom ? (comparison.match ? '角色、順序與呈現正文相符' : `正文差異：${comparison.differences.length} 筆\n\n第一筆差異：\n${formatDifference(comparison.differences[0])}`) : '未進行比對',
-            ...(api && dom && comparison.progress?.length ? [`API 額外前進度：${comparison.progress.length} 則（另列報告，原始匯出保留）`] : []),
-            ...(api && dom ? [`引用：API ${metadataCount('API', 'citations')} 項／DOM ${metadataCount('DOM', 'citations')} 項；附件：API ${metadataCount('API', 'attachments')} 項／DOM ${metadataCount('DOM', 'attachments')} 項（另列報告）`] : []),
-            ...warnings
-        ].join('\n');
-        const report = api && dom
-            ? `API ${apiMessages.length} 則，DOM ${domMessages.length} 則，正文差異 ${comparison.differences.length} 筆\n\n` +
-                comparison.differences.map((difference, index) => `正文差異 ${index + 1}\n${formatDifference(difference)}`).join('\n\n--------------------\n\n') +
-                (comparison.progress?.length ? '\n\nAPI 額外前進度\n' + comparison.progress.map(item => `API #${item.apiIndex}：\n${item.api.text}`).join('\n\n') : '') +
-                `\n\n${metadataNotice}\n引用：API ${metadataCount('API', 'citations')}／DOM ${metadataCount('DOM', 'citations')}；附件：API ${metadataCount('API', 'attachments')}／DOM ${metadataCount('DOM', 'attachments')}\n` +
-                warnings.map(warning => `> ${warning}\n`).join('') +
-                metadata.filter(item => item.citations?.length || item.attachments?.length).map(item => {
-                    const fields = [];
-                    if (item.citations?.length) fields.push(`引用 ${JSON.stringify(item.citations)}`);
-                    if (item.attachments?.length) fields.push(`附件 ${JSON.stringify(item.attachments)}`);
-                    return `${item.source} #${item.index}：${fields.join('；')}`;
-                }).join('\n') + '\n'
-            : `${summary}\n\n${metadataNotice}\n`;
+        const details = [
+            metadataNotice,
+            ...(comparison.progress?.length ? ['API 額外前進度\n' + comparison.progress.map(item => `API #${item.apiIndex}：\n${item.api.text}`).join('\n\n')] : []),
+            ...metadata.filter(item => item.citations?.length || item.attachments?.length).map(item => {
+                const fields = [];
+                if (item.citations?.length) fields.push(`引用 ${JSON.stringify(item.citations)}`);
+                if (item.attachments?.length) fields.push(`附件 ${JSON.stringify(item.attachments)}`);
+                return `${item.source} #${item.index}：${fields.join('；')}`;
+            })
+        ];
+        const report = buildExportReport({
+            site: 'Grok', apiMessages: api ? apiMessages : null,
+            domMessages: dom ? domMessages : null, integration, errors, notes: warnings, details
+        });
         const base = `Grok_${sanitizeFileName(title) || 'Grok-Chat'}_${getTimestamp()}`;
         showIntegratedDialog({
             id: 'grok-export-save-overlay', site: 'Grok', title, apiCount: api ? apiMessages.length : null, domCount: dom ? domMessages.length : null,
-            integration, errors, report,
+            integration, errors, notes: warnings, report,
             onDownload: () => downloadCombinedFile(`${base}_COM`, integration.content),
-            onApi: api && (() => downloadCombinedFile(`${base}_API`, buildTimelineMarkdown(apiMessages, api.warning ? [api.warning] : [], 'API').content)),
-            onDom: dom && (() => downloadCombinedFile(`${base}_DOM`, buildTimelineMarkdown(domMessages, dom.warning ? [dom.warning] : [], 'DOM').content)),
+            onApi: api && (() => downloadCombinedFile(`${base}_API`, api.out)),
+            onDom: dom && (() => downloadCombinedFile(`${base}_DOM`, dom.out)),
             onReport: () => downloadCombinedFile(`${base}_DIFFERENCES`, report)
         });
     }
@@ -1297,7 +1316,12 @@
                 checkScope();
                 const branch = buildActiveBranchTimeline(data.responses, id, new URLSearchParams(location.search).get('rid'));
                 if (!branch.timeline.length) throw new Error('API 沒有可匯出的訊息');
-                api = { messages: branch.timeline.map(toComparisonTurn), warning: [data.warning, branch.warning].filter(Boolean).join('；') };
+                const warnings = [data.warning, branch.warning].filter(Boolean);
+                api = {
+                    messages: branch.timeline.map(toComparisonTurn),
+                    warning: warnings.join('；'),
+                    out: buildTimelineMarkdown(branch.timeline, warnings, 'API').content
+                };
             } catch (error) { errors.api = error.message || String(error); }
             checkScope();
             try {
@@ -1420,8 +1444,8 @@
 
         const fab = document.createElement('button');
         fab.innerText = '𝕏';
-        fab.title = "GYC - Grok - v1.4.12";
-        fab.setAttribute('aria-label', '開啟 Grab Your Chat - Grok 工具');
+        fab.title = 'AZA-Agent-Chat-Archive - Grok 1.4.13';
+        fab.setAttribute('aria-label', fab.title);
         Object.assign(fab.style, {
             width: '56px',
             height: '56px',

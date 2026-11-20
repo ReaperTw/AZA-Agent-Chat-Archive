@@ -1,0 +1,97 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Four-provider export delivery regression</title>
+<pre id="result">Running synthetic browser acceptance…</pre>
+<div id="frames"></div>
+<script>
+(async () => {
+    const assert = (value, message) => { if (!value) throw Error(message); };
+    const sites = { chatgpt: 'ChatGPT', claude: 'Claude', gemini: 'Gemini', grok: 'Grok' };
+    const rows = [];
+    for (const [provider, site] of Object.entries(sites)) {
+        const frame = document.createElement('iframe');
+        frame.title = `${site} synthetic menu and downloads`;
+        frame.width = '700'; frame.height = '500';
+        document.getElementById('frames').append(frame);
+        const win = frame.contentWindow;
+        const doc = win.document;
+        doc.title = 'Synthetic fixture';
+        const source = await (await fetch(`../userscripts/gyc-${provider}.user.js`)).text();
+        const standalone = provider === 'gemini' ? 'renderGeminiApiMarkdown' : provider === 'grok' ? 'buildTimelineMarkdown' : 'buildMarkdown';
+        const observer = /const observer = new MutationObserver\([^\n]+\);/;
+        assert(observer.test(source), `${site}: missing fixture injection seam`);
+        win.eval(source.replace(observer, `globalThis.deliveryFixture = {showCombinedResults, createButton, standalone: ${standalone}}; createButton(); return;`));
+        const fixture = win.deliveryFixture;
+        assert(fixture, `${site}: fixture exposure failed`);
+        const version = source.match(/^\/\/ @version\s+(\S+)/m)[1];
+        const fab = doc.querySelector('button[aria-label^="AZA-Agent-Chat-Archive"]');
+        assert(fab?.title === `AZA-Agent-Chat-Archive - ${site} ${version}`, `${site}: actual tooltip differs from @version`);
+        fab.click();
+        const menuButtons = [...fab.parentElement.firstElementChild.querySelectorAll('button')];
+        const labels = menuButtons.map(button => button.textContent.replace(/\s+/g, ''));
+        assert(labels.length === 4 && labels[0].includes('到頂端') && labels[1] === '綜合匯出' && labels[2] === 'API匯出' && labels[3] === '正常匯出', `${site}: menu order ${labels}`);
+        const positions = menuButtons.map(button => button.getBoundingClientRect().top);
+        assert(positions.every((top, index) => !index || top > positions[index - 1]), `${site}: visual menu order`);
+        fab.click();
+        const blobs = new Map(), downloads = [];
+        win.URL.createObjectURL = blob => { const id = `blob:synthetic-${blobs.size}`; blobs.set(id, blob); return id; };
+        win.URL.revokeObjectURL = () => {};
+        win.HTMLAnchorElement.prototype.click = function () { downloads.push({ name: this.download, blob: blobs.get(this.href) }); };
+        const messages = [
+            { role: 'user', type: 'user', sourceIds: ['q'], text: 'Synthetic question', time: '2026/11/8 下午6:04:06' },
+            { role: 'assistant', type: 'ai', sourceIds: ['a'], text: 'Synthetic answer', time: '2026/11/8 下午6:15:27',
+                citations: [{ label: 'Manual', url: 'https://example.test/manual' }], attachments: [{ name: 'synthetic.txt' }], process: [] }
+        ];
+        const warnings = ['相對時間僅作提示'];
+        let api, dom, expectedApi, expectedDom;
+        if (provider === 'chatgpt') {
+            api = { messages, incomplete: false, notice: '已排除 2 則思考前置進度' };
+            dom = { messages: messages.map(({ time, ...message }) => message), historyComplete: true,
+                chatTime: '2026/11/8 下午6:04:06', timeMarkers: [{ beforeTurnIndex: 0, timestamp: '2026/11/8 下午6:04:06' }] };
+            expectedApi = fixture.standalone(api, 'Synthetic').content;
+            expectedDom = fixture.standalone(dom, 'Synthetic', { source: 'DOM', chatTime: dom.chatTime, timeMarkers: dom.timeMarkers }).content;
+        } else if (provider === 'claude') {
+            expectedApi = fixture.standalone(messages, 'API', { warnings });
+            expectedDom = fixture.standalone(messages, 'DOM', { warnings });
+            api = { messages, warnings, info: { interrupted: 0, skippedTools: [] }, markdown: expectedApi, incomplete: false };
+            dom = { messages, warnings, markdown: expectedDom, incomplete: false };
+        } else if (provider === 'gemini') {
+            expectedApi = fixture.standalone(messages, warnings);
+            expectedDom = fixture.standalone(messages, warnings);
+            api = { turns: messages, warnings, out: expectedApi, exhausted: true };
+            dom = { turns: messages, warnings, out: expectedDom };
+        } else {
+            expectedApi = fixture.standalone(messages, warnings, 'API').content;
+            expectedDom = fixture.standalone(messages, warnings, 'DOM').content;
+            api = { messages, warning: warnings.join('；'), out: expectedApi };
+            dom = { messages, warning: warnings.join('；'), out: expectedDom };
+        }
+        fixture.showCombinedResults('Synthetic', api, dom, {});
+        const clickDownload = async (label, expected) => {
+            const button = [...doc.querySelectorAll('[data-gyc-integrated] button')].find(node => node.textContent === label);
+            assert(button, `${site}: missing ${label}`);
+            button.click();
+            const download = downloads.at(-1);
+            assert(download?.blob, `${site}: ${label} did not create a Blob`);
+            const text = (await download.blob.text()).replace(/^\uFEFF/, '');
+            assert(text === expected, `${site}: ${label} differs from standalone export`);
+            assert(!/擷取方式|匯出來源|```json/.test(text), `${site}: extra debug body formatting`);
+        };
+        await clickDownload('API 原始匯出', expectedApi);
+        await clickDownload('頁面原始匯出', expectedDom);
+        const reportButton = [...doc.querySelectorAll('[data-gyc-integrated] button')].find(node => /下載.*報告/.test(node.textContent));
+        reportButton.click();
+        const report = await downloads.at(-1).blob.text();
+        assert(report.includes('API：取得成功，2 則') && report.includes('DOM：取得成功，2 則'), `${site}: source acquisition report`);
+        assert(report.includes('引用：API') && report.includes('附件：API'), `${site}: metadata counts missing`);
+        assert(report.includes(provider === 'chatgpt' ? '已排除 2 則思考前置進度' : warnings[0]), `${site}: informational note missing`);
+        rows.push(`PASS ${site}: real menu order, version tooltip, API/DOM Blob equality, report`);
+        doc.querySelector('button[aria-label="關閉整合匯出結果"]').click();
+    }
+    document.getElementById('result').textContent = rows.join('\n');
+    document.documentElement.dataset.result = 'pass';
+})().catch(error => {
+    document.getElementById('result').textContent = 'FAIL: ' + error.stack;
+    document.documentElement.dataset.result = 'fail';
+});
+</script>

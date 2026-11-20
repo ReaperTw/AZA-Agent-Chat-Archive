@@ -210,7 +210,7 @@
         const close = () => { overlay.remove(); previousFocus?.focus?.(); };
         const top = el('div', 'gyc-heading');
         const heading = el('div');
-        heading.append(el('div', 'gyc-eyebrow', `${EXPORT_RENDERER_PROVIDER === 'chatgpt' ? 'AZA-Agent-Chat-Archive' : 'GRAB YOUR CHAT'} / ${site}`), el('h2', '', '對話已整合'));
+        heading.append(el('div', 'gyc-eyebrow', `AZA-Agent-Chat-Archive / ${site}`), el('h2', '', '對話已整合'));
         const closeButton = el('button', 'gyc-close', '×');
         closeButton.setAttribute('aria-label', '關閉整合匯出結果');
         closeButton.onclick = close;
@@ -335,4 +335,38 @@
         });
         document.body.append(overlay);
         (actions.querySelector('button') || closeButton).focus({ preventScroll: true });
+    }
+
+    function buildExportReport({ site = '', apiMessages = null, domMessages = null,
+        integration, errors = {}, notes = [], details = [] }) {
+        const state = (name, messages) => `${name}：${messages === null
+            ? `取得失敗：${errors[name.toLowerCase()] || '未取得來源'}`
+            : `取得成功，${messages.length} 則`}`;
+        const count = (messages, field) => {
+            if (messages === null || messages.some(message => !Array.isArray(message[field]))) return '未知';
+            return messages.reduce((sum, message) => sum + message[field].length, 0);
+        };
+        const lines = [site && `來源網站：${site}`, state('API', apiMessages), state('DOM', domMessages),
+            `正式正文：${integration.entries.length} 則`].filter(Boolean);
+        if (integration.verification) {
+            lines.push(`訊息結構：${integration.verification.complete ? 'ID、角色、順序已核對' : '尚待確認'}`,
+                'API／DOM 正文逐字一致性：未驗證（採 DOM 正文）',
+                `待確認 API：${integration.pending.length} 則`);
+        } else {
+            lines.push(integration.compared
+                ? `正文核對：${integration.comparison.match ? '相符' : `差異 ${integration.comparison.differences.length} 筆`}`
+                : '正文核對：未完成（單一來源）');
+        }
+        for (const [field, label] of [['citations', '引用'], ['attachments', '附件'], ['process', '處理狀態']]) {
+            lines.push(`${label}：API ${count(apiMessages, field)} 項／DOM ${count(domMessages, field)} 項`);
+        }
+        if (integration.compared) {
+            const side = (name, message, index) => message
+                ? `${name} #${index} (${message.role})\n${String(message.text ?? '')}` : `${name}：沒有此訊息`;
+            for (const [index, difference] of integration.comparison.differences.entries()) {
+                lines.push(`差異 ${index + 1}（${difference.kind}）\n${side('API', difference.api, difference.apiIndex)}\n\n${side('DOM', difference.dom, difference.domIndex)}`);
+            }
+        }
+        lines.push(...details.filter(Boolean), ...new Set(notes.filter(Boolean).map(String)));
+        return lines.join('\n\n') + '\n';
     }

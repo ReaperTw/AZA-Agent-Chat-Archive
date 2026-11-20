@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GYC - ChatGPT
 // @namespace    https://github.com/ReaperTw/AZA-Agent-Chat-Archive
-// @version      1.4.15
+// @version      1.4.16
 // @description  AZA-Agent-Chat-Archive - ChatGPT 端對話匯出器；最後更新於 20261101
 // @updateURL    https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-chatgpt.user.js
 // @downloadURL  https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-chatgpt.user.js
@@ -494,7 +494,7 @@
         const close = () => { overlay.remove(); previousFocus?.focus?.(); };
         const top = el('div', 'gyc-heading');
         const heading = el('div');
-        heading.append(el('div', 'gyc-eyebrow', `${EXPORT_RENDERER_PROVIDER === 'chatgpt' ? 'AZA-Agent-Chat-Archive' : 'GRAB YOUR CHAT'} / ${site}`), el('h2', '', '對話已整合'));
+        heading.append(el('div', 'gyc-eyebrow', `AZA-Agent-Chat-Archive / ${site}`), el('h2', '', '對話已整合'));
         const closeButton = el('button', 'gyc-close', '×');
         closeButton.setAttribute('aria-label', '關閉整合匯出結果');
         closeButton.onclick = close;
@@ -619,6 +619,40 @@
         });
         document.body.append(overlay);
         (actions.querySelector('button') || closeButton).focus({ preventScroll: true });
+    }
+
+    function buildExportReport({ site = '', apiMessages = null, domMessages = null,
+        integration, errors = {}, notes = [], details = [] }) {
+        const state = (name, messages) => `${name}：${messages === null
+            ? `取得失敗：${errors[name.toLowerCase()] || '未取得來源'}`
+            : `取得成功，${messages.length} 則`}`;
+        const count = (messages, field) => {
+            if (messages === null || messages.some(message => !Array.isArray(message[field]))) return '未知';
+            return messages.reduce((sum, message) => sum + message[field].length, 0);
+        };
+        const lines = [site && `來源網站：${site}`, state('API', apiMessages), state('DOM', domMessages),
+            `正式正文：${integration.entries.length} 則`].filter(Boolean);
+        if (integration.verification) {
+            lines.push(`訊息結構：${integration.verification.complete ? 'ID、角色、順序已核對' : '尚待確認'}`,
+                'API／DOM 正文逐字一致性：未驗證（採 DOM 正文）',
+                `待確認 API：${integration.pending.length} 則`);
+        } else {
+            lines.push(integration.compared
+                ? `正文核對：${integration.comparison.match ? '相符' : `差異 ${integration.comparison.differences.length} 筆`}`
+                : '正文核對：未完成（單一來源）');
+        }
+        for (const [field, label] of [['citations', '引用'], ['attachments', '附件'], ['process', '處理狀態']]) {
+            lines.push(`${label}：API ${count(apiMessages, field)} 項／DOM ${count(domMessages, field)} 項`);
+        }
+        if (integration.compared) {
+            const side = (name, message, index) => message
+                ? `${name} #${index} (${message.role})\n${String(message.text ?? '')}` : `${name}：沒有此訊息`;
+            for (const [index, difference] of integration.comparison.differences.entries()) {
+                lines.push(`差異 ${index + 1}（${difference.kind}）\n${side('API', difference.api, difference.apiIndex)}\n\n${side('DOM', difference.dom, difference.domIndex)}`);
+            }
+        }
+        lines.push(...details.filter(Boolean), ...new Set(notes.filter(Boolean).map(String)));
+        return lines.join('\n\n') + '\n';
     }
     // END GENERATED EXPORT RENDERER
 
@@ -1658,9 +1692,10 @@
             ...(api?.messages || []).map((message, index) => ({ source: 'API', index: index + 1, ...message })),
             ...(dom?.messages || []).map((message, index) => ({ source: 'DOM', index: index + 1, ...message }))
         ];
-        const report = [
-            `API：${api ? api.messages.length + ' 則' : '失敗：' + errors.api}`,
-            `DOM：${dom ? dom.messages.length + ' 則' : '失敗：' + errors.dom}`,
+        const report = buildExportReport({
+            site: 'ChatGPT', apiMessages: api ? api.messages : null,
+            domMessages: dom ? dom.messages : null, integration, errors, notes: warnings,
+            details: [
             `正式正文：${integration.entries.length} 則；API ID 配對：${integration.counts.matched} 則；待確認 API：${integration.pending.length} 則`,
             `訊息結構：${integration.verification.complete ? 'ID、角色、順序已核對' : '尚待確認'}；正文逐字一致性：未驗證（採 DOM 正文）`,
             ...integration.verification.issues.map(formatVerificationIssue),
@@ -1672,8 +1707,8 @@
                 if (item.attachments?.length) fields.push(`附件 ${JSON.stringify(item.attachments)}`);
                 return `${item.source} #${item.index}：${fields.join('；')}`;
             }),
-            ...warnings
-        ].join('\n\n') + '\n';
+            ]
+        });
         const base = `GPT_${sanitizeFileName(title) || 'ChatGPT-Chat'}_${getTimestamp()}`;
         showIntegratedDialog({
             id: 'chatgpt-export-save-overlay', site: 'ChatGPT', title,
@@ -1854,8 +1889,8 @@
                 <path fill="currentColor"
                     d="M22.2819 9.8211a5.9847 5.9847 0 0 0-.5157-4.9108 6.0462 6.0462 0 0 0-6.5098-2.9A6.0651 6.0651 0 0 0 4.9807 4.1818a5.9847 5.9847 0 0 0-3.9977 2.9 6.0462 6.0462 0 0 0 .7427 7.0966 5.98 5.98 0 0 0 .511 4.9107 6.051 6.051 0 0 0 6.5146 2.9001A5.9847 5.9847 0 0 0 13.2599 24a6.0557 6.0557 0 0 0 5.7718-4.2058 5.9894 5.9894 0 0 0 3.9977-2.9001 6.0557 6.0557 0 0 0-.7475-7.0729zm-9.022 12.6081a4.4755 4.4755 0 0 1-2.8764-1.0408l.1419-.0804 4.7783-2.7582a.7948.7948 0 0 0 .3927-.6813v-6.7369l2.02 1.1686a.071.071 0 0 1 .038.052v5.5826a4.504 4.504 0 0 1-4.4945 4.4944zm-9.6607-4.1254a4.4708 4.4708 0 0 1-.5346-3.0137l.142.0852 4.783 2.7582a.7712.7712 0 0 0 .7806 0l5.8428-3.3685v2.3324a.0804.0804 0 0 1-.0332.0615L9.74 19.9502a4.4992 4.4992 0 0 1-6.1408-1.6464zM2.3408 7.8956a4.485 4.485 0 0 1 2.3655-1.9728V11.6a.7664.7664 0 0 0 .3879.6765l5.8144 3.3543-2.0201 1.1685a.0757.0757 0 0 1-.071 0l-4.8303-2.7865A4.504 4.504 0 0 1 2.3408 7.872zm16.5963 3.8558L13.1038 8.364 15.1192 7.2a.0757.0757 0 0 1 .071 0l4.8303 2.7913a4.4944 4.4944 0 0 1-.6765 8.1042v-5.6772a.79.79 0 0 0-.407-.667zm2.0107-3.0231l-.142-.0852-4.7735-2.7818a.7759.7759 0 0 0-.7854 0L9.409 9.2297V6.8974a.0662.0662 0 0 1 .0284-.0615l4.8303-2.7866a4.4992 4.4992 0 0 1 6.6802 4.66zM8.3065 12.863l-2.02-1.1638a.0804.0804 0 0 1-.038-.0567V6.0742a4.4992 4.4992 0 0 1 7.3757-3.4537l-.142.0805L8.704 5.459a.7948.7948 0 0 0-.3927.6813zm1.0976-2.3654 2.602-1.4998 2.6069 1.4998v2.9994l-2.5974 1.4997-2.6067-1.4997Z"/>
             </svg>`;
-        fab.title = "AZA-Agent-Chat-Archive - ChatGPT 1.4.15";
-        fab.setAttribute('aria-label', '開啟 AZA-Agent-Chat-Archive - ChatGPT 工具');
+        fab.title = "AZA-Agent-Chat-Archive - ChatGPT 1.4.16";
+        fab.setAttribute('aria-label', fab.title);
         Object.assign(fab.style, {
             width: '56px',
             height: '56px',
