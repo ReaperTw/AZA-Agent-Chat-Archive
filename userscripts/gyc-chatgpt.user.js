@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GYC - ChatGPT
 // @namespace    https://github.com/ReaperTw/AZA-Agent-Chat-Archive
-// @version      1.4.13
+// @version      1.4.14
 // @description  AZA-Agent-Chat-Archive - ChatGPT 端對話匯出器；最後更新於 20261101
 // @updateURL    https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-chatgpt.user.js
 // @downloadURL  https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-chatgpt.user.js
@@ -291,6 +291,10 @@
             reasons[issue.kind]].filter(Boolean).join(' · ');
     }
 
+    // BEGIN GENERATED EXPORT RENDERER
+    const EXPORT_RENDERER_PROVIDER = 'chatgpt';
+// Shared COM rendering; embedded by scripts/build-userscripts.js, never loaded at runtime.
+// Provider parsing, comparison and integration remain in each userscript.
     // Reading-first COM layout: one short header, warnings only when real,
     // no per-message timestamps or raw JSON (those stay in API/DOM/report files).
     function formatTimeRange(messages, fallback = '') {
@@ -343,39 +347,82 @@
         return lines;
     }
 
+    // Gemini file-citation markers are renderer tokens, not readable prose.
+    function stripGeminiCiteMarkers(text) {
+        return text.split(/(```[\s\S]*?```|`[^`\n]*`)/).map((part, index) => index % 2 ? part
+            : part.replace(/ ?\[cite(?:_start|_end)?(?::\s*[\d,\s]+)?\]/g, '')).join('');
+    }
+
     function buildIntegratedMarkdown(apiMessages, domMessages, options = {}) {
-        const { apiAvailable = true, domAvailable = true, notes = [] } = options;
-        const result = integrateTranscripts(apiMessages, domMessages, options);
+        if (EXPORT_RENDERER_PROVIDER === 'chatgpt') {
+            const { apiAvailable = true, domAvailable = true, notes = [] } = options;
+            const result = integrateTranscripts(apiMessages, domMessages, options);
+            const warnings = [
+                (!apiAvailable || !domAvailable) && `來源取得失敗：${!apiAvailable && !domAvailable ? 'API、DOM' : !apiAvailable ? 'API' : 'DOM'}`,
+                !domAvailable && '沒有頁面正文；API 內容列於文末待確認',
+                ...notes,
+                ...result.verification.issues.map(formatVerificationIssue)
+            ];
+            let content = buildComHeader({ site: options.site, url: options.url, warnings,
+                time: formatTimeRange([apiMessages, domMessages].find(list => list.some(message => message?.createdAt || message?.date || message?.time)) || []) });
+            const supplement = (messages, text) => {
+                const lines = [...new Set(messages.flatMap(message => formatComMetadata(message, text)))];
+                return lines.length ? `\n\n${lines.join('\n\n')}` : '';
+            };
+            let users = 0, models = 0;
+            for (const entry of result.entries) {
+                const role = entry.dom.role === 'user' ? `User ${++users}` : `Model ${++models}`;
+                content += `--- [${role}] ---\n\n${entry.dom.text}`;
+                content += supplement([...(entry.apiMessages || []), entry.dom], String(entry.dom.text ?? '')) + '\n\n';
+            }
+            if (result.pending.length) {
+                content += '## 待確認 API 內容（不屬於正式正文）\n\n';
+                for (const item of result.pending) {
+                    const text = String(item.api.text ?? '');
+                    let fenceLength = 3;
+                    for (const match of text.matchAll(/`+/g)) fenceLength = Math.max(fenceLength, match[0].length + 1);
+                    const fence = '`'.repeat(fenceLength);
+                    content += `### 待確認 API #${item.apiIndex}（${item.api.role}）\n\n${fence}text\n${text}\n${fence}`;
+                    content += supplement([item.api], text) + '\n\n';
+                }
+            }
+            return { ...result, content: content.trimEnd() + '\n' };
+        }
+        const { apiAvailable = true, domAvailable = true, notes = [], site = '', url = '' } = options;
+        const result = integrateTranscripts(apiMessages, domMessages);
+        const compared = apiAvailable && domAvailable;
         const warnings = [
-            (!apiAvailable || !domAvailable) && `來源取得失敗：${!apiAvailable && !domAvailable ? 'API、DOM' : !apiAvailable ? 'API' : 'DOM'}`,
-            !domAvailable && '沒有頁面正文；API 內容列於文末待確認',
-            ...notes,
-            ...result.verification.issues.map(formatVerificationIssue)
+            (!apiAvailable || !domAvailable) && `來源取得失敗：${apiAvailable ? 'DOM' : domAvailable ? 'API' : 'API、DOM'}`,
+            compared && result.comparison.differences.length && `API／DOM 正文差異 ${result.comparison.differences.length} 筆；衝突處兩版並列`,
+            ...notes
         ];
-        let content = buildComHeader({ site: options.site, url: options.url, warnings,
-            time: formatTimeRange([apiMessages, domMessages].find(list => list.some(message => message?.createdAt || message?.date || message?.time)) || []) });
-        const supplement = (messages, text) => {
-            const lines = [...new Set(messages.flatMap(message => formatComMetadata(message, text)))];
+        let content = buildComHeader({ site, url, warnings, time: formatTimeRange([apiMessages, domMessages].find(list => list.some(message => message?.createdAt || message?.date || message?.time)) || []) });
+        let users = 0, models = 0;
+        const body = message => EXPORT_RENDERER_PROVIDER === 'gemini'
+            ? stripGeminiCiteMarkers(String(message?.visibleText ?? message?.text ?? ''))
+            : String(message?.text ?? '');
+        const supplement = (...messages) => {
+            const present = messages.filter(Boolean);
+            const text = present.map(body).join('\n');
+            const lines = [...new Set(present.flatMap(message => formatComMetadata(message, text)))];
             return lines.length ? `\n\n${lines.join('\n\n')}` : '';
         };
-        let users = 0, models = 0;
         for (const entry of result.entries) {
-            const role = entry.dom.role === 'user' ? `User ${++users}` : `Model ${++models}`;
-            content += `--- [${role}] ---\n\n${entry.dom.text}`;
-            content += supplement([...(entry.apiMessages || []), entry.dom], String(entry.dom.text ?? '')) + '\n\n';
-        }
-        if (result.pending.length) {
-            content += '## 待確認 API 內容（不屬於正式正文）\n\n';
-            for (const item of result.pending) {
-                const text = String(item.api.text ?? '');
-                let fenceLength = 3;
-                for (const match of text.matchAll(/`+/g)) fenceLength = Math.max(fenceLength, match[0].length + 1);
-                const fence = '`'.repeat(fenceLength);
-                content += `### 待確認 API #${item.apiIndex}（${item.api.role}）\n\n${fence}text\n${text}\n${fence}`;
-                content += supplement([item.api], text) + '\n\n';
+            const primary = entry.api || entry.dom;
+            const role = primary.role === 'user' ? `User ${++users}` : `Model ${++models}`;
+            content += `--- [${role}] ---\n\n`;
+            if (compared && ['api-only', 'dom-only', 'progress'].includes(entry.kind)) {
+                content += `> ${entry.kind === 'progress' ? '前進度；' : ''}僅 ${entry.api ? 'API' : 'DOM'} 有此訊息\n\n`;
             }
+            if (entry.kind === 'text' || entry.kind === 'role') {
+                content += `> **來源衝突，兩版並列**${entry.kind === 'role' ? '（角色也不同）' : ''}\n\n`;
+                content += `### API 版本（${entry.api.role}）\n\n${body(entry.api)}\n\n### DOM 版本（${entry.dom.role}）\n\n${body(entry.dom)}`;
+            } else {
+                content += body(primary);
+            }
+            content += supplement(entry.api, entry.dom) + '\n\n';
         }
-        return { ...result, content: content.trimEnd() + '\n' };
+        return { ...result, compared: apiAvailable && domAvailable, content: content.trimEnd() + '\n' };
     }
 
     function showIntegratedDialog({ id, site, title, apiCount, domCount, integration, errors = {}, notes = [], report = '', onDownload, onApi, onDom, onReport }) {
@@ -425,29 +472,41 @@
         const close = () => { overlay.remove(); previousFocus?.focus?.(); };
         const top = el('div', 'gyc-heading');
         const heading = el('div');
-        heading.append(el('div', 'gyc-eyebrow', `AZA-Agent-Chat-Archive / ${site}`), el('h2', '', '對話已整合'));
+        heading.append(el('div', 'gyc-eyebrow', `${EXPORT_RENDERER_PROVIDER === 'chatgpt' ? 'AZA-Agent-Chat-Archive' : 'GRAB YOUR CHAT'} / ${site}`), el('h2', '', '對話已整合'));
         const closeButton = el('button', 'gyc-close', '×');
         closeButton.setAttribute('aria-label', '關閉整合匯出結果');
         closeButton.onclick = close;
         top.append(heading, closeButton);
         panel.append(top, el('p', 'gyc-title', title));
         const stats = el('div', 'gyc-stats');
-        for (const [label, value] of [['API 訊息', apiCount ?? '—'], ['頁面訊息', domCount ?? '—'], ['正式正文', integration.entries.length]]) {
+        for (const [label, value] of [['API 訊息', apiCount ?? '—'], ['頁面訊息', domCount ?? '—'], [EXPORT_RENDERER_PROVIDER === 'chatgpt' ? '正式正文' : '整合訊息', integration.entries.length]]) {
             const stat = el('div', 'gyc-stat', label);
             stat.append(el('strong', '', String(value)));
             stats.append(stat);
         }
         panel.append(stats);
         const unavailable = apiCount === null || domCount === null;
-        const verified = integration.verification.complete;
-        const status = el('div', `gyc-status${!verified || unavailable ? ' gyc-warning' : ''}`);
-        if (!verified || unavailable) status.setAttribute('role', 'alert');
-        const statusTitle = unavailable ? '有來源取得失敗' : verified ? '訊息 ID、角色與順序已核對' : '訊息結構尚待確認';
-        status.append(el('strong', '', statusTitle));
-        status.append(el('span', '', '正式正文採用頁面內容；未進行 API／DOM 正文逐字比對。'));
-        panel.append(status);
-        if (!integration.entries.length) heading.lastChild.textContent = integration.pending.length ? '僅取得待確認 API 資料' : '未取得可匯出訊息';
-        if (integration.pending.length) panel.append(el('p', 'gyc-subtle', `${integration.pending.length} 則 API 訊息另存待確認附錄，不混入正式正文。`));
+        const differences = EXPORT_RENDERER_PROVIDER === 'chatgpt' ? [] : integration.compared ? integration.comparison.differences : [];
+        if (EXPORT_RENDERER_PROVIDER === 'chatgpt') {
+            const verified = integration.verification.complete;
+            const status = el('div', `gyc-status${!verified || unavailable ? ' gyc-warning' : ''}`);
+            if (!verified || unavailable) status.setAttribute('role', 'alert');
+            const statusTitle = unavailable ? '有來源取得失敗' : verified ? '訊息 ID、角色與順序已核對' : '訊息結構尚待確認';
+            status.append(el('strong', '', statusTitle));
+            status.append(el('span', '', '正式正文採用頁面內容；未進行 API／DOM 正文逐字比對。'));
+            panel.append(status);
+            if (!integration.entries.length) heading.lastChild.textContent = integration.pending.length ? '僅取得待確認 API 資料' : '未取得可匯出訊息';
+            if (integration.pending.length) panel.append(el('p', 'gyc-subtle', `${integration.pending.length} 則 API 訊息另存待確認附錄，不混入正式正文。`));
+        } else {
+            const status = el('div', `gyc-status${differences.length || unavailable ? ' gyc-warning' : ''}`);
+            if (differences.length || unavailable) status.setAttribute('role', 'alert');
+            const statusTitle = unavailable ? '有來源取得失敗' : differences.length ? `發現 ${differences.length} 筆正文差異` : '兩個來源的正文相符';
+            status.append(el('strong', '', statusTitle));
+            status.append(el('span', '', unavailable ? '請查看下方各來源的實際錯誤。' : differences.length ? '單邊訊息已補入；衝突保留 API 與頁面兩版，不自動覆蓋。' : '相同訊息只保留一份正文；各來源原文可另存。'));
+            panel.append(status);
+            if (!integration.entries.length) heading.lastChild.textContent = '未取得可匯出訊息';
+            if (integration.counts.progress) panel.append(el('p', 'gyc-subtle', `另保留 ${integration.counts.progress} 則 API 前進度訊息。`));
+        }
         if (Object.keys(errors).length) panel.append(el('pre', '', Object.entries(errors).map(([key, value]) => `${key.toUpperCase()}：${value}`).join('\n')));
         const disclosure = (label, text, open = false) => {
             const details = el('details');
@@ -456,25 +515,68 @@
             panel.append(details);
             return details;
         };
-        if (integration.verification.issues.length) {
-            disclosure('查看待確認事項', integration.verification.issues.map(formatVerificationIssue).join('\n'), true);
-        }
-        if (integration.pending.length) {
-            disclosure('待確認 API 內容（非正式正文）', integration.pending.map(item =>
-                `API #${item.apiIndex} (${item.api.role})\n${item.api.text}`
-            ).join('\n\n────────────────────\n\n'));
-        }
-        if (notes.length || report) disclosure('來源紀錄與補充資料', [...notes, report].filter(Boolean).join('\n\n'));
         const actions = el('div', 'gyc-actions');
+        if (EXPORT_RENDERER_PROVIDER === 'gemini') panel.append(actions);
+        if (EXPORT_RENDERER_PROVIDER === 'chatgpt') {
+            if (integration.verification.issues.length) {
+                disclosure('查看待確認事項', integration.verification.issues.map(formatVerificationIssue).join('\n'), true);
+            }
+            if (integration.pending.length) {
+                disclosure('待確認 API 內容（非正式正文）', integration.pending.map(item =>
+                    `API #${item.apiIndex} (${item.api.role})\n${item.api.text}`
+                ).join('\n\n────────────────────\n\n'));
+            }
+        } else if (EXPORT_RENDERER_PROVIDER === 'gemini') {
+            if (differences.length) {
+                const details = disclosure('查看正文差異', '');
+                const preview = details.lastChild;
+                const navigation = el('div', 'gyc-actions');
+                const previous = el('button', '', '上一頁');
+                const next = el('button', '', '下一頁');
+                const position = el('span', 'gyc-subtle');
+                navigation.append(previous, position, next);
+                details.append(navigation);
+                let page = 0;
+                const pageSize = 5;
+                const render = () => {
+                    const start = page * pageSize;
+                    preview.textContent = differences.slice(start, start + pageSize).map((item, index) => {
+                        const side = (name, message, pos) => {
+                            if (!message) return `${name}：沒有此訊息`;
+                            const body = prepareComparisonMessage(message, name === 'API' ? 'api' : 'dom').body;
+                            return `${name} #${pos} (${message.role})\n${body.slice(0, 2000)}${body.length > 2000 ? '\n[預覽已截短；完整正文請下載比對報告]' : ''}`;
+                        };
+                        return `差異 ${start + index + 1}\n${side('API', item.api, item.apiIndex)}\n\n${side('DOM', item.dom, item.domIndex)}`;
+                    }).join('\n\n────────────────────\n\n');
+                    position.textContent = `${start + 1}–${Math.min(start + pageSize, differences.length)}／${differences.length}`;
+                    previous.disabled = page === 0;
+                    next.disabled = start + pageSize >= differences.length;
+                    preview.scrollTop = 0;
+                };
+                details.addEventListener('toggle', () => { if (details.open) render(); });
+                previous.onclick = () => { page--; render(); };
+                next.onclick = () => { page++; render(); };
+            }
+        } else {
+            if (differences.length) {
+                const text = differences.map((item, index) => {
+                    const side = (name, message, pos) => message ? `${name} #${pos} (${message.role})\n${prepareComparisonMessage(message, name === 'API' ? 'api' : 'dom').body}` : `${name}：沒有此訊息`;
+                    return `差異 ${index + 1}\n${side('API', item.api, item.apiIndex)}\n\n${side('DOM', item.dom, item.domIndex)}`;
+                }).join('\n\n────────────────────\n\n');
+                disclosure('查看正文差異', text, true);
+            }
+        }
+        if (notes.length || report) disclosure('來源紀錄與補充資料', [...notes,
+            EXPORT_RENDERER_PROVIDER === 'gemini' ? (report ? '完整逐則內容請使用「下載比對報告」。' : '') : report].filter(Boolean).join('\n\n'));
         const add = (label, action, primary = false, target = actions) => {
             if (!action) return;
             const button = el('button', primary ? 'gyc-primary' : '', label);
             button.onclick = action;
             target.append(button);
         };
-        if (integration.entries.length || integration.pending.length) add('下載整合 Markdown', onDownload, true);
-        add('下載核對報告', onReport);
-        panel.append(actions);
+        if (integration.entries.length || (EXPORT_RENDERER_PROVIDER === 'chatgpt' && integration.pending.length)) add('下載整合 Markdown', onDownload, true);
+        add(EXPORT_RENDERER_PROVIDER === 'chatgpt' ? '下載核對報告' : '下載比對報告', onReport);
+        if (EXPORT_RENDERER_PROVIDER !== 'gemini') panel.append(actions);
         if (onApi || onDom) {
             const originals = disclosure('另存個別來源', '');
             originals.lastChild.remove();
@@ -496,6 +598,7 @@
         document.body.append(overlay);
         (actions.querySelector('button') || closeButton).focus({ preventScroll: true });
     }
+    // END GENERATED EXPORT RENDERER
 
     function styleExportTools(container) {
         const fab = container.querySelector('button[aria-label*="AZA-Agent-Chat-Archive"]');
@@ -1727,7 +1830,7 @@
                 <path fill="currentColor"
                     d="M22.2819 9.8211a5.9847 5.9847 0 0 0-.5157-4.9108 6.0462 6.0462 0 0 0-6.5098-2.9A6.0651 6.0651 0 0 0 4.9807 4.1818a5.9847 5.9847 0 0 0-3.9977 2.9 6.0462 6.0462 0 0 0 .7427 7.0966 5.98 5.98 0 0 0 .511 4.9107 6.051 6.051 0 0 0 6.5146 2.9001A5.9847 5.9847 0 0 0 13.2599 24a6.0557 6.0557 0 0 0 5.7718-4.2058 5.9894 5.9894 0 0 0 3.9977-2.9001 6.0557 6.0557 0 0 0-.7475-7.0729zm-9.022 12.6081a4.4755 4.4755 0 0 1-2.8764-1.0408l.1419-.0804 4.7783-2.7582a.7948.7948 0 0 0 .3927-.6813v-6.7369l2.02 1.1686a.071.071 0 0 1 .038.052v5.5826a4.504 4.504 0 0 1-4.4945 4.4944zm-9.6607-4.1254a4.4708 4.4708 0 0 1-.5346-3.0137l.142.0852 4.783 2.7582a.7712.7712 0 0 0 .7806 0l5.8428-3.3685v2.3324a.0804.0804 0 0 1-.0332.0615L9.74 19.9502a4.4992 4.4992 0 0 1-6.1408-1.6464zM2.3408 7.8956a4.485 4.485 0 0 1 2.3655-1.9728V11.6a.7664.7664 0 0 0 .3879.6765l5.8144 3.3543-2.0201 1.1685a.0757.0757 0 0 1-.071 0l-4.8303-2.7865A4.504 4.504 0 0 1 2.3408 7.872zm16.5963 3.8558L13.1038 8.364 15.1192 7.2a.0757.0757 0 0 1 .071 0l4.8303 2.7913a4.4944 4.4944 0 0 1-.6765 8.1042v-5.6772a.79.79 0 0 0-.407-.667zm2.0107-3.0231l-.142-.0852-4.7735-2.7818a.7759.7759 0 0 0-.7854 0L9.409 9.2297V6.8974a.0662.0662 0 0 1 .0284-.0615l4.8303-2.7866a4.4992 4.4992 0 0 1 6.6802 4.66zM8.3065 12.863l-2.02-1.1638a.0804.0804 0 0 1-.038-.0567V6.0742a4.4992 4.4992 0 0 1 7.3757-3.4537l-.142.0805L8.704 5.459a.7948.7948 0 0 0-.3927.6813zm1.0976-2.3654 2.602-1.4998 2.6069 1.4998v2.9994l-2.5974 1.4997-2.6067-1.4997Z"/>
             </svg>`;
-        fab.title = "AZA-Agent-Chat-Archive - ChatGPT 1.4.13";
+        fab.title = "AZA-Agent-Chat-Archive - ChatGPT 1.4.14";
         fab.setAttribute('aria-label', '開啟 AZA-Agent-Chat-Archive - ChatGPT 工具');
         Object.assign(fab.style, {
             width: '56px',

@@ -1,0 +1,339 @@
+{
+  "provenance": {
+    "revision": "a446d749219e2341c7597ef4e1ffef77048aff21",
+    "source": "git show <revision>:userscripts/gyc-<provider>.user.js; isolated node:vm contexts; buildIntegratedMarkdown(...).content",
+    "providers": [
+      "chatgpt",
+      "claude",
+      "gemini",
+      "grok"
+    ]
+  },
+  "cases": [
+    {
+      "name": "metadata-time-site-url",
+      "apiMessages": [
+        {
+          "sourceIds": [
+            "question"
+          ],
+          "role": "user",
+          "text": "Synthetic question",
+          "date": "2026/11/8 下午6:04:06"
+        },
+        {
+          "sourceIds": [
+            "answer"
+          ],
+          "role": "assistant",
+          "text": "Synthetic answer",
+          "date": "2026/11/8 下午6:15:27",
+          "citations": [
+            {
+              "label": "Manual",
+              "url": "https://example.test/manual"
+            },
+            {
+              "label": "Source +2"
+            }
+          ],
+          "attachments": [
+            {
+              "name": "synthetic.txt"
+            }
+          ],
+          "process": [
+            "Visible processing complete"
+          ]
+        }
+      ],
+      "domMessages": [
+        {
+          "sourceIds": [
+            "question"
+          ],
+          "role": "user",
+          "text": "Synthetic question"
+        },
+        {
+          "sourceIds": [
+            "answer"
+          ],
+          "role": "assistant",
+          "text": "Synthetic answer",
+          "citations": [
+            {
+              "label": "Manual",
+              "url": "https://example.test/manual"
+            },
+            {
+              "label": "Page source",
+              "url": "https://example.test/page"
+            }
+          ],
+          "attachments": [
+            {
+              "name": "page.txt"
+            }
+          ],
+          "process": [
+            "Visible processing complete"
+          ]
+        }
+      ],
+      "options": {
+        "site": "Synthetic provider",
+        "url": "https://example.test/conversation/synthetic#fragment"
+      },
+      "expected": {
+        "chatgpt": "> **對話時間**：2026/11/8 下午6:04:06 – 下午6:15:27\n>\n> **來源網站**：Synthetic provider\n>\n> **網址**：https://example.test/conversation/synthetic\n\n--- [User 1] ---\n\nSynthetic question\n\n--- [Model 1] ---\n\nSynthetic answer\n\n引用：[Manual](https://example.test/manual)；Source\n\n附件：synthetic.txt\n\n處理狀態：Visible processing complete\n\n引用：[Manual](https://example.test/manual)；[Page source](https://example.test/page)\n\n附件：page.txt\n",
+        "claude": "> **對話時間**：2026/11/8 下午6:04:06 – 下午6:15:27\n>\n> **來源網站**：Synthetic provider\n>\n> **網址**：https://example.test/conversation/synthetic\n\n--- [User 1] ---\n\nSynthetic question\n\n--- [Model 1] ---\n\nSynthetic answer\n\n引用：[Manual](https://example.test/manual)；Source\n\n附件：synthetic.txt\n\n處理狀態：Visible processing complete\n\n引用：[Manual](https://example.test/manual)；[Page source](https://example.test/page)\n\n附件：page.txt\n",
+        "gemini": "> **對話時間**：2026/11/8 下午6:04:06 – 下午6:15:27\n>\n> **來源網站**：Synthetic provider\n>\n> **網址**：https://example.test/conversation/synthetic\n\n--- [User 1] ---\n\nSynthetic question\n\n--- [Model 1] ---\n\nSynthetic answer\n\n引用：[Manual](https://example.test/manual)；Source\n\n附件：synthetic.txt\n\n處理狀態：Visible processing complete\n\n引用：[Manual](https://example.test/manual)；[Page source](https://example.test/page)\n\n附件：page.txt\n",
+        "grok": "> **對話時間**：2026/11/8 下午6:04:06 – 下午6:15:27\n>\n> **來源網站**：Synthetic provider\n>\n> **網址**：https://example.test/conversation/synthetic\n\n--- [User 1] ---\n\nSynthetic question\n\n--- [Model 1] ---\n\nSynthetic answer\n\n引用：[Manual](https://example.test/manual)；Source\n\n附件：synthetic.txt\n\n處理狀態：Visible processing complete\n\n引用：[Manual](https://example.test/manual)；[Page source](https://example.test/page)\n\n附件：page.txt\n"
+      }
+    },
+    {
+      "name": "conflict-and-pending-fences",
+      "apiMessages": [
+        {
+          "sourceIds": [
+            "question"
+          ],
+          "role": "user",
+          "text": "Synthetic question"
+        },
+        {
+          "sourceIds": [
+            "answer"
+          ],
+          "role": "assistant",
+          "text": "API version\n```js\nx  y\n```\n````text\nnested fence\n````"
+        },
+        {
+          "sourceIds": [
+            "pending"
+          ],
+          "role": "assistant",
+          "text": "Unconfirmed API\n```json\n{\"synthetic\":true}\n```"
+        }
+      ],
+      "domMessages": [
+        {
+          "sourceIds": [
+            "question"
+          ],
+          "role": "user",
+          "text": "Synthetic question"
+        },
+        {
+          "sourceIds": [
+            "answer"
+          ],
+          "role": "assistant",
+          "text": "DOM version\n```js\nx y\n```"
+        }
+      ],
+      "options": {},
+      "expected": {
+        "chatgpt": "> **注意**\n> - API #3 · API 訊息未能與頁面唯一配對；疑似缺漏，原文保留於待確認附錄\n\n--- [User 1] ---\n\nSynthetic question\n\n--- [Model 1] ---\n\nDOM version\n```js\nx y\n```\n\n## 待確認 API 內容（不屬於正式正文）\n\n### 待確認 API #3（assistant）\n\n````text\nUnconfirmed API\n```json\n{\"synthetic\":true}\n```\n````\n",
+        "claude": "> **注意**\n> - API／DOM 正文差異 2 筆；衝突處兩版並列\n\n--- [User 1] ---\n\nSynthetic question\n\n--- [Model 1] ---\n\n> 僅 API 有此訊息\n\nAPI version\n```js\nx  y\n```\n````text\nnested fence\n````\n\n--- [Model 2] ---\n\n> **來源衝突，兩版並列**\n\n### API 版本（assistant）\n\nUnconfirmed API\n```json\n{\"synthetic\":true}\n```\n\n### DOM 版本（assistant）\n\nDOM version\n```js\nx y\n```\n",
+        "gemini": "> **注意**\n> - API／DOM 正文差異 2 筆；衝突處兩版並列\n\n--- [User 1] ---\n\nSynthetic question\n\n--- [Model 1] ---\n\n> 僅 API 有此訊息\n\nAPI version\n```js\nx  y\n```\n````text\nnested fence\n````\n\n--- [Model 2] ---\n\n> **來源衝突，兩版並列**\n\n### API 版本（assistant）\n\nUnconfirmed API\n```json\n{\"synthetic\":true}\n```\n\n### DOM 版本（assistant）\n\nDOM version\n```js\nx y\n```\n",
+        "grok": "> **注意**\n> - API／DOM 正文差異 2 筆；衝突處兩版並列\n\n--- [User 1] ---\n\nSynthetic question\n\n--- [Model 1] ---\n\n> 僅 API 有此訊息\n\nAPI version\n```js\nx  y\n```\n````text\nnested fence\n````\n\n--- [Model 2] ---\n\n> **來源衝突，兩版並列**\n\n### API 版本（assistant）\n\nUnconfirmed API\n```json\n{\"synthetic\":true}\n```\n\n### DOM 版本（assistant）\n\nDOM version\n```js\nx y\n```\n"
+      }
+    },
+    {
+      "name": "dom-unavailable",
+      "apiMessages": [
+        {
+          "sourceIds": [
+            "question"
+          ],
+          "role": "user",
+          "text": "Synthetic question"
+        },
+        {
+          "sourceIds": [
+            "answer"
+          ],
+          "role": "assistant",
+          "text": "API only\n```js\nx  y\n```"
+        }
+      ],
+      "domMessages": [],
+      "options": {
+        "domAvailable": false
+      },
+      "expected": {
+        "chatgpt": "> **注意**\n> - 來源取得失敗：DOM\n> - 沒有頁面正文；API 內容列於文末待確認\n> - 頁面取得失敗，沒有正式正文；API 僅保留於待確認附錄\n\n## 待確認 API 內容（不屬於正式正文）\n\n### 待確認 API #1（user）\n\n```text\nSynthetic question\n```\n\n### 待確認 API #2（assistant）\n\n````text\nAPI only\n```js\nx  y\n```\n````\n",
+        "claude": "> **注意**\n> - 來源取得失敗：DOM\n\n--- [User 1] ---\n\nSynthetic question\n\n--- [Model 1] ---\n\nAPI only\n```js\nx  y\n```\n",
+        "gemini": "> **注意**\n> - 來源取得失敗：DOM\n\n--- [User 1] ---\n\nSynthetic question\n\n--- [Model 1] ---\n\nAPI only\n```js\nx  y\n```\n",
+        "grok": "> **注意**\n> - 來源取得失敗：DOM\n\n--- [User 1] ---\n\nSynthetic question\n\n--- [Model 1] ---\n\nAPI only\n```js\nx  y\n```\n"
+      }
+    },
+    {
+      "name": "api-unavailable",
+      "apiMessages": [],
+      "domMessages": [
+        {
+          "sourceIds": [
+            "question"
+          ],
+          "role": "user",
+          "text": "Synthetic question"
+        },
+        {
+          "sourceIds": [
+            "answer"
+          ],
+          "role": "assistant",
+          "text": "Synthetic answer"
+        }
+      ],
+      "options": {
+        "apiAvailable": false
+      },
+      "expected": {
+        "chatgpt": "> **注意**\n> - 來源取得失敗：API\n> - API 取得失敗，未核對訊息結構\n\n--- [User 1] ---\n\nSynthetic question\n\n--- [Model 1] ---\n\nSynthetic answer\n",
+        "claude": "> **注意**\n> - 來源取得失敗：API\n\n--- [User 1] ---\n\nSynthetic question\n\n--- [Model 1] ---\n\nSynthetic answer\n",
+        "gemini": "> **注意**\n> - 來源取得失敗：API\n\n--- [User 1] ---\n\nSynthetic question\n\n--- [Model 1] ---\n\nSynthetic answer\n",
+        "grok": "> **注意**\n> - 來源取得失敗：API\n\n--- [User 1] ---\n\nSynthetic question\n\n--- [Model 1] ---\n\nSynthetic answer\n"
+      }
+    },
+    {
+      "name": "repeated-roles",
+      "apiMessages": [
+        {
+          "sourceIds": [
+            "u1"
+          ],
+          "role": "user",
+          "text": "repeat"
+        },
+        {
+          "sourceIds": [
+            "u2"
+          ],
+          "role": "user",
+          "text": "repeat"
+        },
+        {
+          "sourceIds": [
+            "a1"
+          ],
+          "role": "assistant",
+          "text": "first answer"
+        },
+        {
+          "sourceIds": [
+            "a2"
+          ],
+          "role": "assistant",
+          "text": "second answer"
+        },
+        {
+          "sourceIds": [
+            "a3"
+          ],
+          "role": "assistant",
+          "text": "second answer"
+        }
+      ],
+      "domMessages": [
+        {
+          "sourceIds": [
+            "u1"
+          ],
+          "role": "user",
+          "text": "repeat"
+        },
+        {
+          "sourceIds": [
+            "u2"
+          ],
+          "role": "user",
+          "text": "repeat"
+        },
+        {
+          "sourceIds": [
+            "a1"
+          ],
+          "role": "assistant",
+          "text": "first answer"
+        },
+        {
+          "sourceIds": [
+            "a2"
+          ],
+          "role": "assistant",
+          "text": "second answer"
+        },
+        {
+          "sourceIds": [
+            "a3"
+          ],
+          "role": "assistant",
+          "text": "second answer"
+        }
+      ],
+      "options": {},
+      "expected": {
+        "chatgpt": "--- [User 1] ---\n\nrepeat\n\n--- [User 2] ---\n\nrepeat\n\n--- [Model 1] ---\n\nfirst answer\n\n--- [Model 2] ---\n\nsecond answer\n\n--- [Model 3] ---\n\nsecond answer\n",
+        "claude": "--- [User 1] ---\n\nrepeat\n\n--- [User 2] ---\n\nrepeat\n\n--- [Model 1] ---\n\nfirst answer\n\n--- [Model 2] ---\n\nsecond answer\n\n--- [Model 3] ---\n\nsecond answer\n",
+        "gemini": "--- [User 1] ---\n\nrepeat\n\n--- [User 2] ---\n\nrepeat\n\n--- [Model 1] ---\n\nfirst answer\n\n--- [Model 2] ---\n\nsecond answer\n\n--- [Model 3] ---\n\nsecond answer\n",
+        "grok": "--- [User 1] ---\n\nrepeat\n\n--- [User 2] ---\n\nrepeat\n\n--- [Model 1] ---\n\nfirst answer\n\n--- [Model 2] ---\n\nsecond answer\n\n--- [Model 3] ---\n\nsecond answer\n"
+      }
+    },
+    {
+      "name": "gemini-citations-visible-text",
+      "apiMessages": [
+        {
+          "sourceIds": [
+            "question"
+          ],
+          "role": "user",
+          "text": "Synthetic question"
+        },
+        {
+          "sourceIds": [
+            "answer"
+          ],
+          "role": "assistant",
+          "text": "Raw synthetic answer [cite: 4].",
+          "visibleText": "[cite_start]Visible synthetic answer [cite: 4].\n`[cite: 9]`\n```text\n[cite_start] [cite: 8]\n```",
+          "citations": [
+            {
+              "label": "[cite: 4]"
+            },
+            {
+              "label": "Manual",
+              "url": "https://example.test/manual"
+            }
+          ]
+        }
+      ],
+      "domMessages": [
+        {
+          "sourceIds": [
+            "question"
+          ],
+          "role": "user",
+          "text": "Synthetic question"
+        },
+        {
+          "sourceIds": [
+            "answer"
+          ],
+          "role": "assistant",
+          "text": "[cite_start]Visible synthetic answer [cite: 4].\n`[cite: 9]`\n```text\n[cite_start] [cite: 8]\n```"
+        }
+      ],
+      "options": {},
+      "expected": {
+        "chatgpt": "--- [User 1] ---\n\nSynthetic question\n\n--- [Model 1] ---\n\n[cite_start]Visible synthetic answer [cite: 4].\n`[cite: 9]`\n```text\n[cite_start] [cite: 8]\n```\n\n引用：[Manual](https://example.test/manual)\n",
+        "claude": "> **注意**\n> - API／DOM 正文差異 1 筆；衝突處兩版並列\n\n--- [User 1] ---\n\nSynthetic question\n\n--- [Model 1] ---\n\n> **來源衝突，兩版並列**\n\n### API 版本（assistant）\n\nRaw synthetic answer [cite: 4].\n\n### DOM 版本（assistant）\n\n[cite_start]Visible synthetic answer [cite: 4].\n`[cite: 9]`\n```text\n[cite_start] [cite: 8]\n```\n\n引用：[Manual](https://example.test/manual)\n",
+        "gemini": "> **注意**\n> - API／DOM 正文差異 1 筆；衝突處兩版並列\n\n--- [User 1] ---\n\nSynthetic question\n\n--- [Model 1] ---\n\n> **來源衝突，兩版並列**\n\n### API 版本（assistant）\n\nVisible synthetic answer.\n`[cite: 9]`\n```text\n[cite_start] [cite: 8]\n```\n\n### DOM 版本（assistant）\n\nVisible synthetic answer.\n`[cite: 9]`\n```text\n[cite_start] [cite: 8]\n```\n\n引用：[Manual](https://example.test/manual)\n",
+        "grok": "> **注意**\n> - API／DOM 正文差異 1 筆；衝突處兩版並列\n\n--- [User 1] ---\n\nSynthetic question\n\n--- [Model 1] ---\n\n> **來源衝突，兩版並列**\n\n### API 版本（assistant）\n\nRaw synthetic answer [cite: 4].\n\n### DOM 版本（assistant）\n\n[cite_start]Visible synthetic answer [cite: 4].\n`[cite: 9]`\n```text\n[cite_start] [cite: 8]\n```\n\n引用：[Manual](https://example.test/manual)\n"
+      }
+    }
+  ]
+}

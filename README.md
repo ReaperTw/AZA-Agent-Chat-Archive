@@ -58,6 +58,12 @@ Skill 只匯出可見對話，不保存隱藏推理、工具活動或引用檔�
 
 四站共用的輸出格式見[輸出規範](docs/OUTPUT_SPEC.md)。解析契約、三來源核對方式及已知驗證範圍，請見[匯出驗收規格](docs/EXPORT_VALIDATION.md)；修改本專案前先讀 [AGENTS.md](AGENTS.md)。
 
+共用渲染與整合對話框的來源是 `userscripts/shared/export-renderer.js`。修改來源後執行 `node scripts/build-userscripts.js`，將標記區段內嵌回四個單檔 userscript；不要手改產物的共用區段。`node scripts/build-userscripts.js --check` 檢查產物是否同步。
+
+回歸：逐一執行 `tests/check-*.js`（`check-export-parity.js` 需私人證據，略過）。`check-render-snapshots.js` 以重構前保存的合成 fixture 逐字比較四站 COM 輸出；`check-shared-renderer.js` 檢查共用區段同步及手改產物的偵測。DOM fixture 與即時登入三來源驗收依上方驗收規格另行執行，不能以合成回歸代替。
+
+啟動驗收規格中的本機 HTTP server 後，可開啟 `tests/check-shared-dialog.html`，以純合成資料操作四站共用對話框、下載 callback 與 Gemini 差異分頁；此頁不讀取登入對話。
+
 Grok 1.4.8 修正專案對話網址的 `chat` 參數辨識，API／綜合匯出皆適用；沒有對話 ID 的專案首頁仍不支援 API。網址回歸及兩個實際匯出入口的合成 HTTP smoke 通過；未完成登入 API／DOM 三方驗收，隔離瀏覽器啟動失敗，未驗證實際畫面。
 
 Grok 1.4.9 修正 API 比較正文誤吃單個 `~` 的問題，保留頁面原樣顯示的符號，雙 `~~` 刪除線仍按 Markdown 呈現。即時差異報告已確認 7 筆為此解析問題；另 2 筆僅 API 有的訊息仍待分支／DOM 完整性確認。回歸與合成 16／14 則比較 smoke 通過；偵錯連線中斷後未重連，未宣稱修正版已通過即時三方驗收。

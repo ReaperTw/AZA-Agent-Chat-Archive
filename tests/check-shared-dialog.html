@@ -1,0 +1,35 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Shared export dialog fixture</title>
+<label>Provider <select id="provider"><option>chatgpt</option><option>claude</option><option>gemini</option><option>grok</option></select></label>
+<button id="open" disabled>Open synthetic export dialog</button>
+<pre id="result">Loading shared renderer…</pre>
+<script>
+(async () => {
+    const source = await (await fetch('../userscripts/shared/export-renderer.js')).text();
+    const result = document.getElementById('result');
+    const message = { role: 'assistant', text: 'Synthetic visible answer' };
+    const differences = Array.from({ length: 6 }, (_, i) => ({
+        api: { ...message, text: `API synthetic answer ${i + 1}` }, apiIndex: i + 1,
+        dom: { ...message, text: `DOM synthetic answer ${i + 1}` }, domIndex: i + 1
+    }));
+    document.getElementById('open').onclick = () => {
+        const provider = document.getElementById('provider').value;
+        const show = new Function('EXPORT_RENDERER_PROVIDER', 'prepareComparisonMessage', 'formatVerificationIssue',
+            source + '\nreturn showIntegratedDialog;')(provider, row => ({ body: row.text }), issue => issue.kind);
+        show({ id: 'synthetic-dialog', site: provider, title: 'Synthetic fixture — no conversation data',
+            apiCount: 6, domCount: 6,
+            integration: { entries: [{ dom: message, api: message }], pending: [],
+                verification: { complete: true, issues: [] }, compared: true,
+                comparison: { differences }, counts: { progress: 0 } },
+            notes: ['Synthetic source note'], report: 'Synthetic report',
+            onDownload: () => { result.textContent = `PASS: ${provider} Markdown callback`; },
+            onApi: () => { result.textContent = `PASS: ${provider} API callback`; },
+            onDom: () => { result.textContent = `PASS: ${provider} DOM callback`; },
+            onReport: () => { result.textContent = `PASS: ${provider} report callback`; }
+        });
+    };
+    document.getElementById('open').disabled = false;
+    result.textContent = 'Ready: open the actual shared dialog and exercise its controls.';
+})().catch(error => { document.getElementById('result').textContent = 'FAIL: ' + error.message; });
+</script>

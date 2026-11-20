@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GYC - Gemini
 // @namespace    https://github.com/ReaperTw/AZA-Agent-Chat-Archive
-// @version      1.4.15
+// @version      1.4.16
 // @description  Grab Your Chat - Gemini 端對話匯出器；最後更新於 20261119
 // @updateURL    https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-gemini.user.js
 // @downloadURL  https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-gemini.user.js
@@ -513,6 +513,10 @@ function buildRpcRequest(cid, limit) {
         } };
     }
 
+    // BEGIN GENERATED EXPORT RENDERER
+    const EXPORT_RENDERER_PROVIDER = 'gemini';
+// Shared COM rendering; embedded by scripts/build-userscripts.js, never loaded at runtime.
+// Provider parsing, comparison and integration remain in each userscript.
     // Reading-first COM layout: one short header, warnings only when real,
     // no per-message timestamps or raw JSON (those stay in API/DOM/report files).
     function formatTimeRange(messages, fallback = '') {
@@ -571,7 +575,42 @@ function buildRpcRequest(cid, limit) {
             : part.replace(/ ?\[cite(?:_start|_end)?(?::\s*[\d,\s]+)?\]/g, '')).join('');
     }
 
-    function buildIntegratedMarkdown(apiMessages, domMessages, { apiAvailable = true, domAvailable = true, notes = [], site = '', url = '' } = {}) {
+    function buildIntegratedMarkdown(apiMessages, domMessages, options = {}) {
+        if (EXPORT_RENDERER_PROVIDER === 'chatgpt') {
+            const { apiAvailable = true, domAvailable = true, notes = [] } = options;
+            const result = integrateTranscripts(apiMessages, domMessages, options);
+            const warnings = [
+                (!apiAvailable || !domAvailable) && `來源取得失敗：${!apiAvailable && !domAvailable ? 'API、DOM' : !apiAvailable ? 'API' : 'DOM'}`,
+                !domAvailable && '沒有頁面正文；API 內容列於文末待確認',
+                ...notes,
+                ...result.verification.issues.map(formatVerificationIssue)
+            ];
+            let content = buildComHeader({ site: options.site, url: options.url, warnings,
+                time: formatTimeRange([apiMessages, domMessages].find(list => list.some(message => message?.createdAt || message?.date || message?.time)) || []) });
+            const supplement = (messages, text) => {
+                const lines = [...new Set(messages.flatMap(message => formatComMetadata(message, text)))];
+                return lines.length ? `\n\n${lines.join('\n\n')}` : '';
+            };
+            let users = 0, models = 0;
+            for (const entry of result.entries) {
+                const role = entry.dom.role === 'user' ? `User ${++users}` : `Model ${++models}`;
+                content += `--- [${role}] ---\n\n${entry.dom.text}`;
+                content += supplement([...(entry.apiMessages || []), entry.dom], String(entry.dom.text ?? '')) + '\n\n';
+            }
+            if (result.pending.length) {
+                content += '## 待確認 API 內容（不屬於正式正文）\n\n';
+                for (const item of result.pending) {
+                    const text = String(item.api.text ?? '');
+                    let fenceLength = 3;
+                    for (const match of text.matchAll(/`+/g)) fenceLength = Math.max(fenceLength, match[0].length + 1);
+                    const fence = '`'.repeat(fenceLength);
+                    content += `### 待確認 API #${item.apiIndex}（${item.api.role}）\n\n${fence}text\n${text}\n${fence}`;
+                    content += supplement([item.api], text) + '\n\n';
+                }
+            }
+            return { ...result, content: content.trimEnd() + '\n' };
+        }
+        const { apiAvailable = true, domAvailable = true, notes = [], site = '', url = '' } = options;
         const result = integrateTranscripts(apiMessages, domMessages);
         const compared = apiAvailable && domAvailable;
         const warnings = [
@@ -581,7 +620,9 @@ function buildRpcRequest(cid, limit) {
         ];
         let content = buildComHeader({ site, url, warnings, time: formatTimeRange([apiMessages, domMessages].find(list => list.some(message => message?.createdAt || message?.date || message?.time)) || []) });
         let users = 0, models = 0;
-        const body = message => stripGeminiCiteMarkers(String(message?.visibleText ?? message?.text ?? ''));
+        const body = message => EXPORT_RENDERER_PROVIDER === 'gemini'
+            ? stripGeminiCiteMarkers(String(message?.visibleText ?? message?.text ?? ''))
+            : String(message?.text ?? '');
         const supplement = (...messages) => {
             const present = messages.filter(Boolean);
             const text = present.map(body).join('\n');
@@ -653,29 +694,41 @@ function buildRpcRequest(cid, limit) {
         const close = () => { overlay.remove(); previousFocus?.focus?.(); };
         const top = el('div', 'gyc-heading');
         const heading = el('div');
-        heading.append(el('div', 'gyc-eyebrow', `GRAB YOUR CHAT / ${site}`), el('h2', '', '對話已整合'));
+        heading.append(el('div', 'gyc-eyebrow', `${EXPORT_RENDERER_PROVIDER === 'chatgpt' ? 'AZA-Agent-Chat-Archive' : 'GRAB YOUR CHAT'} / ${site}`), el('h2', '', '對話已整合'));
         const closeButton = el('button', 'gyc-close', '×');
         closeButton.setAttribute('aria-label', '關閉整合匯出結果');
         closeButton.onclick = close;
         top.append(heading, closeButton);
         panel.append(top, el('p', 'gyc-title', title));
         const stats = el('div', 'gyc-stats');
-        for (const [label, value] of [['API 訊息', apiCount ?? '—'], ['頁面訊息', domCount ?? '—'], ['整合訊息', integration.entries.length]]) {
+        for (const [label, value] of [['API 訊息', apiCount ?? '—'], ['頁面訊息', domCount ?? '—'], [EXPORT_RENDERER_PROVIDER === 'chatgpt' ? '正式正文' : '整合訊息', integration.entries.length]]) {
             const stat = el('div', 'gyc-stat', label);
             stat.append(el('strong', '', String(value)));
             stats.append(stat);
         }
         panel.append(stats);
         const unavailable = apiCount === null || domCount === null;
-        const differences = integration.compared ? integration.comparison.differences : [];
-        const status = el('div', `gyc-status${differences.length || unavailable ? ' gyc-warning' : ''}`);
-        if (differences.length || unavailable) status.setAttribute('role', 'alert');
-        const statusTitle = unavailable ? '有來源取得失敗' : differences.length ? `發現 ${differences.length} 筆正文差異` : '兩個來源的正文相符';
-        status.append(el('strong', '', statusTitle));
-        status.append(el('span', '', unavailable ? '請查看下方各來源的實際錯誤。' : differences.length ? '單邊訊息已補入；衝突保留 API 與頁面兩版，不自動覆蓋。' : '相同訊息只保留一份正文；各來源原文可另存。'));
-        panel.append(status);
-        if (!integration.entries.length) heading.lastChild.textContent = '未取得可匯出訊息';
-        if (integration.counts.progress) panel.append(el('p', 'gyc-subtle', `另保留 ${integration.counts.progress} 則 API 前進度訊息。`));
+        const differences = EXPORT_RENDERER_PROVIDER === 'chatgpt' ? [] : integration.compared ? integration.comparison.differences : [];
+        if (EXPORT_RENDERER_PROVIDER === 'chatgpt') {
+            const verified = integration.verification.complete;
+            const status = el('div', `gyc-status${!verified || unavailable ? ' gyc-warning' : ''}`);
+            if (!verified || unavailable) status.setAttribute('role', 'alert');
+            const statusTitle = unavailable ? '有來源取得失敗' : verified ? '訊息 ID、角色與順序已核對' : '訊息結構尚待確認';
+            status.append(el('strong', '', statusTitle));
+            status.append(el('span', '', '正式正文採用頁面內容；未進行 API／DOM 正文逐字比對。'));
+            panel.append(status);
+            if (!integration.entries.length) heading.lastChild.textContent = integration.pending.length ? '僅取得待確認 API 資料' : '未取得可匯出訊息';
+            if (integration.pending.length) panel.append(el('p', 'gyc-subtle', `${integration.pending.length} 則 API 訊息另存待確認附錄，不混入正式正文。`));
+        } else {
+            const status = el('div', `gyc-status${differences.length || unavailable ? ' gyc-warning' : ''}`);
+            if (differences.length || unavailable) status.setAttribute('role', 'alert');
+            const statusTitle = unavailable ? '有來源取得失敗' : differences.length ? `發現 ${differences.length} 筆正文差異` : '兩個來源的正文相符';
+            status.append(el('strong', '', statusTitle));
+            status.append(el('span', '', unavailable ? '請查看下方各來源的實際錯誤。' : differences.length ? '單邊訊息已補入；衝突保留 API 與頁面兩版，不自動覆蓋。' : '相同訊息只保留一份正文；各來源原文可另存。'));
+            panel.append(status);
+            if (!integration.entries.length) heading.lastChild.textContent = '未取得可匯出訊息';
+            if (integration.counts.progress) panel.append(el('p', 'gyc-subtle', `另保留 ${integration.counts.progress} 則 API 前進度訊息。`));
+        }
         if (Object.keys(errors).length) panel.append(el('pre', '', Object.entries(errors).map(([key, value]) => `${key.toUpperCase()}：${value}`).join('\n')));
         const disclosure = (label, text, open = false) => {
             const details = el('details');
@@ -685,46 +738,67 @@ function buildRpcRequest(cid, limit) {
             return details;
         };
         const actions = el('div', 'gyc-actions');
-        panel.append(actions);
-        if (differences.length) {
-            const details = disclosure('查看正文差異', '');
-            const preview = details.lastChild;
-            const navigation = el('div', 'gyc-actions');
-            const previous = el('button', '', '上一頁');
-            const next = el('button', '', '下一頁');
-            const position = el('span', 'gyc-subtle');
-            navigation.append(previous, position, next);
-            details.append(navigation);
-            let page = 0;
-            const pageSize = 5;
-            const render = () => {
-                const start = page * pageSize;
-                preview.textContent = differences.slice(start, start + pageSize).map((item, index) => {
-                    const side = (name, message, pos) => {
-                        if (!message) return `${name}：沒有此訊息`;
-                        const body = prepareComparisonMessage(message, name === 'API' ? 'api' : 'dom').body;
-                        return `${name} #${pos} (${message.role})\n${body.slice(0, 2000)}${body.length > 2000 ? '\n[預覽已截短；完整正文請下載比對報告]' : ''}`;
-                    };
-                    return `差異 ${start + index + 1}\n${side('API', item.api, item.apiIndex)}\n\n${side('DOM', item.dom, item.domIndex)}`;
+        if (EXPORT_RENDERER_PROVIDER === 'gemini') panel.append(actions);
+        if (EXPORT_RENDERER_PROVIDER === 'chatgpt') {
+            if (integration.verification.issues.length) {
+                disclosure('查看待確認事項', integration.verification.issues.map(formatVerificationIssue).join('\n'), true);
+            }
+            if (integration.pending.length) {
+                disclosure('待確認 API 內容（非正式正文）', integration.pending.map(item =>
+                    `API #${item.apiIndex} (${item.api.role})\n${item.api.text}`
+                ).join('\n\n────────────────────\n\n'));
+            }
+        } else if (EXPORT_RENDERER_PROVIDER === 'gemini') {
+            if (differences.length) {
+                const details = disclosure('查看正文差異', '');
+                const preview = details.lastChild;
+                const navigation = el('div', 'gyc-actions');
+                const previous = el('button', '', '上一頁');
+                const next = el('button', '', '下一頁');
+                const position = el('span', 'gyc-subtle');
+                navigation.append(previous, position, next);
+                details.append(navigation);
+                let page = 0;
+                const pageSize = 5;
+                const render = () => {
+                    const start = page * pageSize;
+                    preview.textContent = differences.slice(start, start + pageSize).map((item, index) => {
+                        const side = (name, message, pos) => {
+                            if (!message) return `${name}：沒有此訊息`;
+                            const body = prepareComparisonMessage(message, name === 'API' ? 'api' : 'dom').body;
+                            return `${name} #${pos} (${message.role})\n${body.slice(0, 2000)}${body.length > 2000 ? '\n[預覽已截短；完整正文請下載比對報告]' : ''}`;
+                        };
+                        return `差異 ${start + index + 1}\n${side('API', item.api, item.apiIndex)}\n\n${side('DOM', item.dom, item.domIndex)}`;
+                    }).join('\n\n────────────────────\n\n');
+                    position.textContent = `${start + 1}–${Math.min(start + pageSize, differences.length)}／${differences.length}`;
+                    previous.disabled = page === 0;
+                    next.disabled = start + pageSize >= differences.length;
+                    preview.scrollTop = 0;
+                };
+                details.addEventListener('toggle', () => { if (details.open) render(); });
+                previous.onclick = () => { page--; render(); };
+                next.onclick = () => { page++; render(); };
+            }
+        } else {
+            if (differences.length) {
+                const text = differences.map((item, index) => {
+                    const side = (name, message, pos) => message ? `${name} #${pos} (${message.role})\n${prepareComparisonMessage(message, name === 'API' ? 'api' : 'dom').body}` : `${name}：沒有此訊息`;
+                    return `差異 ${index + 1}\n${side('API', item.api, item.apiIndex)}\n\n${side('DOM', item.dom, item.domIndex)}`;
                 }).join('\n\n────────────────────\n\n');
-                position.textContent = `${start + 1}–${Math.min(start + pageSize, differences.length)}／${differences.length}`;
-                previous.disabled = page === 0;
-                next.disabled = start + pageSize >= differences.length;
-                preview.scrollTop = 0;
-            };
-            details.addEventListener('toggle', () => { if (details.open) render(); });
-            previous.onclick = () => { page--; render(); };
-            next.onclick = () => { page++; render(); };
+                disclosure('查看正文差異', text, true);
+            }
         }
-        if (notes.length || report) disclosure('來源紀錄與補充資料', [...notes, report ? '完整逐則內容請使用「下載比對報告」。' : ''].filter(Boolean).join('\n\n'));
+        if (notes.length || report) disclosure('來源紀錄與補充資料', [...notes,
+            EXPORT_RENDERER_PROVIDER === 'gemini' ? (report ? '完整逐則內容請使用「下載比對報告」。' : '') : report].filter(Boolean).join('\n\n'));
         const add = (label, action, primary = false, target = actions) => {
             if (!action) return;
             const button = el('button', primary ? 'gyc-primary' : '', label);
             button.onclick = action;
             target.append(button);
         };
-        if (integration.entries.length) add('下載整合 Markdown', onDownload, true);
-        add('下載比對報告', onReport);
+        if (integration.entries.length || (EXPORT_RENDERER_PROVIDER === 'chatgpt' && integration.pending.length)) add('下載整合 Markdown', onDownload, true);
+        add(EXPORT_RENDERER_PROVIDER === 'chatgpt' ? '下載核對報告' : '下載比對報告', onReport);
+        if (EXPORT_RENDERER_PROVIDER !== 'gemini') panel.append(actions);
         if (onApi || onDom) {
             const originals = disclosure('另存個別來源', '');
             originals.lastChild.remove();
@@ -746,6 +820,7 @@ function buildRpcRequest(cid, limit) {
         document.body.append(overlay);
         (actions.querySelector('button') || closeButton).focus({ preventScroll: true });
     }
+    // END GENERATED EXPORT RENDERER
 
     function styleExportTools(container) {
         const fab = container.querySelector('button[aria-label*="Grab Your Chat"]');
@@ -1346,7 +1421,7 @@ if (typeof document !== 'undefined') {
 
             const fab = document.createElement('button');
             fab.textContent = '✦';
-            fab.title = "GYC - Gemini - v1.4.15";
+            fab.title = "GYC - Gemini - v1.4.16";
             fab.setAttribute('aria-label', '開啟 Grab Your Chat - Gemini 工具');
             Object.assign(fab.style, {
                 width: '56px',
