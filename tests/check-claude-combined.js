@@ -12,8 +12,6 @@ assert.strictEqual(api.compareTranscripts(source, [assistant('Question'), assist
 assert.strictEqual(api.compareTranscripts([assistant('progress'), assistant('answer')], [assistant('answer')]).match, false);
 assert.strictEqual(api.prepareComparisonMessage(assistant('`a  b`'), 'api').body, 'a  b');
 assert.strictEqual(api.prepareComparisonMessage(assistant('text'), 'api').citations, null);
-assert.match(api.buildMarkdown(source, 'DOM'), /^> \*\*匯出來源\*\*：DOM\n/);
-assert.match(api.buildMarkdown(source), /^> \*\*匯出來源\*\*：API\n/);
 const imageOnly = api.exportConversation({
     current_leaf_message_uuid: 'image-user',
     chat_messages: [{

@@ -29,7 +29,7 @@
 
 檔名標記固定為 **API／DOM／COM**。綜合檔以 `_COM.md` 結尾，例如 `GPT_對話名稱_20261101_181621_COM.md`；不加批次序號。API／DOM 保留原有檔名格式。
 
-COM 以閱讀為主：檔頭只列對話時間範圍、來源網站與網址，有實際問題時才加「注意」清單；正文不逐則標時間，引用只保留有連結的項目，附件列名稱。逐則時間、原始 JSON 與核對細節保留在 API／DOM 副本及核對報告。
+API／DOM／COM 共用閱讀格式：檔頭只列對話時間範圍、來源網站與網址；歷史缺漏、分支未確認或未輸出的未知內容以單行「不完整」標記。引用、附件及已證明可見的處理狀態各佔一行，雙來源補充資料合併去重；無網址的引用保留名稱。來源失敗、相對時間、結構核對及正文差異等資訊只進報告，不混入正文。
 
 ### 範圍與限制
 
@@ -60,7 +60,7 @@ Skill 只匯出可見對話，不保存隱藏推理、工具活動或引用檔�
 
 共用渲染與整合對話框的來源是 `userscripts/shared/export-renderer.js`。修改來源後執行 `node scripts/build-userscripts.js`，將標記區段內嵌回四個單檔 userscript；不要手改產物的共用區段。`node scripts/build-userscripts.js --check` 檢查產物是否同步。
 
-回歸：逐一執行 `tests/check-*.js`（`check-export-parity.js` 需私人證據，略過）。`check-render-snapshots.js` 以重構前保存的合成 fixture 逐字比較四站 COM 輸出；`check-shared-renderer.js` 檢查共用區段同步及手改產物的偵測。DOM fixture 與即時登入三來源驗收依上方驗收規格另行執行，不能以合成回歸代替。
+回歸：逐一執行 `tests/check-*.js`（`check-export-parity.js` 需私人證據，略過）。`check-render-snapshots.js` 以規範 fixture 逐字比較四站 × API／DOM／COM，並檢查不完整標記與補充資料去重；ticket 01 的重構前快照保留在該次 commit。`check-shared-renderer.js` 檢查共用區段同步及手改產物的偵測。DOM fixture 與即時登入三來源驗收另依驗收規格執行。
 
 啟動驗收規格中的本機 HTTP server 後，可開啟 `tests/check-shared-dialog.html`，以純合成資料操作四站共用對話框、下載 callback 與 Gemini 差異分頁；此頁不讀取登入對話。
 

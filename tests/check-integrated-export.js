@@ -31,7 +31,8 @@ for (const provider of ['claude', 'gemini', 'grok']) {
     const oneSide = buildIntegratedMarkdown([assistant('retained')], [], { domAvailable: false });
     assert.equal(oneSide.compared, false);
     assert(oneSide.content.includes('retained'));
-    assert(oneSide.content.includes('來源取得失敗'));
+    assert(!oneSide.content.includes('來源取得失敗'));
+    assert(!oneSide.content.includes('> **不完整**'));
     assert(!oneSide.content.includes('**正文差異**'));
     assert(!oneSide.content.includes('API + DOM'));
     const domOnly = buildIntegratedMarkdown([], [user('page only')], { apiAvailable: false });
@@ -47,8 +48,7 @@ for (const provider of ['claude', 'gemini', 'grok']) {
     for (const value of ['api.example.test', 'dom.example.test', 'api.txt', 'dom.txt', 'Visible status', '2026-10-29']) {
         assert(withMetadata.content.includes(value));
     }
-    // Reading-first COM: one header with the time range, no per-message timestamps,
-    // no raw JSON, no link-less citation labels, no provenance/disclaimer lines.
+    // One header, compact merged supplementary lines, no provenance or advisories.
     const compactCom = buildIntegratedMarkdown([
         { ...user('Q'), date: '2026/11/8 下午6:04:06' }, { ...assistant('A'), date: '2026/11/8 下午6:04:13' },
         { ...user('Q2'), date: '2026/11/8 下午6:15:27' }
@@ -77,7 +77,7 @@ for (const provider of ['claude', 'gemini', 'grok']) {
         ], [
             { ...assistant('same'), attachments: [{ name: 'b', extra: 'different-detail' }] }
         ]);
-        for (const value of ['附件：a', '附件：b']) assert(distinct.content.includes(value));
+        assert(distinct.content.includes('附件：a；b'));
     }
     const progress = buildIntegratedMarkdown([
         { ...assistant('Checking sources'), channel: 'commentary' },

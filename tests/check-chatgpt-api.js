@@ -22,6 +22,18 @@ assert.deepEqual(parseApiConversation(aliasPayload).messages[1].sourceIds, ['ans
 const markdown = buildMarkdown(parsed).content;
 assert(!/secret|abandoned/.test(markdown));
 assert(markdown.includes('visible-answer'));
+assert(markdown.includes('> **來源網站**：ChatGPT'));
+assert(!/匯出來源|內容提示|注意/.test(markdown));
+assert.equal((markdown.match(/\*\*對話時間\*\*/g) || []).length, 1);
+assert.equal(buildMarkdown(parsed, undefined, { source: 'DOM' }).content, markdown);
+const timeNoticeOnly = buildMarkdown({
+    messages: [{ role: 'user', text: 'question' }], incomplete: false,
+    warning: '已完成全文掃描，但未取得對話頂端時間戳'
+}).content;
+assert(!timeNoticeOnly.includes('不完整'));
+assert(buildMarkdown({ messages: [{ role: 'assistant', text: '> [非文字內容]' }],
+    incomplete: true, warning: '文字解析未完成：已略過無法識別角色的訊息'
+}).content.includes('> **不完整**：'));
 assert.equal(parsed.messages[0].create_time, 1780000000);
 const apiChain = entries => {
     const mapping = { root: { parent: null } };
@@ -116,8 +128,8 @@ assert.equal(imageText.warning, null);
 assert(imageText.messages[0].text.includes('describe this'));
 assert(/image|attachment|圖片|附件/i.test(imageText.messages[0].text));
 assert(imageText.notice);
-assert(imageMarkdown.includes(imageText.notice));
-assert(!/匯出不完整|export incomplete/i.test(imageMarkdown));
+assert(!imageMarkdown.includes(imageText.notice));
+assert(!/不完整|export incomplete/i.test(imageMarkdown));
 
 const imageOnly = parseApiConversation(apiChain([
     ['user', { ...message('user', ''), content: { content_type: 'multimodal_text', parts: [attachmentPart] } }]
@@ -149,7 +161,7 @@ const brokenWithNotice = parseApiConversation({
 assert(brokenWithNotice.incomplete);
 assert(brokenWithNotice.warning);
 assert(brokenWithNotice.notice);
-assert(buildMarkdown(brokenWithNotice).content.includes(brokenWithNotice.notice));
+assert(!buildMarkdown(brokenWithNotice).content.includes(brokenWithNotice.notice));
 
 
 const broken = parseApiConversation({ current_node: 'a', mapping: { a: { parent: 'missing', message: message('assistant', 'tail') } } });

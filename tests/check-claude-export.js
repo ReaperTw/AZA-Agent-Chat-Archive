@@ -44,8 +44,8 @@ check('current branch ignores regenerated sibling', () => {
     });
     assert.deepStrictEqual(result.messages.map(message => message.text), ['問題', '新回答']);
     assert.strictEqual(result.warnings.length, 0);
-    assert.match(result.markdown, /--- \[User 1\] ---\n問題/);
-    assert.match(result.markdown, /--- \[Model 1\] ---\n新回答/);
+    assert.match(result.markdown, /--- \[User 1\] ---\n\n問題/);
+    assert.match(result.markdown, /--- \[Model 1\] ---\n\n新回答/);
     assert.doesNotMatch(result.markdown, /舊回答/);
 });
 
@@ -66,7 +66,7 @@ check('two-turn conversation ends at the Claude root sentinel', () => {
     });
     assert.deepStrictEqual(result.messages.map(message => message.text), ['問題', '回答']);
     assert.deepStrictEqual(result.warnings, []);
-    assert.doesNotMatch(result.markdown, /匯出不完整/);
+    assert.doesNotMatch(result.markdown, /\*\*不完整\*\*/);
 });
 
 check('missing leaf falls back to index', () => {
@@ -134,7 +134,7 @@ check('branch cycles and missing parents are incomplete', () => {
         ]
     });
     assert.match(result.warnings.join('\n'), /循環/);
-    assert.match(result.markdown, /匯出不完整/);
+    assert.match(result.markdown, /> \*\*不完整\*\*：/);
 });
 
 check('system and tool roles never become assistant fallback text', () => {
@@ -228,7 +228,7 @@ check('artifact fold, thinking skip, attachment quote', () => {
     assert.match(result.markdown, /print\(1\)/);
     assert.match(result.markdown, /圖片 a\.png/);
     assert.match(result.markdown, /> # Secret heading/);
-    assert.strictEqual(result.markdown.split('對話時間').length - 1, 2);
+    assert.strictEqual(result.markdown.split('對話時間').length - 1, 1);
     assert.match(result.markdown, /已中斷/);
     assert.strictEqual(result.messages[1].role, 'user');
 });
@@ -278,7 +278,7 @@ check('pagination warning stays in the file', () => {
             content: [{ type: 'text', text: '還有下一頁' }]
         }]
     });
-    assert.match(result.markdown, /匯出不完整/);
+    assert.match(result.markdown, /> \*\*不完整\*\*：/);
     assert.match(result.markdown, /還有下一頁/);
     assert.strictEqual(api.nextPageUrl('opaque-token'), '');
     assert.strictEqual(api.nextPageUrl('/api/next'), '/api/next');
@@ -290,6 +290,20 @@ check('pagination warning stays in the file', () => {
     assert.strictEqual(merged.has_more, false);
 });
 
+check('standalone sources use the same shared conversation contract', () => {
+    const messages = [{ role: 'user', text: 'question', createdAt: '2026-11-08T10:00:00Z' },
+        { role: 'assistant', text: 'answer', createdAt: '2026-11-08T10:01:00Z',
+            attachments: [{ file_name: 'report.pdf' }] }];
+    const markdown = api.buildMarkdown(messages);
+    assert.strictEqual(markdown, api.buildMarkdown(messages, 'DOM'));
+    assert.match(markdown, /> \*\*來源網站\*\*：Claude/);
+    assert.match(markdown, /附件：report\.pdf/);
+    assert.doesNotMatch(markdown, /匯出來源|DOM 提示|不完整/);
+    assert.strictEqual((markdown.match(/\*\*對話時間\*\*/g) || []).length, 1);
+    assert.doesNotMatch(api.buildMarkdown(messages, 'DOM', {
+        warnings: ['缺少時間戳']
+    }), /不完整/);
+});
 
 check('rejects a response without chat_messages', () => {
     assert.throws(() => api.exportConversation({ name: 'x' }), /chat_messages/);

@@ -2,7 +2,7 @@
 // Node tests for Grok API pure helpers (no DOM)
 
 const assert = require('assert');
-const { conversationIdFromPath, parseLoadResponses, chunkIds, buildActiveBranchTimeline, fetchConversationViaApi, compareTranscripts } = require('../userscripts/gyc-grok.user.js');
+const { conversationIdFromPath, parseLoadResponses, chunkIds, buildActiveBranchTimeline, buildTimelineMarkdown, fetchConversationViaApi, compareTranscripts } = require('../userscripts/gyc-grok.user.js');
 
 const conversationId = '11111111-2222-4333-8444-555555555555';
 const projectPath = '/project/aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
@@ -57,6 +57,18 @@ const empty = buildActiveBranchTimeline([{ responseId: 'empty', sender: 'assista
 assert(empty.warning, 'empty response remains explicitly uncertain');
 assert(compareTranscripts(empty.timeline.map(item => ({ ...item, role: 'assistant' })), [{ role: 'assistant', text: '' }]).match,
   'generated empty-body notice must not become a source text difference');
+assert.strictEqual(empty.timeline[0].text, '> [非文字回答]');
+const sourceTimeline = [
+  { type: 'user', text: 'question', timestamp: '2026-11-08T10:04:06Z' },
+  { type: 'ai', text: 'answer', timestamp: { seconds: 1794132927 } }
+];
+const apiMarkdown = buildTimelineMarkdown(sourceTimeline, [], 'API').content;
+assert.strictEqual(apiMarkdown, buildTimelineMarkdown(sourceTimeline, [], 'DOM').content);
+assert(apiMarkdown.includes('> **來源網站**：Grok'));
+assert.strictEqual((apiMarkdown.match(/\*\*對話時間\*\*/g) || []).length, 1);
+assert(!apiMarkdown.includes('匯出來源'));
+assert(!buildTimelineMarkdown(sourceTimeline, ['相對時間', '缺少時間戳', '已排除 2 則思考前置進度']).content.includes('**不完整**'));
+assert(buildTimelineMarkdown(sourceTimeline, ['2 則訊息正文未回傳']).content.includes('**不完整**'));
 
 async function checkTreeAndNativeRoles() {
   const originalFetch = global.fetch;

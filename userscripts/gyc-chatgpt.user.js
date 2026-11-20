@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GYC - ChatGPT
 // @namespace    https://github.com/ReaperTw/AZA-Agent-Chat-Archive
-// @version      1.4.14
+// @version      1.4.15
 // @description  AZA-Agent-Chat-Archive - ChatGPT 端對話匯出器；最後更新於 20261101
 // @updateURL    https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-chatgpt.user.js
 // @downloadURL  https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-chatgpt.user.js
@@ -139,7 +139,7 @@
                 if (unknown || unknownContent) warnings.add('部分非文字內容未嵌入匯出檔');
                 if (text || omitted || unknownContent) {
                     messages.push({
-                        role, text: text || '> [此訊息內容格式無法解析]', channel: message.channel ?? null,
+                        role, text: text || '> [非文字內容]', channel: message.channel ?? null,
                         sourceIds: messageSourceIds({ sourceIds: [id, message.id] }),
                         ...(Array.isArray(message.metadata?.citations) ? { citations: message.metadata.citations } : {}),
                         ...(omitted ? {
@@ -164,31 +164,20 @@
 
     function buildMarkdown(parsed, sourceTitle, { source = 'API', chatTime = '', timeMarkers = [] } = {}) {
         const title = sanitizeFileName(sourceTitle || parsed.title);
-        let content = `> **匯出來源**：${source}\n\n`;
-        let user = 1;
-        let model = 1;
-        const emittedTimeMarkers = new Set();
-        const appendTime = (timestamp, unlocated = false) => {
-            content += `> **對話時間${unlocated ? '（未定位）' : ''}**：${timestamp}\n\n`;
-        };
-        if (chatTime && !timeMarkers.some(marker => marker.timestamp === chatTime)) appendTime(chatTime);
-        for (const message of parsed.messages) {
-            for (const marker of timeMarkers) {
-                if (marker.beforeTurnIndex === message.turnIndex && !emittedTimeMarkers.has(marker.key)) {
-                    appendTime(marker.timestamp);
-                    emittedTimeMarkers.add(marker.key);
-                }
-            }
-            if (message.date) appendTime(message.date);
-            const heading = message.role === 'user' ? `User ${user++}` : `Model ${model++}`;
-            content += `--- [${heading}] ---\n${message.text}\n\n`;
+        const messages = parsed.messages.map(message => ({
+            ...message,
+            time: message.time || (Number.isFinite(message.create_time) ? new Date(message.create_time * 1000) : message.date) ||
+                timeMarkers.find(marker => marker.beforeTurnIndex === message.turnIndex)?.timestamp
+        }));
+        const incompleteReasons = incompleteFromWarnings([parsed.warning].filter(Boolean));
+        if ((parsed.incomplete || parsed.historyComplete === false) && !incompleteReasons.length) {
+            incompleteReasons.push('歷史或文字內容未完整取得');
         }
-        for (const marker of timeMarkers) {
-            if (!emittedTimeMarkers.has(marker.key)) appendTime(marker.timestamp, true);
-        }
-        if (parsed.incomplete) content += `> **匯出不完整**：${parsed.warning.replace(/\r?\n/g, '\n> ')}\n`;
-        if (parsed.notice) content += `> **內容提示**：${parsed.notice.replace(/\r?\n/g, '\n> ')}\n`;
-        return { filename: title, content: content.trimEnd() + '\n' };
+        return { filename: title, content: renderConversation(messages, {
+            site: 'ChatGPT', url: typeof location === 'undefined' ? '' : location.href,
+            time: messages.some(message => message.time) ? '' : chatTime,
+            incompleteReasons
+        }) };
     }
 
     function messageSourceIds(message) {
@@ -293,12 +282,10 @@
 
     // BEGIN GENERATED EXPORT RENDERER
     const EXPORT_RENDERER_PROVIDER = 'chatgpt';
-// Shared COM rendering; embedded by scripts/build-userscripts.js, never loaded at runtime.
-// Provider parsing, comparison and integration remain in each userscript.
-    // Reading-first COM layout: one short header, warnings only when real,
-    // no per-message timestamps or raw JSON (those stay in API/DOM/report files).
+// Shared Markdown rendering; embedded at build time, never loaded at runtime.
+// Provider parsing, visibility and integration remain in each userscript.
     function formatTimeRange(messages, fallback = '') {
-        const times = messages.map(message => message?.createdAt || message?.date || message?.time)
+        const times = messages.map(message => message?.time || message?.createdAt || message?.date)
             .filter(Boolean).map(value => value instanceof Date ? value.toLocaleString('zh-TW') : String(value));
         const first = times[0] || fallback, last = times.at(-1);
         if (!first || !last || first === last) return first || '';
@@ -306,18 +293,32 @@
         return `${first} – ${firstDay === lastDay && lastRest.length ? lastRest.join(' ') : last}`;
     }
 
-    function buildComHeader({ site = '', url = '', time = '', warnings = [] } = {}) {
+    function incompleteFromWarnings(warnings = []) {
+        const missing = [
+            /不完整|沒有取得全文|未取得全部|未取得完整|未確認.*歷史|無法確認.*全文|仍無法確認|後續資料|後續分頁|分頁標記|回應只有/,
+            /缺少目前分支|部分父訊息|訊息鏈.*循環|分支.*(未確認|無法|缺失)|無法.*確認.*(分支|目前回答|上游|順序|頂端)|分支完整性未.*確認/,
+            /無法.*(解析|識別)|文字解析未完成|未支援.*內容|正文未回傳|缺少.*(正文|ID)|沒有文字|沒有正文|沒有回答正文|沒有可識別|部分回合格式|部分非文字內容未嵌入|未載入正文|內容未載入|已略過|truncated/,
+            /安全.*上限|步數上限|掃描.*上限|非底部停滯|未到達|僅保留已取得|DOM 標示|空訊息殼|nontext missing body|無法安全銜接/,
+            /Artifact.*(對不上原文|片段不唯一)/
+        ];
+        return [...new Set(warnings.filter(Boolean).flatMap(value => String(value).split(/[；\r\n]+/))
+            .map(value => value.replace(/^⚠️?\s*/, '').trim()).filter(value =>
+                !/相對時間|時間戳|前置進度|思考前置|來源取得失敗/.test(value) && missing.some(pattern => pattern.test(value))))];
+    }
+
+    function buildComHeader({ site = '', url = '', time = '', incompleteReasons = [] } = {}) {
         const lines = [time && `> **對話時間**：${time}`, site && `> **來源網站**：${site}`,
             url && `> **網址**：${String(url).replace(/#.*$/, '')}`].filter(Boolean);
         let header = lines.length ? lines.join('\n>\n') + '\n\n' : '';
-        const notes = [...new Set(warnings.filter(Boolean).map(note => String(note).trim()))];
-        if (notes.length) header += '> **注意**\n' + notes.map(note => `> - ${note.replace(/\r?\n/g, '\n>   ')}`).join('\n') + '\n\n';
+        const reasons = [...new Set(incompleteReasons.filter(Boolean).map(reason => String(reason).replace(/\s*\r?\n\s*/g, '；').trim()))];
+        if (reasons.length) header += `> **不完整**：${reasons.join('；')}\n\n`;
         return header;
     }
 
     function formatComMetadata(message, bodyText = '') {
         if (!message) return [];
         const urlOf = value => {
+            if (typeof value === 'string') return /^https?:\/\//i.test(value) ? value : '';
             if (!value || typeof value !== 'object') return '';
             const direct = value.url || value.href || value.link || value.metadata?.url;
             if (typeof direct === 'string' && /^https?:/i.test(direct)) return direct;
@@ -327,102 +328,123 @@
             }
             return '';
         };
-        const nameOf = value => String(value?.title || value?.metadata?.title || value?.label || value?.name ||
-            value?.file_name || value?.filename || value?.alt || '').replace(/\s+/g, ' ').trim();
-        const render = value => {
-            if (typeof value === 'string') return bodyText.includes(value.trim()) ? '' : value.trim();
-            if (!value || typeof value !== 'object') return '';
-            const url = urlOf(value), name = nameOf(value).replace(/\s*\+\d+$/, '');
-            if (url) return bodyText.includes(url) ? '' : name && name !== url ? `[${name.replace(/[[\]]/g, '')}](${url})` : url;
-            if (/^\[cite(?:_start)?(?::[^\]]*)?\]$/.test(name)) return '';
-            // Nameless image pointers duplicate the body placeholder; other unknown shapes stay visible.
-            return name || (/image/i.test(String(value.type || value.content_type || '')) ? '' : JSON.stringify(value));
+        const render = (value, field) => {
+            if (value == null) return '';
+            const rawName = typeof value === 'string' ? value : value.title || value.metadata?.title ||
+                value.label || value.name || value.file_name || value.filename || value.alt || '';
+            const name = String(rawName).replace(/\s+/g, ' ').trim().replace(/\s*\+\d+$/, '');
+            if (/^\[cite(?:_start|_end)?(?::[^\]]*)?\]$/.test(name)) return '';
+            const url = urlOf(value);
+            if (field === 'citations' && url) {
+                if (bodyText.includes(url)) return '';
+                return `[${(name || url).replace(/[[\]]/g, '')}](${url})`;
+            }
+            if (name) return name;
+            if (typeof value === 'object' && /image/i.test(String(value.type || value.content_type || ''))) return '';
+            return JSON.stringify(value);
         };
         const lines = [];
         if (message.note) lines.push(String(message.note));
         for (const [field, label] of [['citations', '引用'], ['attachments', '附件'], ['process', '處理狀態']]) {
-            const values = [...new Set((Array.isArray(message[field]) ? message[field] : []).map(render).filter(Boolean))];
+            const seen = new Set();
+            const values = (Array.isArray(message[field]) ? message[field] : []).flatMap(value => {
+                const text = render(value, field);
+                const key = field === 'citations' ? urlOf(value) || text : text;
+                if (!text || seen.has(key)) return [];
+                seen.add(key);
+                return [text];
+            });
             if (values.length) lines.push(`${label}：${values.join('；')}`);
         }
         return lines;
     }
 
-    // Gemini file-citation markers are renderer tokens, not readable prose.
     function stripGeminiCiteMarkers(text) {
-        return text.split(/(```[\s\S]*?```|`[^`\n]*`)/).map((part, index) => index % 2 ? part
-            : part.replace(/ ?\[cite(?:_start|_end)?(?::\s*[\d,\s]+)?\]/g, '')).join('');
+        let fence = null;
+        return text.split('\n').map(line => {
+            const marker = /^\s{0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+            if (fence) {
+                if (marker && marker[1][0] === fence[0] && marker[1].length >= fence.length && !marker[2].trim()) fence = null;
+                return line;
+            }
+            if (marker) { fence = marker[1]; return line; }
+            if (/^(?: {4}|\t)/.test(line)) return line;
+            return line.replace(/((?<!`)(`+)[\s\S]*?\2(?!`))| ?\[cite(?:_start|_end)?(?::\s*[\d,\s]+)?\]/g,
+                (match, code) => code || '');
+        }).join('\n');
+    }
+
+    function exportBody(message) {
+        const text = String(message?.text ?? '');
+        return EXPORT_RENDERER_PROVIDER === 'gemini' ? stripGeminiCiteMarkers(text) : text;
+    }
+
+    function renderEntries(entries, options = {}) {
+        let content = buildComHeader(options);
+        let users = 0, models = 0;
+        for (const { message, sources = [message], marker = '', conflict = null } of entries) {
+            if (!['user', 'assistant'].includes(message.role)) throw new Error(`Unknown export role: ${message.role}`);
+            const role = message.role === 'user' ? `User ${++users}` : `Model ${++models}`;
+            content += `--- [${role}] ---\n\n`;
+            if (marker) content += `> ${marker}\n\n`;
+            const text = conflict
+                ? `### API 版本（${conflict.api.role}）\n\n${exportBody(conflict.api)}\n\n### DOM 版本（${conflict.dom.role}）\n\n${exportBody(conflict.dom)}`
+                : exportBody(message);
+            content += text;
+            const merged = { note: [...new Set(sources.map(source => source?.note).filter(Boolean))].join('\n') };
+            for (const field of ['citations', 'attachments', 'process']) merged[field] = sources.flatMap(source => source?.[field] || []);
+            const supplement = formatComMetadata(merged, text);
+            if (supplement.length) content += '\n\n' + supplement.join('\n');
+            content += '\n\n';
+        }
+        return content.trimEnd() + '\n';
+    }
+
+    function renderConversation(messages, options = {}) {
+        return renderEntries(messages.map(message => ({ message })), {
+            ...options, time: formatTimeRange(messages, options.time)
+        });
     }
 
     function buildIntegratedMarkdown(apiMessages, domMessages, options = {}) {
+        const { apiAvailable = true, domAvailable = true } = options;
+        const result = integrateTranscripts(apiMessages, domMessages, options);
+        const incompleteReasons = [...(options.incompleteReasons || [])];
+        if (options.branchConfirmed === false) incompleteReasons.push('目前分支未確認');
+        if (apiAvailable && options.apiComplete === false) incompleteReasons.push('API 歷史未取完整');
+        if (domAvailable && options.domComplete === false) incompleteReasons.push('DOM 歷史未取完整');
+        const header = { ...options, incompleteReasons,
+            time: formatTimeRange([apiMessages, domMessages].find(list => list.some(message => message?.time || message?.createdAt || message?.date)) || [], options.time) };
         if (EXPORT_RENDERER_PROVIDER === 'chatgpt') {
-            const { apiAvailable = true, domAvailable = true, notes = [] } = options;
-            const result = integrateTranscripts(apiMessages, domMessages, options);
-            const warnings = [
-                (!apiAvailable || !domAvailable) && `來源取得失敗：${!apiAvailable && !domAvailable ? 'API、DOM' : !apiAvailable ? 'API' : 'DOM'}`,
-                !domAvailable && '沒有頁面正文；API 內容列於文末待確認',
-                ...notes,
-                ...result.verification.issues.map(formatVerificationIssue)
-            ];
-            let content = buildComHeader({ site: options.site, url: options.url, warnings,
-                time: formatTimeRange([apiMessages, domMessages].find(list => list.some(message => message?.createdAt || message?.date || message?.time)) || []) });
-            const supplement = (messages, text) => {
-                const lines = [...new Set(messages.flatMap(message => formatComMetadata(message, text)))];
-                return lines.length ? `\n\n${lines.join('\n\n')}` : '';
-            };
-            let users = 0, models = 0;
-            for (const entry of result.entries) {
-                const role = entry.dom.role === 'user' ? `User ${++users}` : `Model ${++models}`;
-                content += `--- [${role}] ---\n\n${entry.dom.text}`;
-                content += supplement([...(entry.apiMessages || []), entry.dom], String(entry.dom.text ?? '')) + '\n\n';
-            }
+            if (!result.entries.length && result.pending.length) incompleteReasons.push('沒有頁面正文；API 內容列於文末待確認');
+            let content = renderEntries(result.entries.map(entry => ({
+                message: entry.dom, sources: [...(entry.apiMessages || []), entry.dom]
+            })), header);
             if (result.pending.length) {
-                content += '## 待確認 API 內容（不屬於正式正文）\n\n';
+                content += '\n## 待確認 API 內容（不屬於正式正文）\n\n';
                 for (const item of result.pending) {
                     const text = String(item.api.text ?? '');
                     let fenceLength = 3;
                     for (const match of text.matchAll(/`+/g)) fenceLength = Math.max(fenceLength, match[0].length + 1);
                     const fence = '`'.repeat(fenceLength);
-                    content += `### 待確認 API #${item.apiIndex}（${item.api.role}）\n\n${fence}text\n${text}\n${fence}`;
-                    content += supplement([item.api], text) + '\n\n';
+                    content += `### 待確認 API #${item.apiIndex}（${item.api.role}）\n\n${fence}text\n${text}\n${fence}\n\n`;
+                    const supplement = formatComMetadata(item.api, text);
+                    if (supplement.length) content += supplement.join('\n') + '\n\n';
                 }
             }
             return { ...result, content: content.trimEnd() + '\n' };
         }
-        const { apiAvailable = true, domAvailable = true, notes = [], site = '', url = '' } = options;
-        const result = integrateTranscripts(apiMessages, domMessages);
         const compared = apiAvailable && domAvailable;
-        const warnings = [
-            (!apiAvailable || !domAvailable) && `來源取得失敗：${apiAvailable ? 'DOM' : domAvailable ? 'API' : 'API、DOM'}`,
-            compared && result.comparison.differences.length && `API／DOM 正文差異 ${result.comparison.differences.length} 筆；衝突處兩版並列`,
-            ...notes
-        ];
-        let content = buildComHeader({ site, url, warnings, time: formatTimeRange([apiMessages, domMessages].find(list => list.some(message => message?.createdAt || message?.date || message?.time)) || []) });
-        let users = 0, models = 0;
-        const body = message => EXPORT_RENDERER_PROVIDER === 'gemini'
-            ? stripGeminiCiteMarkers(String(message?.visibleText ?? message?.text ?? ''))
-            : String(message?.text ?? '');
-        const supplement = (...messages) => {
-            const present = messages.filter(Boolean);
-            const text = present.map(body).join('\n');
-            const lines = [...new Set(present.flatMap(message => formatComMetadata(message, text)))];
-            return lines.length ? `\n\n${lines.join('\n\n')}` : '';
-        };
-        for (const entry of result.entries) {
-            const primary = entry.api || entry.dom;
-            const role = primary.role === 'user' ? `User ${++users}` : `Model ${++models}`;
-            content += `--- [${role}] ---\n\n`;
-            if (compared && ['api-only', 'dom-only', 'progress'].includes(entry.kind)) {
-                content += `> ${entry.kind === 'progress' ? '前進度；' : ''}僅 ${entry.api ? 'API' : 'DOM'} 有此訊息\n\n`;
-            }
-            if (entry.kind === 'text' || entry.kind === 'role') {
-                content += `> **來源衝突，兩版並列**${entry.kind === 'role' ? '（角色也不同）' : ''}\n\n`;
-                content += `### API 版本（${entry.api.role}）\n\n${body(entry.api)}\n\n### DOM 版本（${entry.dom.role}）\n\n${body(entry.dom)}`;
-            } else {
-                content += body(primary);
-            }
-            content += supplement(entry.api, entry.dom) + '\n\n';
-        }
-        return { ...result, compared: apiAvailable && domAvailable, content: content.trimEnd() + '\n' };
+        const visible = message => EXPORT_RENDERER_PROVIDER === 'gemini' && message?.visibleText != null
+            ? { ...message, text: message.visibleText } : message;
+        const entries = result.entries.map(entry => {
+            const conflict = ['text', 'role'].includes(entry.kind) ? { api: visible(entry.api), dom: visible(entry.dom) } : null;
+            return { message: visible(entry.api || entry.dom), sources: [entry.api, entry.dom].filter(Boolean), conflict,
+                marker: conflict ? '**來源衝突，兩版並列**' :
+                    compared && ['api-only', 'dom-only', 'progress'].includes(entry.kind)
+                        ? `${entry.kind === 'progress' ? '前進度；' : ''}僅 ${entry.api ? 'API' : 'DOM'} 有此訊息` : '' };
+        });
+        return { ...result, compared, content: renderEntries(entries, header) };
     }
 
     function showIntegratedDialog({ id, site, title, apiCount, domCount, integration, errors = {}, notes = [], report = '', onDownload, onApi, onDom, onReport }) {
@@ -1517,14 +1539,14 @@
                     a.sequence - b.sequence
                 );
             if (collectOnly) return {
-                messages, warning, incomplete: Boolean(warning),
+                messages, warning, incomplete: scanWarnings.length > 0 || unresolved.length > 0,
                 historyComplete: scanWarnings.length === 0 && unresolved.length === 0, chatTime, timeMarkers
             };
 
             let title = determineTitle();
             if (warning) title += '_INCOMPLETE';
             const { content: finalOutput } = buildMarkdown({
-                messages, incomplete: Boolean(warning), warning
+                messages, incomplete: scanWarnings.length > 0 || unresolved.length > 0, warning
             }, title, { source: 'DOM', chatTime, timeMarkers });
             showSaveModal(title, finalOutput, {
                 messageCount: messages.length,
@@ -1626,9 +1648,11 @@
         ].filter(Boolean);
         const integration = buildIntegratedMarkdown(api?.messages || [], dom?.messages || [], {
             apiAvailable: Boolean(api), domAvailable: Boolean(dom),
-            apiComplete: !api?.incomplete, domComplete: dom?.historyComplete ?? !dom?.incomplete,
+            apiComplete: Boolean(api) && !api.incomplete,
+            domComplete: Boolean(dom) && (dom.historyComplete ?? !dom.incomplete),
             notes: [api?.warning && `API：${api.warning}`, dom?.warning && `DOM：${dom.warning}`].filter(Boolean),
-            site: 'ChatGPT', url: location.href
+            incompleteReasons: incompleteFromWarnings([api?.warning, dom?.warning].filter(Boolean)),
+            site: 'ChatGPT', url: typeof location === 'undefined' ? '' : location.href
         });
         const metadata = [
             ...(api?.messages || []).map((message, index) => ({ source: 'API', index: index + 1, ...message })),
@@ -1830,7 +1854,7 @@
                 <path fill="currentColor"
                     d="M22.2819 9.8211a5.9847 5.9847 0 0 0-.5157-4.9108 6.0462 6.0462 0 0 0-6.5098-2.9A6.0651 6.0651 0 0 0 4.9807 4.1818a5.9847 5.9847 0 0 0-3.9977 2.9 6.0462 6.0462 0 0 0 .7427 7.0966 5.98 5.98 0 0 0 .511 4.9107 6.051 6.051 0 0 0 6.5146 2.9001A5.9847 5.9847 0 0 0 13.2599 24a6.0557 6.0557 0 0 0 5.7718-4.2058 5.9894 5.9894 0 0 0 3.9977-2.9001 6.0557 6.0557 0 0 0-.7475-7.0729zm-9.022 12.6081a4.4755 4.4755 0 0 1-2.8764-1.0408l.1419-.0804 4.7783-2.7582a.7948.7948 0 0 0 .3927-.6813v-6.7369l2.02 1.1686a.071.071 0 0 1 .038.052v5.5826a4.504 4.504 0 0 1-4.4945 4.4944zm-9.6607-4.1254a4.4708 4.4708 0 0 1-.5346-3.0137l.142.0852 4.783 2.7582a.7712.7712 0 0 0 .7806 0l5.8428-3.3685v2.3324a.0804.0804 0 0 1-.0332.0615L9.74 19.9502a4.4992 4.4992 0 0 1-6.1408-1.6464zM2.3408 7.8956a4.485 4.485 0 0 1 2.3655-1.9728V11.6a.7664.7664 0 0 0 .3879.6765l5.8144 3.3543-2.0201 1.1685a.0757.0757 0 0 1-.071 0l-4.8303-2.7865A4.504 4.504 0 0 1 2.3408 7.872zm16.5963 3.8558L13.1038 8.364 15.1192 7.2a.0757.0757 0 0 1 .071 0l4.8303 2.7913a4.4944 4.4944 0 0 1-.6765 8.1042v-5.6772a.79.79 0 0 0-.407-.667zm2.0107-3.0231l-.142-.0852-4.7735-2.7818a.7759.7759 0 0 0-.7854 0L9.409 9.2297V6.8974a.0662.0662 0 0 1 .0284-.0615l4.8303-2.7866a4.4992 4.4992 0 0 1 6.6802 4.66zM8.3065 12.863l-2.02-1.1638a.0804.0804 0 0 1-.038-.0567V6.0742a4.4992 4.4992 0 0 1 7.3757-3.4537l-.142.0805L8.704 5.459a.7948.7948 0 0 0-.3927.6813zm1.0976-2.3654 2.602-1.4998 2.6069 1.4998v2.9994l-2.5974 1.4997-2.6067-1.4997Z"/>
             </svg>`;
-        fab.title = "AZA-Agent-Chat-Archive - ChatGPT 1.4.14";
+        fab.title = "AZA-Agent-Chat-Archive - ChatGPT 1.4.15";
         fab.setAttribute('aria-label', '開啟 AZA-Agent-Chat-Archive - ChatGPT 工具');
         Object.assign(fab.style, {
             width: '56px',
