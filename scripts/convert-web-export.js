@@ -32,6 +32,8 @@ function tokenize(content) {
     let fence = null, inline = 0;
     return (content.match(/[^\n]*\n|[^\n]+$/g) || []).map(raw => {
         const text = raw.replace(/\r?\n$/, '');
+        // A code span never crosses a blank line, so an unmatched backtick cannot protect later turns.
+        if (!fence && !text.trim()) inline = 0;
         const fenceText = text.replace(/^(?: {0,3}>[ \t]?)+/, '').replace(/^ {0,3}(?:[-+*]|\d+[.)]) /, '');
         const marker = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(fenceText);
         const protectedLine = Boolean(fence) || Boolean(inline) || /^(?: {4}|\t)/.test(text) || Boolean(marker);

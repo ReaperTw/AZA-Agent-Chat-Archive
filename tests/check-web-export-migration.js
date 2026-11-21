@@ -126,4 +126,12 @@ const legacy = site => [
         } finally { fs.rmSync(guarded, { recursive: true, force: true }); }
     }
     console.log('ok migration: four legacy formats, literal bodies/code, idempotence, dry-run, backups, explicit rename and collisions');
+    {
+        // An unmatched backtick in one turn must not protect the dividers of later turns.
+        const stray = ['--- [User 1] ---', 'Q', '', '--- [Model 1] ---', "錯誤「'`' 不是命令」", '',
+            '--- [User 2] ---', 'Q2', '', '--- [Model 2] ---', '# A2', ''].join('\n');
+        const out = convertMarkdown(stray, 'GEM').content;
+        assert(!out.includes('--- ['), 'every divider converts after a stray backtick');
+        assert(out.includes('# User 2\n') && out.includes('# Model 2\n\n## A2'), 'later turns convert and demote');
+    }
 })().catch(error => { console.error(error); process.exitCode = 1; });
