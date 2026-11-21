@@ -40,7 +40,7 @@ const repeated = [message('r1', 'user', 'repeat'), message('r2', 'user', 'repeat
 const repeats = buildIntegratedMarkdown(repeated, repeated);
 assert.equal(repeats.verification.complete, true);
 assert.equal(repeats.entries.length, 2);
-assert.equal(repeats.content.split('--- [User ').length - 1, 2);
+assert.equal(repeats.content.split('# User ').length - 1, 2);
 const duplicateApi = buildIntegratedMarkdown([message('x', 'user', 'one'), message('x', 'user', 'two')], [message('x', 'user', 'page')]);
 assert(hasIssue(duplicateApi, 'ambiguous-id'));
 assert.equal(duplicateApi.pending.length, 2);
@@ -98,7 +98,7 @@ assert(hasIssue(domFailure, 'dom-unavailable'));
 assert.equal(domFailure.entries.length, 0);
 assert.equal(domFailure.pending.length, 1);
 assert(domFailure.content.includes('````text\n' + pendingText + '\n````'));
-assert(!domFailure.content.includes('--- [Model 1] ---'));
+assert(!domFailure.content.includes('# Model 1'));
 assert.deepEqual(apiFailure.verification.issues.map(issue => issue.kind), ['api-unavailable']);
 assert.deepEqual(domFailure.verification.issues.map(issue => issue.kind), ['dom-unavailable']);
 

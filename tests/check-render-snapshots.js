@@ -32,7 +32,7 @@ for (const [provider, site] of Object.entries(providers)) {
         const pending = api.buildIntegratedMarkdown(messages, [], { domAvailable: false }).content;
         assert(pending.includes('> **不完整**：沒有頁面正文'));
         assert(pending.includes('## 待確認 API 內容（不屬於正式正文）'));
-        assert(!pending.includes('--- [User'));
+        assert(!pending.includes('# User'));
     }
     if (provider === 'gemini') {
         const code = ['Outside [cite: 1]', '~~~~text', '[cite: 2]', '~~~~', '````text',

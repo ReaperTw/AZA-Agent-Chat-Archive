@@ -29,7 +29,7 @@ const tokens = { SNlM0e: 'token', cfb2h: 'build', FdrFJe: 'session' };
     const datedTurns = parseGeminiApiData(sameMinute).turns;
     const datedMarkdown = renderGeminiApiMarkdown(datedTurns);
     assert.equal((datedMarkdown.match(/\*\*對話時間\*\*/g) || []).length, 1);
-    assert(datedMarkdown.includes('> **來源網站**：Gemini'));
+    assert(!datedMarkdown.includes('來源網站'));
     assert(!datedMarkdown.includes('匯出來源'));
     assert(!renderGeminiApiMarkdown(datedTurns, ['相對時間', '缺少時間戳', '已排除 2 則思考前置進度']).includes('**不完整**'));
     assert(renderGeminiApiMarkdown(datedTurns, ['API 尚未確認歷史已讀取完畢']).includes('**不完整**'));

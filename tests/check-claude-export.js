@@ -44,8 +44,8 @@ check('current branch ignores regenerated sibling', () => {
     });
     assert.deepStrictEqual(result.messages.map(message => message.text), ['問題', '新回答']);
     assert.strictEqual(result.warnings.length, 0);
-    assert.match(result.markdown, /--- \[User 1\] ---\n\n問題/);
-    assert.match(result.markdown, /--- \[Model 1\] ---\n\n新回答/);
+    assert.match(result.markdown, /# User 1\n\n問題/);
+    assert.match(result.markdown, /# Model 1\n\n新回答/);
     assert.doesNotMatch(result.markdown, /舊回答/);
 });
 
@@ -296,7 +296,7 @@ check('standalone sources use the same shared conversation contract', () => {
             attachments: [{ file_name: 'report.pdf' }] }];
     const markdown = api.buildMarkdown(messages);
     assert.strictEqual(markdown, api.buildMarkdown(messages, 'DOM'));
-    assert.match(markdown, /> \*\*來源網站\*\*：Claude/);
+    assert.doesNotMatch(markdown, /來源網站/);
     assert.match(markdown, /附件：report\.pdf/);
     assert.doesNotMatch(markdown, /匯出來源|DOM 提示|不完整/);
     assert.strictEqual((markdown.match(/\*\*對話時間\*\*/g) || []).length, 1);

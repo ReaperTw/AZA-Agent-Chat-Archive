@@ -15,5 +15,5 @@
       "process": ["Visible status"]
     }
   ],
-  "expected": "> **對話時間**：2026/11/8 下午6:04:06 – 下午6:15:27\n>\n> **來源網站**：{site}\n\n--- [User 1] ---\n\nSynthetic question\n\n--- [Model 1] ---\n\nSynthetic answer\n\n引用：[Manual](https://example.test/manual)；PubMed\n附件：report.pdf；{\"unknown\":7}\n處理狀態：Visible status\n"
+  "expected": "> **對話時間**：2026/11/8 下午6:04:06 – 下午6:15:27\n\n# User 1\n\nSynthetic question\n\n# Model 1\n\nSynthetic answer\n\n引用：[Manual](https://example.test/manual)；PubMed\n附件：report.pdf；{\"unknown\":7}\n處理狀態：Visible status\n"
 }

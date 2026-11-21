@@ -55,9 +55,14 @@ for (const provider of ['claude', 'gemini', 'grok']) {
     ], [
         user('Q'), { ...assistant('A'), citations: [{ label: 'NHS\n+1', links: [] }] }, user('Q2')
     ], { site: 'Test', url: 'https://example.test/c/1#frag' }).content;
-    assert(compactCom.startsWith('> **對話時間**：2026/11/8 下午6:04:06 – 下午6:15:27\n>\n> **來源網站**：Test\n>\n> **網址**：https://example.test/c/1\n\n'));
+    assert(compactCom.startsWith('> **對話時間**：2026/11/8 下午6:04:06 – 下午6:15:27\n>\n> **網址**：https://example.test/c/1\n\n'));
     for (const noise of ['下午6:04:13', '```json', '+1', '匯出來源', '核對結果', '注意']) assert(!compactCom.includes(noise), noise);
     assert(compactCom.includes('A\n\n引用：NHS\n'), 'link-less source chip kept as one line');
+    const attachmentOnly = buildIntegratedMarkdown([user('> [非文字內容]'), assistant('A')], [user('> [非文字內容]'), assistant('A')],
+        { notes: ['部分使用者訊息沒有文字，可能含未嵌入的附件', '部分非文字內容未嵌入'] }).content;
+    assert(!attachmentOnly.includes('不完整'), 'an unembedded attachment is not missing content');
+    const folded = buildIntegratedMarkdown([], [user('Q'), assistant('# Title\n```md\n# kept\n```\n## Sub')], { apiAvailable: false }).content;
+    assert(folded.includes('# User 1\n\nQ') && folded.includes('# Model 1\n\n## Title\n```md\n# kept\n```\n## Sub'), 'turns are the only H1; code untouched');
     if (provider === 'gemini') {
         const cited = buildIntegratedMarkdown([assistant('Rule [cite: 4].\n`[cite: 9]`')], [assistant('Rule [cite: 4].\n`[cite: 9]`')]).content;
         assert(cited.includes('Rule.') && cited.includes('`[cite: 9]`'), 'cite markers stripped outside code only');

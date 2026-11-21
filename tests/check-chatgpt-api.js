@@ -22,7 +22,7 @@ assert.deepEqual(parseApiConversation(aliasPayload).messages[1].sourceIds, ['ans
 const markdown = buildMarkdown(parsed).content;
 assert(!/secret|abandoned/.test(markdown));
 assert(markdown.includes('visible-answer'));
-assert(markdown.includes('> **來源網站**：ChatGPT'));
+assert(!markdown.includes('來源網站'));
 assert(!/匯出來源|內容提示|注意/.test(markdown));
 assert.equal((markdown.match(/\*\*對話時間\*\*/g) || []).length, 1);
 assert.equal(buildMarkdown(parsed, undefined, { source: 'DOM' }).content, markdown);

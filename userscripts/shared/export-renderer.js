@@ -13,17 +13,19 @@
         const missing = [
             /不完整|沒有取得全文|未取得全部|未取得完整|未確認.*歷史|無法確認.*全文|仍無法確認|後續資料|後續分頁|分頁標記|回應只有/,
             /缺少目前分支|部分父訊息|訊息鏈.*循環|分支.*(未確認|無法|缺失)|無法.*確認.*(分支|目前回答|上游|順序|頂端)|分支完整性未.*確認/,
-            /無法.*(解析|識別)|文字解析未完成|未支援.*內容|正文未回傳|缺少.*(正文|ID)|沒有文字|沒有正文|沒有回答正文|沒有可識別|部分回合格式|部分非文字內容未嵌入|未載入正文|內容未載入|已略過|truncated/,
+            /無法.*(解析|識別)|文字解析未完成|未支援.*內容|正文未回傳|缺少.*(正文|ID)|沒有文字|沒有正文|沒有回答正文|沒有可識別|部分回合格式|未載入正文|內容未載入|已略過|truncated/,
             /安全.*上限|步數上限|掃描.*上限|非底部停滯|未到達|僅保留已取得|DOM 標示|空訊息殼|nontext missing body|無法安全銜接/,
             /Artifact.*(對不上原文|片段不唯一)/
         ];
         return [...new Set(warnings.filter(Boolean).flatMap(value => String(value).split(/[；\r\n]+/))
             .map(value => value.replace(/^⚠️?\s*/, '').trim()).filter(value =>
-                !/相對時間|時間戳|前置進度|思考前置|來源取得失敗/.test(value) && missing.some(pattern => pattern.test(value))))];
+                // An identified but unembedded attachment is a hint, not missing content (AGENTS.md).
+                !/相對時間|時間戳|前置進度|思考前置|來源取得失敗|附件|未嵌入/.test(value) && missing.some(pattern => pattern.test(value))))];
     }
 
     function buildComHeader({ site = '', url = '', time = '', incompleteReasons = [] } = {}) {
-        const lines = [time && `> **對話時間**：${time}`, site && `> **來源網站**：${site}`,
+        // The site is already in the filename prefix and the URL.
+        const lines = [time && `> **對話時間**：${time}`,
             url && `> **網址**：${String(url).replace(/#.*$/, '')}`].filter(Boolean);
         let header = lines.length ? lines.join('\n>\n') + '\n\n' : '';
         const reasons = [...new Set(incompleteReasons.filter(Boolean).map(reason => String(reason).replace(/\s*\r?\n\s*/g, '；').trim()))];
@@ -90,9 +92,23 @@
         }).join('\n');
     }
 
+    // `# User N` / `# Model N` are the only level-1 headings, so each turn folds as one unit.
+    function demoteBodyH1(text) {
+        let fence = null;
+        return text.split('\n').map(line => {
+            const marker = /^\s{0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+            if (fence) {
+                if (marker && marker[1][0] === fence[0] && marker[1].length >= fence.length && !marker[2].trim()) fence = null;
+                return line;
+            }
+            if (marker) { fence = marker[1]; return line; }
+            return /^ {0,3}# /.test(line) ? line.replace('# ', '## ') : line;
+        }).join('\n');
+    }
+
     function exportBody(message) {
         const text = String(message?.text ?? '');
-        return EXPORT_RENDERER_PROVIDER === 'gemini' ? stripGeminiCiteMarkers(text) : text;
+        return demoteBodyH1(EXPORT_RENDERER_PROVIDER === 'gemini' ? stripGeminiCiteMarkers(text) : text);
     }
 
     function renderEntries(entries, options = {}) {
@@ -101,7 +117,7 @@
         for (const { message, sources = [message], marker = '', conflict = null } of entries) {
             if (!['user', 'assistant'].includes(message.role)) throw new Error(`Unknown export role: ${message.role}`);
             const role = message.role === 'user' ? `User ${++users}` : `Model ${++models}`;
-            content += `--- [${role}] ---\n\n`;
+            content += `# ${role}\n\n`;
             if (marker) content += `> ${marker}\n\n`;
             const text = conflict
                 ? `### API 版本（${conflict.api.role}）\n\n${exportBody(conflict.api)}\n\n### DOM 版本（${conflict.dom.role}）\n\n${exportBody(conflict.dom)}`

@@ -64,7 +64,7 @@ const sourceTimeline = [
 ];
 const apiMarkdown = buildTimelineMarkdown(sourceTimeline, [], 'API').content;
 assert.strictEqual(apiMarkdown, buildTimelineMarkdown(sourceTimeline, [], 'DOM').content);
-assert(apiMarkdown.includes('> **來源網站**：Grok'));
+assert(!apiMarkdown.includes('來源網站'));
 assert.strictEqual((apiMarkdown.match(/\*\*對話時間\*\*/g) || []).length, 1);
 assert(!apiMarkdown.includes('匯出來源'));
 assert(!buildTimelineMarkdown(sourceTimeline, ['相對時間', '缺少時間戳', '已排除 2 則思考前置進度']).content.includes('**不完整**'));
