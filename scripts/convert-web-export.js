@@ -60,8 +60,123 @@ const placeholders = new Map([
     ['> [非文字回答，本體未嵌入匯出檔]', '> [非文字回答]']
 ]);
 
-function convertMarkdown(content, code) {
+function dividerFor(text) {
+    const legacy = /^--- \[(User|USER|Model|MODEL|ASSISTANT|Assistant|ChatGPT|Grok|Perplexity)(?: (\d+))?\] ---[ \t]*$/.exec(text);
+    const current = /^# (User|Model) (\d+)[ \t]*$/.exec(text);
+    const match = legacy || current;
+    if (!match) return null;
+    return { role: /^(?:User|USER)$/.test(match[1]) ? 'User' : 'Model',
+        number: match[2] === undefined ? null : Number(match[2]), legacy: Boolean(legacy) };
+}
+
+function dividersIn(lines) {
+    return lines.flatMap((line, index) => {
+        const divider = line.protected ? null : dividerFor(line.text);
+        return divider ? [{ index, ...divider }] : [];
+    });
+}
+
+function sequenceIsValid(dividers) {
+    const counts = { User: 0, Model: 0 };
+    let global = true, byRole = true;
+    dividers.forEach((divider, index) => {
+        counts[divider.role]++;
+        if (divider.number !== null) {
+            global &&= divider.number === index + 1;
+            byRole &&= divider.number === counts[divider.role];
+        }
+    });
+    return global || byRole;
+}
+
+const headerField = /^>\s*\*\*(?:來源網站|網址|對話時間(?:（未定位）)?|API\s*時間|時間|匯出來源|核對結果|擷取方式|不完整)\*\*[：:]/;
+const timestampField = /^>\s*(?:\*\*)?(?:對話時間(?:（未定位）)?|API\s*時間|時間)(?:\*\*)?[：:]\s*(?:\d{4}[-/.年]\d{1,2}[-/.月]\d{1,2}|(?:上午|下午)?\d{1,2}:\d{2})/;
+
+// Retain exact body bytes: no trimming, whitespace collapsing or newline conversion.
+function bodyBytes(content, skill) {
+    const bom = content.startsWith('\uFEFF') ? '\uFEFF' : '';
+    const lines = tokenize(bom ? content.slice(1) : content);
+    const dividers = dividersIn(lines), removed = new Set();
+    const first = dividers[0]?.index ?? lines.length;
+    if (!skill) {
+        let warning = false, generated = false;
+        for (let i = 0; i < first; i++) {
+            if (lines[i].protected) continue;
+            if (headerField.test(lines[i].text)) { removed.add(i); generated = true; warning = false; }
+            else if (/^>\s*\*\*(?:注意|匯出不完整|匯出注意事項|內容提示|相對時間提醒|相對時間說明)\*\*/.test(lines[i].text)) {
+                removed.add(i); generated = true; warning = true;
+            } else if (warning && /^>/.test(lines[i].text)) removed.add(i);
+        }
+        if (generated) for (let i = 0; i < first; i++) {
+            if (lines[i].text === '' || lines[i].text === '>') removed.add(i);
+        }
+    }
+    for (const divider of dividers) {
+        removed.add(divider.index);
+        if (lines[divider.index + 1]?.text === '') removed.add(divider.index + 1);
+    }
+    if (!skill) for (let i = first; i < lines.length; i++) {
+        if (lines[i].protected || !timestampField.test(lines[i].text)) continue;
+        let previous = i - 1, next = i + 1;
+        while (previous >= 0 && lines[previous].text === '') previous--;
+        while (next < lines.length && lines[next].text === '') next++;
+        if (!dividerFor(lines[previous]?.text || '') && !dividerFor(lines[next]?.text || '')) continue;
+        removed.add(i);
+        if (lines[i + 1]?.text === '') removed.add(i + 1);
+    }
+    return Buffer.from(bom + lines.map((line, index) => removed.has(index) ? '' :
+        line.protected ? line.raw : line.raw.replace(/^( {0,3})#{1,6}(?= )/, '$1')).join(''), 'utf8');
+}
+
+function convertMarkdown(content, code, checkingIdempotence = false) {
     if (typeof content !== 'string') throw new TypeError('Markdown content must be a string');
+    const original = content;
+    const bom = content.startsWith('\uFEFF') ? '\uFEFF' : '';
+    const lines = tokenize(bom ? content.slice(1) : content);
+    const dividers = dividersIn(lines);
+    const prefix = lines.slice(0, dividers[0]?.index ?? lines.length).map(line => line.raw).join('');
+    const skill = /<!-- agent-chat-archive:|<!-- Harness:|^>\s*\*\*來源 Harness\*\*/m.test(prefix);
+    if (!code && !skill) {
+        if (/gemini\.google\.com|來源網站\*\*[：:]\s*Gemini/i.test(prefix)) code = 'GEM';
+        else if (/chatgpt\.com|來源網站\*\*[：:]\s*ChatGPT/i.test(prefix)) code = 'GPT';
+        else if (/claude\.ai|來源網站\*\*[：:]\s*Claude/i.test(prefix)) code = 'CLD';
+        else if (/grok\.com|來源網站\*\*[：:]\s*Grok/i.test(prefix)) code = 'Grok';
+    }
+    const appendix = code === 'GPT' && lines.some(line => !line.protected && line.text === '## 待確認 API 內容（不屬於正式正文）');
+    const conversation = dividers.length > 0 || appendix;
+    const warnings = lines.filter(line => !line.protected && /^--- \[[^\]]+\] ---[ \t]*$/.test(line.text) && !dividerFor(line.text))
+        .map(line => `Unrecognized conversation divider retained: ${line.text}`);
+    if (!conversation || !sequenceIsValid(dividers)) {
+        const skip = conversation ? 'nonsequential' : 'non-conversation';
+        if (conversation) warnings.push('Conversation skipped: nonsequential dividers');
+        return { content, changes: [], warnings: [...new Set(warnings)], conversation, skip,
+            verification: { beforeSeparators: dividers.length, afterSeparators: dividers.length, bodyByteIdentical: true, idempotent: true } };
+    }
+    const counts = { User: 0, Model: 0 }, byIndex = new Map(dividers.map(divider => [divider.index, divider]));
+    const newline = content.includes('\r\n') ? '\r\n' : '\n';
+    const first = dividers[0]?.index ?? lines.length;
+    const normalized = bom + lines.map((line, index) => {
+        const divider = byIndex.get(index);
+        if (divider) {
+            const ending = /\r?\n$/.exec(line.raw)?.[0] || '';
+            const blank = lines[index + 1] && lines[index + 1].text !== '' ? newline : '';
+            return `# ${divider.role} ${++counts[divider.role]}` + (ending || (blank ? newline : '')) + blank;
+        }
+        return index > first && !line.protected ? line.raw.replace(/^( {0,3})# /, '$1## ') : line.raw;
+    }).join('');
+    const converted = skill ? { content: normalized, changes: [], warnings: [] } : convertWebMarkdown(normalized, code);
+    const changes = [...converted.changes];
+    if (normalized !== original) changes.unshift('Normalize conversation dividers and body headings');
+    const result = converted.content;
+    const afterSeparators = dividersIn(tokenize(result.startsWith('\uFEFF') ? result.slice(1) : result)).length;
+    return { content: result, changes: result === original ? [] : [...new Set(changes)],
+        warnings: [...new Set([...warnings, ...converted.warnings])], conversation,
+        verification: { beforeSeparators: dividers.length, afterSeparators,
+            bodyByteIdentical: bodyBytes(original, skill).equals(bodyBytes(result, skill)),
+            idempotent: checkingIdempotence || convertMarkdown(result, code, true).content === result } };
+}
+
+function convertWebMarkdown(content, code) {
     const bom = content.startsWith('\uFEFF') ? '\uFEFF' : '';
     const lines = tokenize(bom ? content.slice(1) : content);
     const newline = content.includes('\r\n') ? '\r\n' : '\n';
@@ -69,9 +184,8 @@ function convertMarkdown(content, code) {
     const removed = new Set(), replacements = new Map();
     const times = [], notes = [], existingReasons = [];
     let site = '', url = '', fallback = '', sawMessage = false;
-    const heading = /^--- \[(User|Model) \d+\] ---\s*$/;
-    const headerIndices = [];
-    const metadata = [];
+    const heading = /^# (User|Model) \d+[ \t]*$/;
+    const headerIndices = [], metadata = [];
     const replace = (index, text, summary) => {
         const end = /\r?\n$/.exec(lines[index].raw)?.[0] || '';
         replacements.set(index, text + end);
@@ -81,14 +195,7 @@ function convertMarkdown(content, code) {
         const line = lines[i];
         if (line.protected) continue;
         const text = line.text;
-        if (heading.test(text)) {
-            sawMessage = true;
-            if (lines[i + 1] && lines[i + 1].text !== '') {
-                replacements.set(i, line.raw + newline);
-                changes.add('Normalize message heading spacing');
-            }
-            continue;
-        }
+        if (heading.test(text)) { sawMessage = true; continue; }
         const field = /^>\s*\*\*(來源網站|網址|對話時間(?:（未定位）)?|API\s*時間|時間|匯出來源|核對結果|擷取方式|不完整)\*\*[：:]\s*(.*)$/.exec(text)
             || /^>\s*(API\s*時間|時間)[：:]\s*(.*)$/.exec(text);
         if (field) {
@@ -189,15 +296,15 @@ function convertMarkdown(content, code) {
         removed.add(prefixEnd++);
     }
     const header = helpers.buildComHeader({ site, url, time: helpers.formatTimeRange(times, fallback), incompleteReasons: reasons }).replace(/\n/g, newline);
-    let result = bom + header + lines.map((line, index) => removed.has(index) ? '' : replacements.get(index) ?? line.raw).join('');
+    const body = lines.map((line, index) => removed.has(index) ? '' : replacements.get(index) ?? line.raw).join('');
+    let result = bom + header + body;
     if (code === 'GEM') {
         const cleaned = tokenize(result).map(line => line.protected ? line.raw : helpers.stripGeminiCiteMarkers(line.raw)).join('');
         if (cleaned !== result) changes.add('Remove Gemini citation tokens outside code');
         result = cleaned;
     }
     if (result !== content && headerIndices.length) changes.add('Consolidate generated header and message timestamps');
-    if (result === content) return { content, changes: [], warnings: [...new Set(warnings)] };
-    return { content: result, changes: [...changes], warnings: [...new Set(warnings)] };
+    return { content: result, changes: result === content ? [] : [...changes], warnings: [...new Set(warnings)] };
 }
 
 module.exports = { convertMarkdown, convertFilename };

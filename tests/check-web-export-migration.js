@@ -25,7 +25,7 @@ const legacy = site => [
     for (const [code, site] of Object.entries({ GPT: 'ChatGPT', CLD: 'Claude', GEM: 'Gemini', Grok: 'Grok' })) {
         const converted = convertMarkdown(legacy(site), code);
         assert(converted.content.includes(literal), `${code}: prose and nested code must be byte-identical`);
-        const userBody = converted.content.split('--- [User 1] ---')[1]?.split('--- [Model 1] ---')[0];
+        const userBody = converted.content.split('# User 1')[1]?.split('# Model 1')[0];
         assert.equal(userBody?.trim(), 'Synthetic question', `${code}: removing metadata leaves the same user body`);
         assert(converted.content.includes('> **對話時間**：2026/11/8 下午6:04:06 – 下午6:15:27'), `${code}: range`);
         assert(!converted.content.includes('> **來源網站**：'), `${code}: current header omits site`);

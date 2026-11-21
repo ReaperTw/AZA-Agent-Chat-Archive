@@ -5,7 +5,7 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { isUtf8 } = require('node:buffer');
 
-const VERSION = '1.0.1';
+const VERSION = '1.0.2';
 const LINK_REMINDER = '提醒：catalog 與筆記中指向舊檔名的連結不會自動更新。';
 const NO_FOLLOW = fs.constants.O_NOFOLLOW || 0;
 
@@ -133,8 +133,9 @@ function moveNoReplace(source, target) {
     if (result.status !== 0) throw new Error(`Native no-clobber move failed: ${(result.stderr || result.stdout || `exit ${result.status}, signal ${result.signal}`).trim()}`);
 }
 
-function isProtected(name, exclude) {
-    return name.startsWith('AUTO_BACKUP_') || exclude.some(word => name.includes(word));
+function isProtected(relativePath, exclude) {
+    return relativePath.split(path.sep).some(component => component.startsWith('AUTO_BACKUP_')) ||
+        exclude.some(word => relativePath.includes(word));
 }
 
 function runMigration({ input, apply = false, rename = false, backupDir, exclude = [] } = {}) {
@@ -158,8 +159,10 @@ function runMigration({ input, apply = false, rename = false, backupDir, exclude
         }
         assertNoSymlinks(backupRoot, true);
     }
+    const report = { input: sourceRoot, apply, rename, backupDir: backupRoot, entries: [], errors: [], reminder: LINK_REMINDER,
+        counts: {}, gates: { files: 0, bodyByteIdentical: true, separatorCountsEqual: true, idempotent: true,
+            bodyFailures: 0, separatorFailures: 0, idempotenceFailures: 0 } };
     const { convertMarkdown, convertFilename } = require('./convert-web-export');
-    const report = { input: sourceRoot, apply, rename, backupDir: backupRoot, entries: [], errors: [], reminder: LINK_REMINDER };
     const plans = [];
     const recordError = (entry, error) => {
         entry.status = 'error';
@@ -167,12 +170,16 @@ function runMigration({ input, apply = false, rename = false, backupDir, exclude
         report.errors.push({ source: entry.source, message: error.message });
     };
     function visit(source) {
+        const relative = path.relative(relativeRoot, source);
         const entry = { source, target: source, status: 'unchanged', changes: [], warnings: [] };
         try {
             const stat = fs.lstatSync(source);
             if (stat.isSymbolicLink()) {
                 entry.status = 'skipped-symlink';
                 entry.warnings.push('Symlink ignored; its target was not read.');
+            } else if (isProtected(relative || (path.basename(source).startsWith('AUTO_BACKUP_') ? path.basename(source) : ''), exclude)) {
+                entry.status = 'skipped-protected';
+                entry.warnings.push('Protected by AUTO_BACKUP_ path component or --exclude; not read or changed.');
             } else if (stat.isDirectory()) {
                 assertNoSymlinks(source);
                 for (const name of fs.readdirSync(source).sort()) visit(path.join(source, name));
@@ -180,34 +187,35 @@ function runMigration({ input, apply = false, rename = false, backupDir, exclude
             } else if (!stat.isFile()) {
                 entry.status = 'skipped-non-file';
                 entry.warnings.push('Not a regular file; ignored.');
-            } else if (isProtected(path.basename(source), exclude)) {
-                entry.status = 'skipped-protected';
-                entry.warnings.push('Protected by AUTO_BACKUP_ prefix or --exclude; not read or changed.');
+            } else if (path.extname(source).toLowerCase() !== '.md') {
+                entry.status = 'skipped-non-conversation';
             } else {
                 const filename = convertFilename(path.basename(source));
-                if (!filename) {
-                    entry.status = 'skipped-non-conversation';
-                } else if (filename.duplicate) {
-                    entry.status = 'skipped-duplicate';
-                    entry.warnings.push('Duplicate (N) file: report only; no content or filename changes.');
-                } else if (filename.skip) {
+                if (filename?.skip) {
                     entry.status = 'skipped-non-conversation';
                     entry.warnings.push(filename.skip);
+                } else if (filename?.duplicate || /\s*\(\d+\)\.md$/i.test(path.basename(source))) {
+                    entry.status = 'skipped-duplicate';
+                    entry.warnings.push('Duplicate (N) file: report only; no content or filename changes.');
                 } else {
-                    if (path.basename(filename.target) !== filename.target || filename.target === '.' || filename.target === '..') {
-                        throw new Error(`Converter returned an unsafe filename: ${filename.target}`);
-                    }
-                    if (rename) entry.target = path.join(path.dirname(source), filename.target);
                     const original = readOriginal(source);
                     if (!isUtf8(original.bytes)) throw new Error('Source is not valid UTF-8; left untouched.');
-                    const converted = convertMarkdown(original.bytes.toString('utf8'), filename.code);
-                    entry.changes.push(...converted.changes);
+                    const converted = convertMarkdown(original.bytes.toString('utf8'), filename?.code);
                     entry.warnings.push(...converted.warnings);
-                    const contentChanged = converted.content !== original.bytes.toString('utf8');
-                    const nameChanged = entry.target !== source;
-                    if (nameChanged) entry.changes.push(`Rename: ${path.basename(source)} -> ${path.basename(entry.target)}`);
-                    entry.status = contentChanged || nameChanged ? 'planned' : 'unchanged';
-                    plans.push({ entry, original, content: converted.content, contentChanged, nameChanged });
+                    if (converted.conversation) entry.verification = converted.verification;
+                    if (!converted.conversation) {
+                        entry.status = 'skipped-non-conversation';
+                    } else if (converted.skip === 'nonsequential') {
+                        entry.status = 'skipped-nonsequential';
+                    } else {
+                        entry.changes.push(...converted.changes);
+                        const contentChanged = converted.content !== original.bytes.toString('utf8');
+                        if (rename && filename?.target) entry.target = path.join(path.dirname(source), filename.target);
+                        const nameChanged = entry.target !== source;
+                        if (nameChanged) entry.changes.push(`Rename: ${path.basename(source)} -> ${path.basename(entry.target)}`);
+                        entry.status = contentChanged || nameChanged ? 'planned' : 'unchanged';
+                        plans.push({ entry, original, content: converted.content, contentChanged, nameChanged });
+                    }
                 }
             }
         } catch (error) {
@@ -245,6 +253,25 @@ function runMigration({ input, apply = false, rename = false, backupDir, exclude
             }
         }
     }
+    function summarize() {
+        const gated = report.entries.filter(entry => ['planned', 'unchanged'].includes(entry.status) && entry.verification);
+        report.gates.files = gated.length;
+        for (const entry of gated) {
+            const verification = entry.verification;
+            if (!verification.bodyByteIdentical) report.gates.bodyFailures += 1;
+            if (verification.beforeSeparators !== verification.afterSeparators) report.gates.separatorFailures += 1;
+            if (!verification.idempotent) report.gates.idempotenceFailures += 1;
+        }
+        report.gates.bodyByteIdentical = report.gates.bodyFailures === 0;
+        report.gates.separatorCountsEqual = report.gates.separatorFailures === 0;
+        report.gates.idempotent = report.gates.idempotenceFailures === 0;
+        updateCounts();
+    }
+    function updateCounts() {
+        report.counts = Object.fromEntries([...new Set(report.entries.map(entry => entry.status))].map(status =>
+            [status, report.entries.filter(entry => entry.status === status).length]));
+    }
+    summarize();
     if (!apply) return report;
 
     // Preflight all backups as well, so an existing backup never gets overwritten.
@@ -306,6 +333,7 @@ function runMigration({ input, apply = false, rename = false, backupDir, exclude
             }
         }
     }
+    updateCounts();
     return report;
 }
 
@@ -342,7 +370,7 @@ if (require.main === module) {
     try {
         const options = parseArgs(process.argv.slice(2));
         if (options.help) {
-            console.log('Usage: node scripts/migrate-web-exports.js INPUT [--rename] [--exclude WORD[,WORD...]] [--apply --backup-dir PATH]\nDefault: dry-run, no writes. --rename plans name changes; --apply executes.\nFiles starting with AUTO_BACKUP_ or whose name contains an --exclude word are never read or changed.\nContent-only apply is portable; applying renames requires Windows.\n--help / --version do not scan or write files.');
+            console.log('Usage: node scripts/migrate-web-exports.js INPUT [--rename] [--exclude WORD[,WORD...]] [--apply --backup-dir PATH]\nDefault: dry-run, no writes. --rename plans name changes; --apply executes.\nMarkdown is selected by content. --exclude matches relative paths; AUTO_BACKUP_ path components are never read or changed.\nReports include separator counts, body byte equality, second-pass idempotence and aggregate gates.\nContent-only apply is portable; applying renames requires Windows.\n--help / --version do not scan or write files.');
         } else if (options.version) {
             console.log(VERSION);
         } else {
@@ -351,8 +379,14 @@ if (require.main === module) {
             for (const entry of report.entries) {
                 console.log(`[${entry.status}] ${entry.source}${entry.target !== entry.source ? ` -> ${entry.target}` : ''}`);
                 for (const change of entry.changes) console.log(`  change: ${change}`);
+                if (entry.verification) {
+                    const verification = entry.verification;
+                    console.log(`  verification: separators ${verification.beforeSeparators} -> ${verification.afterSeparators}; bodyByteIdentical=${verification.bodyByteIdentical}; idempotent=${verification.idempotent}`);
+                }
                 for (const warning of entry.warnings) console.log(`  warning: ${warning}`);
             }
+            console.log(`Counts: ${JSON.stringify(report.counts)}`);
+            console.log(`Gates: ${JSON.stringify(report.gates)}`);
             if (report.errors.length) process.exitCode = 1;
         }
     } catch (error) {

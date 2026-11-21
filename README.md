@@ -38,9 +38,9 @@ API／DOM／COM 共用閱讀格式：檔頭只列對話時間範圍與網址；�
 - 網站內部 API、頁面結構可能改版。未知內容、歷史不完整、分支不明或來源失敗會以警告呈現；訊息 ID／角色／順序對上，不等於正文逐字相同或未知元件完整。
 - ChatGPT 綜合匯出只核對 API 訊息結構，不做 API 與 DOM 正文逐字比對。未配對 API 內容另列待確認，不混入正式正文。
 
-### 舊網頁匯出檔轉換
+### 舊對話檔轉換
 
-本機工具 `scripts/migrate-web-exports.js` 將四站舊 API／DOM／COM／COMBINED 檔案轉為目前格式。先自行指定資料夾預覽，確認摘要與改名清單後才套用：
+本機工具 `scripts/migrate-web-exports.js` 依 Markdown 內容辨識網頁匯出與本機 Skill 歸檔，不限四站檔名，也涵蓋任務資料夾的 `conversation.md`。先指定資料夾預覽，確認每檔驗證與摘要後才套用：
 
 ```sh
 node scripts/migrate-web-exports.js "D:/Exports" --rename
@@ -48,12 +48,15 @@ node scripts/migrate-web-exports.js "D:/Exports" --apply --backup-dir "D:/Export
 node scripts/migrate-web-exports.js "D:/Exports" --apply --rename --backup-dir "D:/Export-Backups/rename"
 ```
 
-- `--exclude 詞1,詞2` 排除檔名含這些詞的檔案，`AUTO_BACKUP_` 開頭的檔案一律排除；被排除的檔案不讀取、不轉換、不改名。
+- `--exclude 詞1,詞2` 比對相對路徑（含父資料夾）；`AUTO_BACKUP_` 開頭的檔案／資料夾一律排除。排除範圍不讀取、不轉換、不改名。
 - 預設 dry-run；`--rename` 只把改名加入計畫，沒有 `--apply` 不會寫入。`--apply` 單獨使用只轉內容；加 `--rename` 才同時改名。
 - 套用前備份原始位元組到指定資料夾，保留相對路徑；備份資料夾須在來源之外，既有備份不覆寫。請先關閉可能同時修改來源的程式。
 - 套用改名需 Windows PowerShell，使用 [.NET `File.Move` 的不覆寫版本](https://learn.microsoft.com/en-us/dotnet/api/system.io.file.move)；其他平台僅支援 dry-run 與內容轉換，不退回會覆寫目標的改名方式。
 - 目標已存在或多檔指向同一名稱時，整檔跳過；`(1)` 等重複檔只列報告，不刪除。catalog 與筆記中指向舊檔名的連結不會自動更新。
-- 僅辨識的匯出中繼資料、佔位字及 Gemini 引用標記會轉換；程式碼區塊與一般正文保留。合成回歸：`node tests/check-web-export-migration.js`。真實封存資料由使用者自行執行，測試不讀取個人對話。
+- 舊 User／USER 與 Model／MODEL／ASSISTANT／Assistant／ChatGPT／Grok／Perplexity 分隔轉為 `# User N`／`# Model N`，各自編號。只接受從 1 起連續的各角色編號或全域編號；不連續時整檔跳過。無編號 User 可轉換，未知分隔保留並列警告。
+- 正文程式碼外的一級標題降為二級；移除網頁「來源網站」檔頭，Skill 的原有檔頭與歸檔註解保留。BOM、換行格式及程式碼字面內容保留；沒有可辨識對話分隔的普通筆記不轉換。
+- 每檔回報轉換前／後分隔數、去除分隔／生成檔頭／標題井號後的正文位元組比較，以及對預覽結果再轉一次的冪等性。既有網頁中繼資料、佔位字或 Gemini 引用轉換若改變正文，位元組關卡會如實失敗；不得當作無損改版。
+- 合成回歸：`node tests/check-web-export-migration.js`、`node tests/check-conversation-conversion.js`、`node tests/check-migration-selection.js`。真實資料的預覽報告留在私人暫存，不加入版本庫；未經明確核准不套用。
 
 ## 本機 Agent Skill
 
