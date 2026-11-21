@@ -55,7 +55,7 @@ node scripts/migrate-web-exports.js "D:/Exports" --apply --rename --backup-dir "
 - 目標已存在或多檔指向同一名稱時，整檔跳過；`(1)` 等重複檔只列報告，不刪除。catalog 與筆記中指向舊檔名的連結不會自動更新。
 - 舊 User／USER 與 Model／MODEL／ASSISTANT／Assistant／ChatGPT／Grok／Perplexity 分隔轉為 `# User N`／`# Model N`，各自編號。只接受從 1 起連續的各角色編號或全域編號；不連續時整檔跳過。無編號 User 可轉換，未知分隔保留並列警告。
 - 正文程式碼外的一級標題降為二級；移除網頁「來源網站」檔頭，Skill 的原有檔頭與歸檔註解保留。BOM、換行格式及程式碼字面內容保留；沒有可辨識對話分隔的普通筆記不轉換。
-- 每檔回報轉換前／後分隔數、去除分隔／生成檔頭／標題井號後的正文位元組比較，以及對預覽結果再轉一次的冪等性。既有網頁中繼資料、佔位字或 Gemini 引用轉換若改變正文，位元組關卡會如實失敗；不得當作無損改版。
+- 每檔回報轉換前／後分隔數、正文位元組比較，以及對預覽結果再轉一次的冪等性。正文比較兩側共用轉換器的中繼資料規則，排除生成檔頭、逐則時間及 Gemini 程式碼外引用等允許變更，再去掉分隔／標題井號；其餘正文、空白、BOM、換行與程式碼仍逐位元比較，少一個字也會失敗。
 - 合成回歸：`node tests/check-web-export-migration.js`、`node tests/check-conversation-conversion.js`、`node tests/check-migration-selection.js`。真實資料的預覽報告留在私人暫存，不加入版本庫；未經明確核准不套用。
 
 ## 本機 Agent Skill

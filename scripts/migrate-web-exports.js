@@ -5,7 +5,7 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { isUtf8 } = require('node:buffer');
 
-const VERSION = '1.0.2';
+const VERSION = '1.0.3';
 const LINK_REMINDER = '提醒：catalog 與筆記中指向舊檔名的連結不會自動更新。';
 const NO_FOLLOW = fs.constants.O_NOFOLLOW || 0;
 

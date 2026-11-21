@@ -56,8 +56,8 @@ try {
     assert.equal(byRelative.has(path.join('private', 'conversation.md')), false);
     assert.equal(byRelative.has(path.join('AUTO_BACKUP_old', 'conversation.md')), false);
     assert.equal(report.gates.files, 5);
-    assert.equal(report.gates.bodyByteIdentical, false, 'citation rewriting must not be called lossless');
-    assert.equal(report.gates.bodyFailures, 1);
+    assert.equal(report.gates.bodyByteIdentical, true, 'authorized citation removal preserves the remaining body');
+    assert.equal(report.gates.bodyFailures, 0);
     assert.equal(report.gates.separatorCountsEqual, true);
     assert.equal(report.gates.idempotent, true);
     assert.equal(report.counts['skipped-nonsequential'], 1);

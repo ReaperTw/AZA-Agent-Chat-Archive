@@ -89,43 +89,22 @@ function sequenceIsValid(dividers) {
     return global || byRole;
 }
 
-const headerField = /^>\s*\*\*(?:來源網站|網址|對話時間(?:（未定位）)?|API\s*時間|時間|匯出來源|核對結果|擷取方式|不完整)\*\*[：:]/;
-const timestampField = /^>\s*(?:\*\*)?(?:對話時間(?:（未定位）)?|API\s*時間|時間)(?:\*\*)?[：:]\s*(?:\d{4}[-/.年]\d{1,2}[-/.月]\d{1,2}|(?:上午|下午)?\d{1,2}:\d{2})/;
-
-// Retain exact body bytes: no trimming, whitespace collapsing or newline conversion.
-function bodyBytes(content, skill) {
+// Use the converter's metadata rules on both sides; retain all remaining bytes.
+function bodyBytes(content, skill, code) {
+    if (!skill) content = convertWebMarkdown(content, code, { includeHeader: false }).content;
     const bom = content.startsWith('\uFEFF') ? '\uFEFF' : '';
     const lines = tokenize(bom ? content.slice(1) : content);
     const dividers = dividersIn(lines), removed = new Set();
-    const first = dividers[0]?.index ?? lines.length;
-    if (!skill) {
-        let warning = false, generated = false;
-        for (let i = 0; i < first; i++) {
-            if (lines[i].protected) continue;
-            if (headerField.test(lines[i].text)) { removed.add(i); generated = true; warning = false; }
-            else if (/^>\s*\*\*(?:注意|匯出不完整|匯出注意事項|內容提示|相對時間提醒|相對時間說明)\*\*/.test(lines[i].text)) {
-                removed.add(i); generated = true; warning = true;
-            } else if (warning && /^>/.test(lines[i].text)) removed.add(i);
-        }
-        if (generated) for (let i = 0; i < first; i++) {
-            if (lines[i].text === '' || lines[i].text === '>') removed.add(i);
-        }
-    }
     for (const divider of dividers) {
         removed.add(divider.index);
         if (lines[divider.index + 1]?.text === '') removed.add(divider.index + 1);
     }
-    if (!skill) for (let i = first; i < lines.length; i++) {
-        if (lines[i].protected || !timestampField.test(lines[i].text)) continue;
-        let previous = i - 1, next = i + 1;
-        while (previous >= 0 && lines[previous].text === '') previous--;
-        while (next < lines.length && lines[next].text === '') next++;
-        if (!dividerFor(lines[previous]?.text || '') && !dividerFor(lines[next]?.text || '')) continue;
-        removed.add(i);
-        if (lines[i + 1]?.text === '') removed.add(i + 1);
-    }
     return Buffer.from(bom + lines.map((line, index) => removed.has(index) ? '' :
         line.protected ? line.raw : line.raw.replace(/^( {0,3})#{1,6}(?= )/, '$1')).join(''), 'utf8');
+}
+
+function compareConversationBodies(before, after, { skill = false, code } = {}) {
+    return bodyBytes(before, skill, code).equals(bodyBytes(after, skill, code));
 }
 
 function convertMarkdown(content, code, checkingIdempotence = false) {
@@ -172,11 +151,11 @@ function convertMarkdown(content, code, checkingIdempotence = false) {
     return { content: result, changes: result === original ? [] : [...new Set(changes)],
         warnings: [...new Set([...warnings, ...converted.warnings])], conversation,
         verification: { beforeSeparators: dividers.length, afterSeparators,
-            bodyByteIdentical: bodyBytes(original, skill).equals(bodyBytes(result, skill)),
+            bodyByteIdentical: compareConversationBodies(original, result, { skill, code }),
             idempotent: checkingIdempotence || convertMarkdown(result, code, true).content === result } };
 }
 
-function convertWebMarkdown(content, code) {
+function convertWebMarkdown(content, code, { includeHeader = true } = {}) {
     const bom = content.startsWith('\uFEFF') ? '\uFEFF' : '';
     const lines = tokenize(bom ? content.slice(1) : content);
     const newline = content.includes('\r\n') ? '\r\n' : '\n';
@@ -184,7 +163,6 @@ function convertWebMarkdown(content, code) {
     const removed = new Set(), replacements = new Map();
     const times = [], notes = [], existingReasons = [];
     let site = '', url = '', fallback = '', sawMessage = false;
-    const heading = /^# (User|Model) \d+[ \t]*$/;
     const headerIndices = [], metadata = [];
     const replace = (index, text, summary) => {
         const end = /\r?\n$/.exec(lines[index].raw)?.[0] || '';
@@ -195,7 +173,7 @@ function convertWebMarkdown(content, code) {
         const line = lines[i];
         if (line.protected) continue;
         const text = line.text;
-        if (heading.test(text)) { sawMessage = true; continue; }
+        if (dividerFor(text)) { sawMessage = true; continue; }
         const field = /^>\s*\*\*(來源網站|網址|對話時間(?:（未定位）)?|API\s*時間|時間|匯出來源|核對結果|擷取方式|不完整)\*\*[：:]\s*(.*)$/.exec(text)
             || /^>\s*(API\s*時間|時間)[：:]\s*(.*)$/.exec(text);
         if (field) {
@@ -210,7 +188,7 @@ function convertWebMarkdown(content, code) {
                 let previous = i - 1, next = i + 1;
                 while (previous >= 0 && lines[previous].text === '') previous--;
                 while (next < lines.length && lines[next].text === '') next++;
-                if (sawMessage && !heading.test(lines[previous]?.text || '') && !heading.test(lines[next]?.text || '')) continue;
+                if (sawMessage && !dividerFor(lines[previous]?.text || '') && !dividerFor(lines[next]?.text || '')) continue;
                 if (sawMessage && !/^(?:\d{4}[-/.年]\d{1,2}[-/.月]\d{1,2}|(?:上午|下午)?\d{1,2}:\d{2})/.test(value)) continue;
                 if (/[–—]|\s-\s/.test(value)) fallback ||= value;
                 else if (value) times.push({ time: value });
@@ -263,8 +241,8 @@ function convertWebMarkdown(content, code) {
     const metadataGroups = new Map();
     for (const item of metadata) {
         let start = item.start, end = item.end + 1;
-        while (start > 0 && !(!lines[start - 1].protected && heading.test(lines[start - 1].text))) start--;
-        while (end < lines.length && (lines[end].protected || !heading.test(lines[end].text))) end++;
+        while (start > 0 && !(!lines[start - 1].protected && dividerFor(lines[start - 1].text))) start--;
+        while (end < lines.length && (lines[end].protected || !dividerFor(lines[end].text))) end++;
         if (!metadataGroups.has(start)) metadataGroups.set(start, { start, end, items: [] });
         metadataGroups.get(start).items.push(item);
     }
@@ -297,7 +275,7 @@ function convertWebMarkdown(content, code) {
     }
     const header = helpers.buildComHeader({ site, url, time: helpers.formatTimeRange(times, fallback), incompleteReasons: reasons }).replace(/\n/g, newline);
     const body = lines.map((line, index) => removed.has(index) ? '' : replacements.get(index) ?? line.raw).join('');
-    let result = bom + header + body;
+    let result = bom + (includeHeader ? header : '') + body;
     if (code === 'GEM') {
         const cleaned = tokenize(result).map(line => line.protected ? line.raw : helpers.stripGeminiCiteMarkers(line.raw)).join('');
         if (cleaned !== result) changes.add('Remove Gemini citation tokens outside code');
@@ -307,4 +285,4 @@ function convertWebMarkdown(content, code) {
     return { content: result, changes: result === content ? [] : [...changes], warnings: [...new Set(warnings)] };
 }
 
-module.exports = { convertMarkdown, convertFilename };
+module.exports = { convertMarkdown, convertFilename, compareConversationBodies };
