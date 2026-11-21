@@ -2,7 +2,7 @@
 name: AZA-Agent-Chat-Archive
 description: Archive current or selected local agent conversations; list or recover saved tasks. Supports Antigravity desktop and CLI, Codex, Grok Build, Command Code, OMP task bundles with subagents, Claude Code, and Hermes including Discord Gateway sessions.
 metadata:
-  version: "1.6.0"
+  version: "1.6.1"
 ---
 
 # AZA-Agent-Chat-Archive

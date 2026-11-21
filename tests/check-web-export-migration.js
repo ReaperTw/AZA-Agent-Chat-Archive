@@ -28,7 +28,7 @@ const legacy = site => [
         const userBody = converted.content.split('--- [User 1] ---')[1]?.split('--- [Model 1] ---')[0];
         assert.equal(userBody?.trim(), 'Synthetic question', `${code}: removing metadata leaves the same user body`);
         assert(converted.content.includes('> **對話時間**：2026/11/8 下午6:04:06 – 下午6:15:27'), `${code}: range`);
-        assert(converted.content.includes(`> **來源網站**：${site}`));
+        assert(!converted.content.includes('> **來源網站**：'), `${code}: current header omits site`);
         assert(converted.content.includes('> **網址**：https://example.test/chat\n'));
         assert(converted.content.includes('> **不完整**：'));
         assert(!converted.content.includes('相對時間僅供提示'));

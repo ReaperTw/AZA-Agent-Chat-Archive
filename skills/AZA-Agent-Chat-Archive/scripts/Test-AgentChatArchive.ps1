@@ -48,6 +48,21 @@ try {
     Assert-True ($codexText -match 'Codex visible' -and $codexText -match 'Codex reply') 'Codex visible messages missing'
     Assert-True ($codexText -notmatch 'secret|secret-tool') 'Codex internal content leaked'
 
+    $headingBody = (@('# Body', '````md', '# fenced', '```', '# still fenced', '````', '~~~text', '# tilde', '~~~', '    # indented', '# End') -join "`n")
+    Write-JsonLines $codexPath @(
+        [ordered]@{ timestamp = '2026-08-13T01:00:00Z'; type = 'session_meta'; payload = [ordered]@{ id = $codexId; cwd = 'C:\Work\CodexRepo'; timestamp = '2026-08-13T01:00:00Z' } },
+        [ordered]@{ type = 'response_item'; payload = [ordered]@{ type = 'message'; role = 'user'; content = @([ordered]@{ type = 'input_text'; text = $headingBody }) } },
+        [ordered]@{ type = 'response_item'; payload = [ordered]@{ type = 'message'; role = 'assistant'; content = @([ordered]@{ type = 'output_text'; text = '# Answer' }) } },
+        [ordered]@{ type = 'response_item'; payload = [ordered]@{ type = 'message'; role = 'assistant'; content = @([ordered]@{ type = 'output_text'; text = 'Second answer' }) } },
+        [ordered]@{ type = 'response_item'; payload = [ordered]@{ type = 'message'; role = 'user'; content = @([ordered]@{ type = 'input_text'; text = 'Second prompt' }) } }
+    )
+    $headingResult = @(& $exporter -Harness Codex -SessionPath $codexPath -ConfigPath $configPath)
+    $headingText = Get-Content -LiteralPath $codexExport -Raw -Encoding UTF8
+    $expectedBody = $headingBody.Replace('# Body', '## Body').Replace('# End', '## End')
+    Assert-True ($headingText.Contains("# User 1`r`n`r`n$expectedBody")) 'Body heading demotion changed fenced or indented code'
+    Assert-True ($headingText.Contains("# Model 1`r`n`r`n## Answer") -and $headingText.Contains("# Model 2`r`n`r`nSecond answer") -and $headingText.Contains("# User 2`r`n`r`nSecond prompt")) 'Role numbering or blank separator line mismatch'
+    Assert-True (($headingText -split '# User 1', 2)[0] -ceq ($codexText -split '# User 1', 2)[0]) 'Heading cutover changed archive metadata'
+
     $grokId = '22222222-2222-4222-8222-222222222222'
     $grokHome = Join-Path $testRoot 'grok'
     $grokDir = Join-Path $grokHome "sessions\encoded\$grokId"

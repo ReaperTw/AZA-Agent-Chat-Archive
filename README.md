@@ -71,6 +71,8 @@ node scripts/migrate-web-exports.js "D:/Exports" --apply --rename --backup-dir "
 
 Skill 只匯出可見對話，不保存隱藏推理、工具活動或引用檔案；OMP 會將主對話及可取得的 subagent 對話保存為任務資料夾。它不是來源工作階段或完整檔案備份。
 
+本機 Skill 與網頁端同樣使用 `# User N`／`# Model N`（各自編號），正文的非程式碼一級標題降為二級；原有歸檔註解及 Harness、來源資料夾等檔頭保留。合成驗證：`powershell -NoProfile -ExecutionPolicy Bypass -File skills/AZA-Agent-Chat-Archive/scripts/Test-AgentChatArchive.ps1` 與 `python skills/AZA-Agent-Chat-Archive/scripts/Export-HermesChat.py --self-test`，含列出、搬移後重新歸檔及 OMP bundle 流程。
+
 ## 開發與驗收
 
 四站共用的輸出格式見[輸出規範](docs/OUTPUT_SPEC.md)。解析契約、三來源核對方式及已知驗證範圍，請見[匯出驗收規格](docs/EXPORT_VALIDATION.md)；修改本專案前先讀 [AGENTS.md](AGENTS.md)。

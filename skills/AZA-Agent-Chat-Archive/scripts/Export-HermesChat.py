@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -115,6 +116,22 @@ def read_export(path: Path) -> dict:
     return data
 
 
+def demote_body_headings(text: str) -> str:
+    fence = ""
+    lines = []
+    for line in text.splitlines(keepends=True):
+        marker = re.match(r"^ {0,3}(`{3,}|~{3,})([^\r\n]*)", line)
+        if fence:
+            if marker and marker[1][0] == fence[0] and len(marker[1]) >= len(fence) and not marker[2].strip():
+                fence = ""
+        elif marker:
+            fence = marker[1]
+        else:
+            line = re.sub(r"^( {0,3})# ", r"\1## ", line)
+        lines.append(line)
+    return "".join(lines)
+
+
 def render_markdown(data: dict) -> tuple[str, int]:
     started = parse_time(data.get("started_at"))
     lines = [
@@ -138,7 +155,7 @@ def render_markdown(data: dict) -> tuple[str, int]:
             heading, model_index = f"Model {model_index}", model_index + 1
         else:
             heading, user_index = f"User {user_index}", user_index + 1
-        lines.extend([f"--- [{heading}] ---", text, ""])
+        lines.extend([f"# {heading}", "", demote_body_headings(text), ""])
         visible_count += 1
     return "\n".join(lines).rstrip() + "\n", visible_count - 1
 
@@ -227,12 +244,25 @@ def self_test() -> None:
         markdown = path.read_text(encoding="utf-8-sig")
         assert count == 2 and "hello" in markdown and "visible-part" in markdown
         assert "secret-tool" not in markdown and "secret-system" not in markdown and "secret-payload" not in markdown
+        body = "# Body\n````md\n# fenced\n```\n# still fenced\n````\n~~~text\n# tilde\n~~~\n    # indented\n# End"
+        data["messages"] = [
+            {"role": "user", "content": body},
+            {"role": "assistant", "content": "# Answer"},
+            {"role": "assistant", "content": "Second answer"},
+            {"role": "user", "content": "Second prompt"},
+        ]
+        updated, count = render_markdown(data)
+        expected = body.replace("# Body", "## Body").replace("# End", "## End")
+        assert f"# User 1\n\n{expected}\n" in updated
+        assert "# Model 1\n\n## Answer" in updated and "# Model 2\n\nSecond answer" in updated and "# User 2\n\nSecond prompt" in updated
+        assert updated.split("# User 1")[0] == markdown.split("# User 1")[0]
+        assert count == 4
         moved = root_path / "out" / "elsewhere" / "kept.md"
         moved.parent.mkdir()
         path.replace(moved)
         again, _ = save_markdown(data, config, None)
         assert again == moved.resolve()
-    print("HERMES_SELF_TEST_OK checks=4")
+    print("HERMES_SELF_TEST_OK checks=8")
 
 
 def main() -> None:

@@ -607,6 +607,22 @@ function Export-SessionRecord {
     }
 }
 
+function Convert-BodyHeadings {
+    param([string]$Text)
+    $state = @{ Fence = '' }
+    return [regex]::Replace($Text, '(?m)^[^\r\n]*', {
+        param($lineMatch)
+        $line = $lineMatch.Value
+        $marker = [regex]::Match($line, '^\s{0,3}(`{3,}|~{3,})(.*)$')
+        if ($state.Fence) {
+            if ($marker.Success -and $marker.Groups[1].Value[0] -eq $state.Fence[0] -and $marker.Groups[1].Length -ge $state.Fence.Length -and -not $marker.Groups[2].Value.Trim()) { $state.Fence = '' }
+            return $line
+        }
+        if ($marker.Success) { $state.Fence = $marker.Groups[1].Value; return $line }
+        return [regex]::Replace($line, '^( {0,3})# ', '$1## ')
+    }.GetNewClosure())
+}
+
 function ConvertTo-ArchiveMarkdown {
     param($Record)
     $culture = [Globalization.CultureInfo]::GetCultureInfo('zh-TW')
@@ -628,8 +644,9 @@ function ConvertTo-ArchiveMarkdown {
             $heading = "User $userIndex"
             $userIndex++
         }
-        [void]$builder.AppendLine("--- [$heading] ---")
-        [void]$builder.AppendLine($message.Text.Trim())
+        [void]$builder.AppendLine("# $heading")
+        [void]$builder.AppendLine()
+        [void]$builder.AppendLine((Convert-BodyHeadings $message.Text.Trim()))
         [void]$builder.AppendLine()
     }
     return ($builder.ToString().TrimEnd() + "`r`n")
