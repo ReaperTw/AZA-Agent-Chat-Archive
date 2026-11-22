@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         GYC - Gemini
 // @namespace    https://github.com/ReaperTw/AZA-Agent-Chat-Archive
-// @version      1.4.20
-// @description  Grab Your Chat - Gemini 端對話匯出器；最後更新於 20261119
+// @version      1.4.21
+// @description  Grab Your Chat - Gemini 端對話匯出器；最後更新於 20261122
 // @updateURL    https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-gemini.user.js
 // @downloadURL  https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-gemini.user.js
 // @match        https://gemini.google.com/*
@@ -283,11 +283,22 @@ function readGeminiQueryLine(line) {
 function renderElicitations(text, latest) {
     const decode = value => value.replace(/&(amp|quot|apos|lt|gt|#39);/g, (_, name) => ({ amp: '&', quot: '"', apos: "'", lt: '<', gt: '>', '#39': "'" })[name]);
     const label = value => decode(value).replace(/([\\`*_{}[\]<>#+.!|~-])/g, '\\$1');
-    text = text.replace(/(`{3,})[\s\S]*?\1|(~{3,})[\s\S]*?\2|(`+)[^\n]*?\3|^ {0,3}<FollowUp label="([^"]*)" query="[^"]*"\s*\/>[ \t]*$/gm,
-        (raw, fence, tilde, code, value) => value === undefined ? raw : label(value));
-    const group = /\n?<ElicitationsGroup message="([^"]*)">\s*((?:<Elicitation label="[^"]*" query="[^"]*"\s*\/>\s*)+)<\/ElicitationsGroup>\s*$/.exec(text);
+    const attributes = String.raw`(?:\s+[\w:-]+\s*=\s*(?:"[^"]*"|'[^']*'))*\s*`;
+    const readAttributes = source => Object.fromEntries([...source.matchAll(/([\w:-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g)]
+        .map(match => [match[1], match[2] ?? match[3]]));
+    const followUp = new RegExp('(`{3,})[\\s\\S]*?\\1|(~{3,})[\\s\\S]*?\\2|(`+)[^\\n]*?\\3|^ {0,3}<FollowUp(' + attributes + ')/>[ \\t]*$', 'gm');
+    text = text.replace(followUp, (raw, fence, tilde, code, value) => {
+        if (value === undefined) return raw;
+        const attrs = readAttributes(value);
+        return attrs.label === undefined || attrs.query === undefined ? raw : label(attrs.label);
+    });
+    const item = '<Elicitation(' + attributes + ')/>';
+    const group = new RegExp('(?:^|\\n) {0,3}<ElicitationsGroup(' + attributes + ')>\\s*((?:' + item + '\\s*)+)</ElicitationsGroup>\\s*$').exec(text);
     if (!group || markdown.lexer(text).some(token => token.type === 'code' && token.raw.includes(group[0].trim()))) return text;
-    const labels = [group[1], ...[...group[2].matchAll(/<Elicitation label="([^"]*)"/g)].map(match => match[1])];
+    const attrs = readAttributes(group[1]);
+    const items = [...group[2].matchAll(new RegExp(item, 'g'))].map(match => readAttributes(match[1]));
+    if (attrs.message === undefined || items.some(item => item.label === undefined || item.query === undefined)) return text;
+    const labels = [attrs.message, ...items.map(item => item.label)];
     const visible = latest ? labels.map(label).join('\n\n') : '';
     return text.slice(0, group.index).trimEnd() + (visible ? '\n\n' + visible : '');
 }
@@ -386,7 +397,7 @@ function parseGeminiApiData(rawTurns) {
                 }
             }
             const prefix = isAlt ? `**候選回答 ${index + 1}（目前選取未確認）**\n\n` : '';
-            return { text: prefix + text, comparisonBody: prefix + (hasText ? renderElicitations(renderProductGrids(comparisonBody, candidate, warnings), turn === rawTurns[0]) : '') };
+            return { text: prefix + (hasText ? renderElicitations(text, turn === rawTurns[0]) : text), comparisonBody: prefix + (hasText ? renderElicitations(renderProductGrids(comparisonBody, candidate, warnings), turn === rawTurns[0]) : '') };
         });
         if (answers.length) turns.push({ type: 'ai', text: answers.map(answer => answer.text).join('\n\n---\n\n'), comparisonBody: answers.map(answer => answer.comparisonBody).join('\n\n---\n\n'), visibleText: answers.map(answer => answer.comparisonBody || answer.text).join('\n\n---\n\n'), citations: citations.length ? citations : null, attachments, timestamp, dateStr, isAlt });
     }
@@ -1530,7 +1541,7 @@ if (typeof document !== 'undefined') {
 
             const fab = document.createElement('button');
             fab.textContent = '✦';
-            fab.title = 'AZA-Agent-Chat-Archive - Gemini 1.4.20';
+            fab.title = 'AZA-Agent-Chat-Archive - Gemini 1.4.21';
             fab.setAttribute('aria-label', fab.title);
             Object.assign(fab.style, {
                 width: '56px',

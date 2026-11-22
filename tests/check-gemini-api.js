@@ -123,6 +123,23 @@ const tokens = { SNlM0e: 'token', cfb2h: 'build', FdrFJe: 'session' };
     assert(equivalent('$\\vert{}x\\vert{}$', '$|x|$'));
     assert(equivalent('> $$a\n> b$$', '$a > b$'), 'math sees quote characters before Markdown');
     assert(equivalent('```tex\n$$x$$\n```', '$$x$$'), 'math syntax in code stays literal');
+    const liveControl = '<ElicitationsGroup data-kind="suggestion" message="Explore Live" extra="a > b"><Elicitation query_intent="OPEN_LIVE_MODE" label="Try Live" query="Hidden action" extra="ignored"/></ElicitationsGroup>';
+    const oldLive = turn(15), latestLive = turn(16);
+    oldLive[3][0][0][1][0] = 'Earlier\n\n' + liveControl;
+    latestLive[3][0][0][1][0] = 'Latest\n\n' + liveControl;
+    const liveMessages = parseGeminiApiData([latestLive, oldLive]).turns.map(t => ({ ...t, role: t.type === 'user' ? 'user' : 'assistant' }));
+    const liveDom = [
+        { role: 'user', text: 'question-15' }, { role: 'assistant', text: 'Earlier' },
+        { role: 'user', text: 'question-16' }, { role: 'assistant', text: 'Latest\nExplore Live\nTry Live' }
+    ];
+    const liveCombined = buildIntegratedMarkdown(liveMessages, liveDom);
+    assert.equal(liveCombined.counts.conflicts, 0, 'extra and reordered attributes do not expose raw controls');
+    assert(!liveCombined.content.includes('<ElicitationsGroup'));
+    assert(!liveCombined.content.includes('Hidden action'));
+    const liveApi = renderGeminiApiMarkdown(liveMessages);
+    assert(!liveApi.includes('<ElicitationsGroup'), 'API downloads render the same visible control labels');
+    assert(liveApi.includes('Explore Live') && liveApi.includes('Try Live'));
+    assert(!liveApi.includes('Hidden action'));
     const followups = '<ElicitationsGroup message="Explore &amp; learn">\n  <Elicitation label="A *literal* label" query="Hidden click payload"/>\n</ElicitationsGroup>';
     const oldFollowup = turn(8), latestFollowup = turn(9);
     oldFollowup[3][0][0][1][0] = 'Earlier answer\n' + followups;
@@ -137,12 +154,24 @@ const tokens = { SNlM0e: 'token', cfb2h: 'build', FdrFJe: 'session' };
     assert(combinedActions.includes('A \\*literal\\* label'));
     assert(!combinedActions.includes('Hidden click payload'));
     assert(!combinedActions.includes('<ElicitationsGroup'));
-    assert(renderGeminiApiMarkdown(actions).includes(followups), 'standalone API retains original source');
+    assert(renderGeminiApiMarkdown(actions).includes('A \\*literal\\* label'), 'standalone API retains visible labels');
+    assert(!renderGeminiApiMarkdown(actions).includes('Hidden click payload'), 'standalone API excludes hidden action payloads');
     const literalAction = turn(10);
     literalAction[3][0][0][1][0] = '```xml\n' + followups + '\n```';
     assert.equal(parseGeminiApiData([literalAction]).turns[1].comparisonBody, literalAction[3][0][0][1][0], 'code examples are not follow-up controls');
     literalAction[3][0][0][1][0] = 'Unknown\n<ElicitationsGroup message="Keep"><Other/></ElicitationsGroup>';
     assert.equal(parseGeminiApiData([literalAction]).turns[1].comparisonBody, literalAction[3][0][0][1][0], 'unknown widgets remain diagnosable');
+    for (const literal of [
+        '```xml\n' + liveControl + '\n```',
+        'Example\n\n    ' + liveControl,
+        'Mention ' + liveControl,
+        '<ElicitationsGroup message="Keep"><Elicitation query="unknown"/></ElicitationsGroup>'
+    ]) {
+        literalAction[3][0][0][1][0] = literal;
+        const preserved = parseGeminiApiData([literalAction]).turns[1];
+        assert.equal(preserved.comparisonBody, literal, 'code, inline examples and unknown controls stay literal');
+        assert.equal(preserved.text, literal);
+    }
     assert(equivalent('*common standard**s** of beauty*', 'common standards of beauty'), 'nested strong inside emphasis');
     assert(!equivalent('*common standard**s** of beauty*', 'common standard of beauty'), 'the emphasized suffix is not discarded');
     const singleFollowup = '<FollowUp label="A &amp; *literal* choice" query="Private click query"/>';

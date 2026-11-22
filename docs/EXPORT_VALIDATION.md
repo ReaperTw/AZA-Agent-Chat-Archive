@@ -58,6 +58,8 @@ Gemini 1.4.13：依實測同時辨識網頁與檔案引用的來源欄位；僅�
 
 Gemini 1.4.14：離散作業即時樣本重現兩筆差異，1.4.8 比較器對目前資料也會失敗。修正使用者行文字擷取：只移除具體辨識的模板外層空白節點，不再依字串首尾空格刪字，因此保留純空白行及原始縮排。移除區塊引用中把中文粗體強制當成字面星號的舊特判；跳脫星號仍保留。原站 API／正常／獨立 DOM 各 118 則、正文差異降為 0，回合 ID／目前分支／歷史讀盡均確認；20 則已確認純圖片訊息保留位置，圖片本體未嵌入。引用與處理進度 metadata 未獨立驗證。既有 API／整合回歸通過，新增 `tests/check-gemini-dom.html` 以實際 DOM 驗證 7 種純空白、縮排、模板包裝與清單行情境。
 
+Gemini 1.4.21：以本機已存綜合檔及報告中的三組 API／DOM 差異文字重播（訊息索引 1／2／16），衝突由 3 降至 0，重播綜合正文不含 `ElicitationsGroup` 原始標記；私人文字僅在記憶體處理，未另存。兩組 Model 文字在移除舊回答未顯示的已識別介面元件後即相符；User 另有行緣空白差異。此為舊檔雙版本重播，不是重新取得 18 則完整 API／正常匯出／獨立 DOM，也未重新確認即時歷史、分支及 metadata。DOM 合成 fixture 在隔離無頭 Brave 驗證粗體、清單、DOM-only 匯出、程式碼空白與可見追問標籤；未完成登入頁面三來源驗收。
+
 ## 回歸與瀏覽器驗證
 
 在專案根目錄執行對應回歸：`node tests/check-chatgpt-api.js`、`node tests/check-integrated-export.js`、`node tests/check-gemini-api.js`、`node tests/check-claude-export.js`、`node tests/check-claude-combined.js`、`node tests/check-grok-api.js`、`node tests/check-grok-combined.js`。這些合成資料檢查不證明真實頁面完整。
