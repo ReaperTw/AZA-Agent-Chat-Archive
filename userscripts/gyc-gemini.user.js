@@ -105,7 +105,19 @@
         const normalizeLiteral = text => String(text ?? '').replace(/\r\n?/g, '\n').replace(/\u00a0/g, ' ').trim();
         const normalize = text => normalizeLiteral(text).replace(/[ \t]+\n/g, '\n').replace(/\n(?:[ \t]*\n)+/g, '\n');
         if (message.role === 'user') {
-            return { body: normalizeLiteral(message.comparisonBody ?? message.text), citations, attachments };
+            // User prose is literal, not Markdown; protect code blocks before
+            // folding layout-only line tails and paragraph spacing.
+            const values = [];
+            let prefix = 'GYC_USER_CODE_';
+            const text = String(message.comparisonBody ?? message.text ?? '');
+            while (text.includes(prefix)) prefix += '_';
+            const prose = markdown.lexer(text).map(token => {
+                if (token.type !== 'code') return token.raw;
+                values.push(token.raw);
+                return `${prefix}${values.length - 1}_END\n`;
+            }).join('');
+            const body = normalize(prose.replace(/^ {1,3}(?=\S)/gm, '')).replace(new RegExp(`${prefix}(\\d+)_END`, 'g'), (_, index) => values[Number(index)]);
+            return { body: body.trim(), citations, attachments };
         }
         if (source === 'dom') {
             let body = normalize(message.comparisonBody ?? message.text);
@@ -918,6 +930,90 @@ function buildRpcRequest(cid, limit) {
         container.append(style);
     }
 
+    // Layout must be active even for Gemini's off-screen content-visibility:auto.
+    // Keep rendered comparison text separate from the Markdown download body.
+    function readDomBody(body) {
+        const clone = body.cloneNode(true);
+        const citations = [...clone.querySelectorAll('.source-inline-chip-container')].map(node => ({ label: node.textContent.trim() }));
+        const bodyWarnings = [];
+        // Product info is visible; aria-hidden only prevents duplicate narration.
+        for (const grid of clone.querySelectorAll('product-grid')) {
+            const rows = [...grid.querySelectorAll('[role="listitem"]')].map(card =>
+                ['.product-name', '.product-price', '.merchant-name'].map(selector => card.querySelector(selector)?.textContent.trim()));
+            if (!rows.length || rows.some(row => row.some(value => !value))) {
+                bodyWarnings.push('部分商品卡片格式無法解析，商品文字未確認');
+                continue;
+            }
+            const content = document.createElement('div');
+            content.style.whiteSpace = 'pre-wrap';
+            content.textContent = rows.flat().join('\n');
+            grid.replaceWith(content);
+        }
+        // Preserve visible follow-up labels before removing action buttons.
+        for (const button of clone.querySelectorAll('elicitations button.elicitation-item')) {
+            const label = document.createElement('div');
+            label.textContent = button.querySelector('.elicitation-label')?.textContent || '';
+            button.replaceWith(label);
+        }
+        clone.querySelectorAll('.source-inline-chip-container').forEach(node => node.remove());
+        for (const math of clone.querySelectorAll('[data-math], .katex')) {
+            if (!clone.contains(math)) continue;
+            const tex = math.getAttribute('data-math') ?? math.querySelector('annotation[encoding="application/x-tex"]')?.textContent;
+            if (tex !== undefined) math.replaceWith(document.createTextNode(mathBody(tex)));
+        }
+        clone.querySelectorAll('button, .code-block-decoration, .screen-reader-user-query-label, [aria-hidden="true"]').forEach(node => node.remove());
+        let prefix = 'GYC_DOM_CODE_';
+        while (clone.textContent.includes(prefix)) prefix += '_';
+        const values = [], codeMarkdown = [];
+        for (const code of clone.querySelectorAll('pre, code')) {
+            if (!clone.contains(code) || (code.tagName === 'CODE' && code.closest('pre'))) continue;
+            const block = code.tagName === 'PRE';
+            const content = block ? code.querySelector('code') || code : code;
+            const raw = content.textContent.replace(/\r\n?/g, '\n');
+            const value = block ? raw.replace(/\n$/, '') : raw;
+            values.push(value);
+            const fence = '`'.repeat(Math.max(block ? 3 : 1, ...[...value.matchAll(/`+/g)].map(match => match[0].length + 1)));
+            const language = content.className.match(/(?:^|\s)language-([\w+-]+)/)?.[1] || '';
+            const pad = !block && /\S/.test(value) && /^`|`$|^ .* $/.test(value) ? ' ' : '';
+            codeMarkdown.push(block ? `${fence}${language}\n${value}\n${fence}` : `${fence}${pad}${value}${pad}${fence}`);
+            code.replaceWith(document.createTextNode(`${block ? '\n' : ''}${prefix}${values.length - 1}_END${block ? '\n' : ''}`));
+        }
+        Object.assign(clone.style, {
+            position: 'fixed', left: '-10000px', top: '0', width: '800px',
+            opacity: '0', pointerEvents: 'none', contentVisibility: 'visible'
+        });
+        document.body.append(clone);
+        let comparisonBody, text;
+        try {
+            for (const table of clone.querySelectorAll('table')) {
+                const rows = [...table.rows].map(row => [...row.cells].map(cell => cleanContent(cell.innerText)).join('\t'));
+                table.replaceWith(document.createTextNode('\n' + rows.join('\n') + '\n'));
+            }
+            comparisonBody = cleanContent(clone.innerText);
+            for (const node of clone.querySelectorAll('strong, b, em, i, del, s')) {
+                const marker = /^(STRONG|B)$/.test(node.tagName) ? '**' : /^(DEL|S)$/.test(node.tagName) ? '~~' : '*';
+                node.prepend(document.createTextNode(marker));
+                node.append(document.createTextNode(marker));
+            }
+            const markers = new WeakMap();
+            for (const item of clone.querySelectorAll('li')) {
+                const list = item.parentElement;
+                const marker = list.tagName === 'OL' ? `${Number(list.getAttribute('start') || 1) + [...list.children].indexOf(item)}. ` : '- ';
+                markers.set(item, marker);
+                let indent = '';
+                for (let parent = list.closest('li'); parent; parent = parent.parentElement.closest('li')) indent += ' '.repeat(markers.get(parent).length);
+                const target = item.firstElementChild?.tagName === 'P' ? item.firstElementChild : item;
+                const prefix = document.createElement('span');
+                prefix.style.whiteSpace = 'pre';
+                prefix.textContent = indent + marker;
+                target.prepend(prefix);
+            }
+            text = cleanContent(clone.innerText);
+        } finally { clone.remove(); }
+        codeMarkdown.forEach((value, index) => { text = text.replaceAll(`${prefix}${index}_END`, value); });
+        return { text, comparisonBody, comparisonCode: { prefix, values }, citations, warnings: bodyWarnings };
+    }
+
 // Browser-only code guarded
 if (typeof document !== 'undefined') {
     (function() {
@@ -1058,65 +1154,6 @@ if (typeof document !== 'undefined') {
             };
         }
 
-        // Read the DOM structure, not innerText: Gemini skips off-screen layout with
-        // content-visibility:auto. Its KaTeX accessibility and visual trees duplicate math.
-        function readDomBody(body) {
-            const clone = body.cloneNode(true);
-            const citations = [...clone.querySelectorAll('.source-inline-chip-container')].map(node => ({ label: node.textContent.trim() }));
-            const bodyWarnings = [];
-            // Product info is visually displayed but aria-hidden because the card
-            // link repeats it for accessibility. Preserve its visible text.
-            for (const grid of clone.querySelectorAll('product-grid')) {
-                const rows = [...grid.querySelectorAll('[role="listitem"]')].map(card =>
-                    ['.product-name', '.product-price', '.merchant-name'].map(selector => card.querySelector(selector)?.textContent.trim()));
-                if (!rows.length || rows.some(row => row.some(value => !value))) {
-                    bodyWarnings.push('部分商品卡片格式無法解析，商品文字未確認');
-                    continue;
-                }
-                const content = document.createElement('div');
-                content.style.whiteSpace = 'pre-wrap';
-                content.textContent = rows.flat().join('\n');
-                grid.replaceWith(content);
-            }
-            // Preserve visible follow-up labels before removing action buttons.
-            for (const button of clone.querySelectorAll('elicitations button.elicitation-item')) {
-                const label = document.createElement('div');
-                label.textContent = button.querySelector('.elicitation-label')?.textContent || '';
-                button.replaceWith(label);
-            }
-            clone.querySelectorAll('.source-inline-chip-container').forEach(node => node.remove());
-            for (const math of clone.querySelectorAll('[data-math], .katex')) {
-                if (!clone.contains(math)) continue;
-                const tex = math.getAttribute('data-math') ?? math.querySelector('annotation[encoding="application/x-tex"]')?.textContent;
-                if (tex !== undefined) math.replaceWith(document.createTextNode(mathBody(tex)));
-            }
-            clone.querySelectorAll('button, .code-block-decoration, .screen-reader-user-query-label, [aria-hidden="true"]').forEach(node => node.remove());
-            let prefix = 'GYC_DOM_CODE_';
-            while (clone.textContent.includes(prefix)) prefix += '_';
-            const values = [];
-            for (const code of clone.querySelectorAll('pre, code')) {
-                if (!clone.contains(code) || (code.tagName === 'CODE' && code.closest('pre'))) continue;
-                const content = code.tagName === 'PRE' ? code.querySelector('code') || code : code;
-                const value = content.textContent.replace(/\r\n?/g, '\n');
-                values.push(code.tagName === 'PRE' ? value.replace(/\n$/, '') : value);
-                code.replaceWith(document.createTextNode(`${code.tagName === 'PRE' ? '\n' : ''}${prefix}${values.length - 1}_END${code.tagName === 'PRE' ? '\n' : ''}`));
-            }
-            Object.assign(clone.style, {
-                position: 'fixed', left: '-10000px', top: '0', width: '800px',
-                opacity: '0', pointerEvents: 'none', contentVisibility: 'visible'
-            });
-            document.body.append(clone);
-            for (const table of clone.querySelectorAll('table')) {
-                const rows = [...table.rows].map(row => [...row.cells].map(cell => cleanContent(cell.innerText)).join('\t'));
-                table.replaceWith(document.createTextNode('\n' + rows.join('\n') + '\n'));
-            }
-            let comparisonBody;
-            try { comparisonBody = cleanContent(clone.innerText); }
-            finally { clone.remove(); }
-            let text = comparisonBody;
-            values.forEach((value, index) => { text = text.replaceAll(`${prefix}${index}_END`, value); });
-            return { text, comparisonBody, comparisonCode: { prefix, values }, citations, warnings: bodyWarnings };
-        }
 
         const domTurnCache = new WeakMap();
         function collectTurns(scroller, timeline, warnings) {
@@ -1561,6 +1598,7 @@ if (typeof module !== 'undefined' && module.exports) {
         collectGeminiHistory,
         cleanContent,
         readGeminiQueryLine,
+        readDomBody,
         sanitizeFileName,
         integrateTranscripts,
         buildIntegratedMarkdown,

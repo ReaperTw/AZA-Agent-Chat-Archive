@@ -23,7 +23,30 @@
             const actual = module.exports.readGeminiQueryLine(line);
             if (actual !== expected) throw new Error(`Expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
         }
-        document.getElementById('result').textContent = `PASS: ${cases.length} cases; whitespace-only lines, indentation, template wrappers, bullets`;
+        const body = document.createElement('div');
+        body.innerHTML = '<p><strong>Focus</strong></p><ul><li>First</li><li><strong>Second</strong></li></ul>';
+        const captured = module.exports.readDomBody(body);
+        if (!captured.text.includes('**Focus**') || !captured.text.includes('- **Second**')) {
+            throw new Error('Model DOM export lost bold or list Markdown');
+        }
+        const api = { role: 'assistant', text: '**Focus**\n\n* First\n* **Second**' };
+        const dom = { role: 'assistant', ...captured };
+        const merged = module.exports.buildIntegratedMarkdown([api], [dom]);
+        if (merged.counts.conflicts !== 0) throw new Error('Rendered bold/list text should match');
+        const domOnly = module.exports.buildIntegratedMarkdown([], [dom], { apiAvailable: false }).content;
+        if (!domOnly.includes('**Focus**') || !domOnly.includes('- **Second**')) throw new Error('DOM-only output lost Markdown');
+        body.innerHTML = '<p>Use <code>x  y</code>.</p><pre><code class="language-txt">x  y\n\nz \n</code></pre>';
+        const code = { role: 'assistant', ...module.exports.readDomBody(body) };
+        if (!code.text.includes('`x  y`') || !code.text.includes('```txt\nx  y\n\nz \n```')) throw new Error('DOM Markdown lost code boundaries or whitespace');
+        if (module.exports.buildIntegratedMarkdown([{ role: 'assistant', text: 'Use `x  y`.\n\n```txt\nx  y\n\nz \n```' }], [code]).counts.conflicts !== 0) throw new Error('Code did not round-trip');
+        if (module.exports.buildIntegratedMarkdown([{ role: 'assistant', text: 'Use `x y`.\n\n```txt\nx y\n\nz \n```' }], [code]).counts.conflicts !== 1) throw new Error('Code whitespace difference was hidden');
+        body.innerHTML = '<ol start="3"><li><p>First</p><ul><li><em>Nested</em></li></ul></li><li>Next</li></ol>';
+        const nested = module.exports.readDomBody(body);
+        if (!nested.text.includes('3. First') || !nested.text.includes('   - *Nested*') || !nested.text.includes('4. Next')) throw new Error('DOM Markdown lost nested or ordered lists');
+        body.innerHTML = '<p>Latest</p><elicitations><p>Explore Live</p><button class="elicitation-item" data-query="Hidden action"><span class="elicitation-label">Try Live</span></button></elicitations>';
+        const controls = module.exports.readDomBody(body);
+        if (!controls.text.includes('Try Live') || controls.text.includes('Hidden action')) throw new Error('DOM controls must export only visible labels');
+        document.getElementById('result').textContent = `PASS: ${cases.length} query cases; Model Markdown, DOM-only export, literal code whitespace, nested lists, visible control labels`;
     } catch (error) {
         document.getElementById('result').textContent = 'FAIL: ' + error.message;
         throw error;

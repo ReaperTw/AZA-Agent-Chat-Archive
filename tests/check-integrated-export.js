@@ -68,6 +68,23 @@ for (const provider of ['claude', 'gemini', 'grok']) {
         assert(cited.includes('Rule.') && cited.includes('`[cite: 9]`'), 'cite markers stripped outside code only');
     }
     if (provider === 'gemini') {
+        const whitespace = buildIntegratedMarkdown(
+            [user('First line\nSecond line\n\nNext paragraph')],
+            [user('First line \nSecond line \n\n\nNext paragraph ')]);
+        assert.equal(whitespace.counts.conflicts, 0, 'user line tails and blank paragraph lines are presentation');
+        assert.equal(whitespace.entries.length, 1);
+        assert(whitespace.content.includes('First line\nSecond line\n\nNext paragraph'));
+        assert.equal(buildIntegratedMarkdown([user('x  y')], [user('x y')]).counts.conflicts, 1, 'interior user spaces stay literal');
+        assert.equal(buildIntegratedMarkdown([user('```txt\nx  y\n```')], [user('```txt\nx y\n```')]).counts.conflicts, 1);
+        assert.equal(buildIntegratedMarkdown([user('First\nSecond')], [user('First \n Second ')]).counts.conflicts, 0, 'prose line-edge layout spaces are equivalent');
+        assert.equal(buildIntegratedMarkdown([user('```txt\nx \n\n y\n```')], [user('```txt\nx\n y\n```')]).counts.conflicts, 1, 'code line tails and blank lines stay literal');
+        const apiFormat = assistant('**Focus**\n\n* First\n* **Second**');
+        const domFormat = { ...assistant('**Focus**\n\n- First\n- **Second**'), comparisonBody: 'Focus\n\nFirst\nSecond' };
+        const formatted = buildIntegratedMarkdown([apiFormat], [domFormat]);
+        assert.equal(formatted.counts.conflicts, 0, 'bold and list markers render as the same visible text');
+        assert.equal(formatted.content.split('Focus').length - 1, 1);
+        const formattedDomOnly = buildIntegratedMarkdown([], [domFormat], { apiAvailable: false }).content;
+        assert(formattedDomOnly.includes('**Focus**') && formattedDomOnly.includes('- **Second**'), 'DOM-only export retains Markdown formatting');
         const shared = { citations: [{ label: 'Manual', url: 'https://example.test/manual' }], attachments: [{ name: 'input.txt', type: 'file' }], date: '2026-11-01 10:00' };
         const compact = buildIntegratedMarkdown([
             { ...user('Question'), ...shared }, { ...assistant('Answer'), date: shared.date }
