@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GYC - ChatGPT
 // @namespace    https://github.com/ReaperTw/AZA-Agent-Chat-Archive
-// @version      1.4.19
+// @version      1.4.20
 // @description  AZA-Agent-Chat-Archive - ChatGPT 端對話匯出器；最後更新於 20261122
 // @updateURL    https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-chatgpt.user.js
 // @downloadURL  https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-chatgpt.user.js
@@ -1408,8 +1408,11 @@
     async function moveToTop(scroller, waitMs, button) {
         let stable = 0;
         let previousSignature = '';
-        for (let index = 0; index < MAX_UPWARD_LOOPS; index++) {
-            scroller.scrollTop = getScrollBounds(scroller).oldest;
+        const step = Math.max(1, Math.floor((scroller.clientHeight || 800) / 2));
+        const bounds = getScrollBounds(scroller);
+        const maxPasses = Math.min(5000, Math.ceil((bounds.newest - bounds.oldest) / step) * 4 + MAX_UPWARD_LOOPS);
+        for (let index = 0; index < maxPasses; index++) {
+            scroller.scrollTop = Math.max(getScrollBounds(scroller).oldest, scroller.scrollTop - step);
             scroller.dispatchEvent(new Event('scroll', { bubbles: true }));
             await delay(waitMs);
             const signature = getViewportSignature(scroller);
@@ -1420,7 +1423,7 @@
             if (!loadingOlder && atOldest && signature === previousSignature) stable++;
             else stable = 0;
             previousSignature = signature;
-            button.textContent = `${loadingOlder ? '載入較早訊息' : '定位起點'}… ${index + 1}/${MAX_UPWARD_LOOPS}`;
+            button.textContent = `${loadingOlder ? '載入較早訊息' : '定位起點'}… ${index + 1}/${maxPasses}`;
             // Allow delayed history requests to start before declaring the top stable.
             if (stable >= 4) return true;
         }

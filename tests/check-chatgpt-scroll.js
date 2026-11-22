@@ -14,10 +14,14 @@ async function check(reverse, neverSettles = false) {
     let top = reverse ? 0 : 1000;
     const oldest = () => reverse ? -(generation + 1) * 1000 : 0;
     const scroller = {
+        clientHeight: 600,
         get scrollTop() { return top; },
-        set scrollTop(value) { top = value; },
+        set scrollTop(value) {
+            assert(top - value <= this.clientHeight / 2, 'upward movement must not skip more than half a viewport');
+            top = value;
+        },
         dispatchEvent() {
-            if (generation < 3 && pendingAt === null) pendingAt = now + 2200;
+            if (top === oldest() && generation < 3 && pendingAt === null) pendingAt = now + 2200;
         },
         querySelector() { return neverSettles ? { textContent: 'Loading older messages' } : null; }
     };
