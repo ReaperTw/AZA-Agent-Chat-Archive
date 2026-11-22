@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         GYC - ChatGPT
 // @namespace    https://github.com/ReaperTw/AZA-Agent-Chat-Archive
-// @version      1.4.18
-// @description  AZA-Agent-Chat-Archive - ChatGPT 端對話匯出器；最後更新於 20261101
+// @version      1.4.19
+// @description  AZA-Agent-Chat-Archive - ChatGPT 端對話匯出器；最後更新於 20261122
 // @updateURL    https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-chatgpt.user.js
 // @downloadURL  https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-chatgpt.user.js
 // @match        https://chatgpt.com/*
@@ -13,10 +13,10 @@
 
 (function () {
     'use strict';
-    const MAX_UPWARD_LOOPS = 40;
+    const MAX_UPWARD_LOOPS = 80;
     const RETRY_EMPTY_MAX = 3;
     const RETRY_EMPTY_WAIT = 350;
-    const FAST_UPWARD_WAIT = 500;
+    const FAST_UPWARD_WAIT = 800;
     const FAST_SCROLL_STEP = 2000;
     const FAST_BASE_WAIT = 250;
 
@@ -1421,7 +1421,8 @@
             else stable = 0;
             previousSignature = signature;
             button.textContent = `${loadingOlder ? '載入較早訊息' : '定位起點'}… ${index + 1}/${MAX_UPWARD_LOOPS}`;
-            if (stable >= 2) return true;
+            // Allow delayed history requests to start before declaring the top stable.
+            if (stable >= 4) return true;
         }
         return false;
     }
