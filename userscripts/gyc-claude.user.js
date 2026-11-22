@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GYC - Claude
 // @namespace    https://github.com/ReaperTw/AZA-Agent-Chat-Archive
-// @version      1.4.14
+// @version      1.4.15
 // @description  Grab Your Chat - Claude 端對話匯出器；最後更新於 20261122
 // @updateURL    https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-claude.user.js
 // @downloadURL  https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-claude.user.js
@@ -111,7 +111,9 @@
                 attachments.push({ type: 'image', alt: decode(token.text), url: token.href });
                 return '';
             }
-            return decode(token.text ?? token.raw ?? '');
+            const value = decode(token.text ?? token.raw ?? '');
+            // Claude renders in-word apostrophes typographically; code and escapes stay literal.
+            return token.type === 'text' ? value.replace(/(?<=\p{L})'(?=\p{L})/gu, '’') : value;
         }).join('');
         const blocks = tokens => (tokens ?? []).map(token => {
             switch (token.type) {
@@ -1728,7 +1730,7 @@
 
         const fab = root.document.createElement('button');
         fab.textContent = '✳';
-        fab.title = "AZA-Agent-Chat-Archive - Claude 1.4.14";
+        fab.title = "AZA-Agent-Chat-Archive - Claude 1.4.15";
         fab.setAttribute('aria-label', fab.title);
         Object.assign(fab.style, {
             width: '56px',

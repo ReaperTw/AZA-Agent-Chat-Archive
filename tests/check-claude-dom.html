@@ -27,7 +27,15 @@
     assert(!merged.content.includes('來源衝突'), 'Combined export retained a false conflict');
     const literal = capture('<p>建立文件 is part of this answer.</p><p>Publisher’s answer</p><pre><code>x  y\n</code></pre>');
     assert(literal.text.includes('建立文件 is part of this answer.'), 'Literal action wording was deleted');
-    assert(!api.compareTranscripts([{ role: 'assistant', text: "建立文件 is part of this answer.\n\nPublisher's answer\n\n```\nx  y\n```" }], [literal]).match, 'Real punctuation difference was hidden');
+    const contraction = { role: 'assistant', text: "建立文件 is part of this answer.\n\nPublisher's answer\n\n```\nx  y\n```" };
+    assert(api.compareTranscripts([contraction], [literal]).match, 'Rendered prose apostrophe caused a false conflict');
+    assert(api.buildIntegratedMarkdown([contraction], [literal]).content.includes("Publisher's answer"), 'Original API punctuation was rewritten in export');
+    assert(!api.compareTranscripts([{ ...contraction, text: contraction.text.replace('answer.', 'revision.') }], [literal]).match, 'Real wording difference was hidden');
+    const codeApostrophe = capture('<p>It’s visible.</p><p>Use <code>don\'t</code>.</p><pre><code>author\'s value\n</code></pre>');
+    const codeSource = { role: 'assistant', text: "It's visible.\n\nUse `don't`.\n\n```\nauthor's value\n```" };
+    assert(api.compareTranscripts([codeSource], [codeApostrophe]).match, 'Prose typography or literal code apostrophe did not round-trip');
+    assert(!api.compareTranscripts([{ ...codeSource, text: codeSource.text.replace("`don't`", '`don’t`') }], [codeApostrophe]).match, 'Inline-code apostrophe difference was hidden');
+    assert(!api.compareTranscripts([{ ...codeSource, text: codeSource.text.replace("author's value", 'author’s value') }], [codeApostrophe]).match, 'Fenced-code apostrophe difference was hidden');
     for (const html of [
         '<p>Answer</p><p>Sources:</p><ul><li>Important unlinked text</li></ul>',
         '<p>Answer</p><p>Sources:</p><ul><li><a href="https://example.test">Source</a> with explanation</li></ul>',
@@ -36,7 +44,7 @@
     const code = capture('<p>Use <code>x  y</code>.</p><pre><code>x  y\n\nz \n</code></pre>');
     assert(api.compareTranscripts([{ role: 'assistant', text: 'Use `x  y`.\n\n```\nx  y\n\nz \n```' }], [code]).match, 'Code whitespace did not round-trip');
     assert(!api.compareTranscripts([{ role: 'assistant', text: 'Use `x y`.\n\n```\nx y\n\nz \n```' }], [code]).match, 'Code whitespace difference was hidden');
-    document.getElementById('result').textContent = 'PASS: Claude controls, reference metadata, original export, real punctuation, unproven blocks, code whitespace';
+    document.getElementById('result').textContent = 'PASS: Claude controls, references, original export, prose typography, real wording, unproven blocks, literal code';
     document.documentElement.dataset.result = 'pass';
 })().catch(error => {
     document.getElementById('result').textContent = 'FAIL: ' + error.message;

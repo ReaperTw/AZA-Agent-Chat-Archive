@@ -62,6 +62,8 @@ Gemini 1.4.21：以本機已存綜合檔及報告中的三組 API／DOM 差異�
 
 Claude 1.4.14：使用本機下載的雙版本匯出與比對報告診斷。正文在排除已識別的引用清單與操作按鈕後相符；3 個直／彎撇號差異全部位於來源標籤，不改動正文標點的比較規則。API 僅將末尾 `Sources:` 加純連結清單另列引用；DOM 依標題、清單、逐項連結與尾端無其他正文的結構證據分離，來源文字及連結仍保留，無法證明的區塊不排除。DOM 不匯出助理訊息內的按鈕／button-role 操作文字，正文中的同名文字保留。Claude parser／整合回歸與隔離 Brave 的 `tests/check-claude-dom.html` 通過，涵蓋引用 metadata、真實標點差異、未識別區塊與程式碼空白。報告正文及 16 個來源連結在重建 DOM 重播後衝突由 1 降至 0，原 API 匯出文字完整保留；此為重播與合成 DOM 驗證，不是獨立完整 DOM 或即時三來源驗收。relay 無法連線，隔離登入頁停在 Cloudflare 驗證。
 
+Claude 1.4.15：Haiku 新下載報告的正文在分離來源清單後，兩側均為 2,147 字元，唯一差異是字內 `'`（U+0027）與 `’`（U+2019）。修正 API Markdown 一般文字 token 的頁面排版投影，只轉換兩側為字母的直撇號；不對 DOM 或整份字串做標點折疊，程式碼、跳脫 token、使用者文字及非字內撇號維持字面語義，原 API 匯出文字不改寫。新增縮寫、所有格、粗體／連結、真實文字差異、使用者文字及行內／圍欄程式碼回歸；Claude parser／整合檢查與隔離 Brave DOM fixture 通過。Haiku 下載報告的 2 則訊息與 5 個來源連結在重建 DOM 重播後衝突由 1 降至 0；沒有重新取得即時 API／正常匯出／獨立完整 DOM，不宣稱即時三來源驗收完成。
+
 ## 回歸與瀏覽器驗證
 
 在專案根目錄執行對應回歸：`node tests/check-chatgpt-api.js`、`node tests/check-integrated-export.js`、`node tests/check-gemini-api.js`、`node tests/check-claude-export.js`、`node tests/check-claude-combined.js`、`node tests/check-grok-api.js`、`node tests/check-grok-combined.js`。這些合成資料檢查不證明真實頁面完整。

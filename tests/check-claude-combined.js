@@ -20,7 +20,17 @@ assert.strictEqual(preparedReferences.body, 'Answer');
 assert.deepStrictEqual(preparedReferences.citations, [{ label: "Publisher's title", url: 'https://example.test/source' }]);
 assert.strictEqual(api.compareTranscripts([referenced], [assistant('Answer')]).match, true);
 assert(api.buildIntegratedMarkdown([referenced], [assistant('Answer')]).content.includes(referenced.text));
-assert.strictEqual(api.compareTranscripts([assistant("Publisher's answer")], [assistant('Publisher’s answer')]).match, false);
+assert.strictEqual(api.compareTranscripts([assistant("Publisher's answer")], [assistant('Publisher’s answer')]).match, true);
+assert.strictEqual(api.compareTranscripts([assistant("It's **the publisher's** [answer](https://example.test)")],
+    [assistant('It’s the publisher’s answer')]).match, true);
+assert.strictEqual(api.compareTranscripts([assistant("Publisher's original")], [assistant('Publisher’s revision')]).match, false);
+assert.strictEqual(api.compareTranscripts([user("It's literal")], [user('It’s literal')]).match, false);
+for (const text of ["`don't`", "```\ndon't\n```"]) {
+    assert.strictEqual(api.prepareComparisonMessage(assistant(text), 'api').body, "don't");
+    assert.strictEqual(api.compareTranscripts([assistant(text)], [assistant('don’t')]).match, false);
+}
+assert.strictEqual(api.prepareComparisonMessage(assistant("'quoted' and 6'2"), 'api').body, "'quoted' and 6'2");
+assert.strictEqual(api.prepareComparisonMessage(assistant("don\\'t"), 'api').body, "don't");
 for (const text of [
     'Answer\n\nSources:\n- Important unlinked text',
     'Answer\n\nSources:\n- [Source](https://example.test) with extra explanation',
