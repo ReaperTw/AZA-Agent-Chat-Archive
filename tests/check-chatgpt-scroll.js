@@ -23,7 +23,9 @@ async function check(reverse, neverSettles = false) {
         dispatchEvent() {
             if (top === oldest() && generation < 3 && pendingAt === null) pendingAt = now + 2200;
         },
-        querySelector() { return neverSettles ? { textContent: 'Loading older messages' } : null; }
+        querySelector() {
+            return neverSettles || pendingAt !== null ? { textContent: 'Loading older messages' } : null;
+        }
     };
     const context = vm.createContext({
         scroller, Event: class {},
