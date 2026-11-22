@@ -12,6 +12,21 @@ assert.strictEqual(api.compareTranscripts(source, [assistant('Question'), assist
 assert.strictEqual(api.compareTranscripts([assistant('progress'), assistant('answer')], [assistant('answer')]).match, false);
 assert.strictEqual(api.prepareComparisonMessage(assistant('`a  b`'), 'api').body, 'a  b');
 assert.strictEqual(api.prepareComparisonMessage(assistant('text'), 'api').citations, null);
+
+// Reference labels are metadata, not answer text; keep the original export intact.
+const referenced = assistant("Answer\n\nSources:\n- [Publisher's title](https://example.test/source)");
+const preparedReferences = api.prepareComparisonMessage(referenced, 'api');
+assert.strictEqual(preparedReferences.body, 'Answer');
+assert.deepStrictEqual(preparedReferences.citations, [{ label: "Publisher's title", url: 'https://example.test/source' }]);
+assert.strictEqual(api.compareTranscripts([referenced], [assistant('Answer')]).match, true);
+assert(api.buildIntegratedMarkdown([referenced], [assistant('Answer')]).content.includes(referenced.text));
+assert.strictEqual(api.compareTranscripts([assistant("Publisher's answer")], [assistant('Publisher’s answer')]).match, false);
+for (const text of [
+    'Answer\n\nSources:\n- Important unlinked text',
+    'Answer\n\nSources:\n- [Source](https://example.test) with extra explanation',
+    'Answer\n\nSources:\n- [Source](https://example.test)\n\nMore answer',
+    '```text\nSources:\n- [Source](https://example.test)\n```'
+]) assert(api.prepareComparisonMessage(assistant(text), 'api').body.includes('Sources:'));
 const imageOnly = api.exportConversation({
     current_leaf_message_uuid: 'image-user',
     chat_messages: [{

@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         GYC - Claude
 // @namespace    https://github.com/ReaperTw/AZA-Agent-Chat-Archive
-// @version      1.4.13
-// @description  Grab Your Chat - Claude 端對話匯出器；最後更新於 20261117
+// @version      1.4.14
+// @description  Grab Your Chat - Claude 端對話匯出器；最後更新於 20261122
 // @updateURL    https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-claude.user.js
 // @downloadURL  https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-claude.user.js
 // @match        https://claude.ai/*
@@ -124,7 +124,25 @@
                 default: return token.tokens ? inline(token.tokens) : decode(token.text ?? token.raw ?? '');
             }
         }).filter(Boolean).join('\n');
-        const body = normalize(blocks(markdown.lexer(text)))
+        const tokens = markdown.lexer(text);
+        const last = tokens.findLastIndex(token => token.type !== 'space');
+        const heading = tokens.slice(0, last).findLastIndex(token => token.type !== 'space');
+        // Only a terminal Sources heading followed entirely by linked references is metadata.
+        if (['paragraph', 'heading'].includes(tokens[heading]?.type) && /^Sources:$/i.test(tokens[heading].text.trim()) &&
+            tokens[last]?.type === 'list') {
+            const links = tokens[last].items.map(item => {
+                const content = item.tokens.filter(token => token.type !== 'space').flatMap(token =>
+                    ['text', 'paragraph'].includes(token.type) && token.tokens ? token.tokens : [token])
+                    .filter(token => token.type !== 'text' || token.text.trim());
+                return content.length === 1 && content[0].type === 'link' && /^https?:\/\//i.test(content[0].href)
+                    ? content[0] : null;
+            });
+            if (links.length && links.every(Boolean)) {
+                citations.push(...links.map(link => ({ label: decode(link.text), url: link.href })));
+                tokens.splice(heading);
+            }
+        }
+        const body = normalize(blocks(tokens))
             .replace(new RegExp(`${prefix}BODY_(\\d+)_END`, 'g'), (_, index) => codeBodies[Number(index)]);
         return { body, citations: message.citations == null && !citations.length ? null : citations,
             attachments: message.attachments == null && !attachments.length ? null : attachments };
@@ -1357,6 +1375,7 @@
             const citations = [...node.querySelectorAll('a[class~="group/tag"]')].map(item => ({ label: item.innerText, url: item.href }));
             const clone = node.cloneNode(true);
             clone.querySelectorAll('a[class~="group/tag"], [data-cds="MessageActions"], [data-cds-icon-only], [data-cds="TurnStatus"], [data-testid="thinking"], [data-testid="thinking-block"], [data-testid="tool-use"], [data-testid="tool-result"], [data-testid="user-message-actions"], [data-testid="file-thumbnail"], .sr-only, [hidden], [aria-hidden="true"]').forEach(item => item.remove());
+            if (role === 'assistant') clone.querySelectorAll('button, [role="button"]').forEach(item => item.remove());
             Object.assign(clone.style, { position: 'fixed', left: '-10000px', top: '0',
                 width: `${node.getBoundingClientRect().width}px`, opacity: '0', pointerEvents: 'none' });
             node.parentElement.appendChild(clone);
@@ -1381,8 +1400,28 @@
                         element.textContent = `${prefix}${values.length - 1}_END`;
                     }
                 }
+                const rendered = cleanContent(clone.innerText);
+                text = rendered.replace(new RegExp(`${prefix}(\\d+)_END`, 'g'), (_, index) => outputCode[Number(index)]);
+                if (role === 'assistant') {
+                    for (const heading of clone.querySelectorAll('p, h1, h2, h3, h4, h5, h6')) {
+                        if (!/^Sources:$/i.test(heading.innerText.trim())) continue;
+                        const list = heading.nextElementSibling;
+                        if (!list?.matches('ul, ol')) continue;
+                        const links = [...list.children].map(item => {
+                            const link = item.querySelector('a[href]');
+                            return item.tagName === 'LI' && item.querySelectorAll('a').length === 1 &&
+                                item.textContent.trim() === link?.textContent.trim() && /^https?:\/\//i.test(link.href) ? link : null;
+                        });
+                        const tail = root.document.createRange();
+                        tail.selectNodeContents(clone);
+                        tail.setStartAfter(list);
+                        if (!links.length || !links.every(Boolean) || tail.toString().trim()) continue;
+                        citations.push(...links.map(link => ({ label: link.innerText.trim(), url: link.href })));
+                        heading.remove();
+                        list.remove();
+                    }
+                }
                 comparisonBody = cleanContent(clone.innerText);
-                text = comparisonBody.replace(new RegExp(`${prefix}(\\d+)_END`, 'g'), (_, index) => outputCode[Number(index)]);
             } finally { clone.remove(); }
             const attachments = [...node.querySelectorAll('img, [data-testid*="attachment"], a[download]')]
                 .map(item => ({ type: item.tagName === 'IMG' ? 'image' : 'file',
@@ -1689,7 +1728,7 @@
 
         const fab = root.document.createElement('button');
         fab.textContent = '✳';
-        fab.title = "AZA-Agent-Chat-Archive - Claude 1.4.13";
+        fab.title = "AZA-Agent-Chat-Archive - Claude 1.4.14";
         fab.setAttribute('aria-label', fab.title);
         Object.assign(fab.style, {
             width: '56px',

@@ -1,0 +1,45 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Claude body and reference regression</title>
+<pre id="result">Running</pre>
+<iframe id="fixture" title="Synthetic Claude transcript"></iframe>
+<script>
+(async () => {
+    const assert = (value, message) => { if (!value) throw Error(message); };
+    const win = document.getElementById('fixture').contentWindow;
+    const doc = win.document;
+    const source = await (await fetch('../userscripts/gyc-claude.user.js', { cache: 'no-store' })).text();
+    win.eval(source.replace(/const observer = new MutationObserver\([^\n]+\);/,
+        'globalThis.fixture = {domSnapshot, compareTranscripts, buildIntegratedMarkdown, prepareComparisonMessage}; return;'));
+    const api = win.fixture;
+    const capture = html => {
+        doc.body.innerHTML = `<main><div data-testid="assistant-message">${html}</div></main>`;
+        return api.domSnapshot(doc.querySelector('main'))[0];
+    };
+    const markdown = "Answer\n\nSources:\n- [Publisher's title](https://example.test/source)";
+    const dom = capture('<p>Answer</p><p>Sources:</p><ul><li><a href="https://example.test/source">Publisher’s title</a></li></ul><button>建立文件</button><div role="button">Another action</div>');
+    assert(!dom.text.includes('建立文件') && !dom.text.includes('Another action'), 'Action controls leaked into exported answer');
+    assert(dom.text.includes('Publisher’s title'), 'Visible source label was lost from export');
+    assert(dom.citations.some(item => item.label === 'Publisher’s title' && item.url === 'https://example.test/source'), 'Source link metadata was lost');
+    assert(api.compareTranscripts([{ role: 'assistant', text: markdown }], [dom]).match, 'Reference typography caused a body conflict');
+    const merged = api.buildIntegratedMarkdown([{ role: 'assistant', text: markdown }], [dom]);
+    assert(merged.counts.conflicts === 0 && merged.content.includes(markdown), 'Combined export lost the original source list');
+    assert(!merged.content.includes('來源衝突'), 'Combined export retained a false conflict');
+    const literal = capture('<p>建立文件 is part of this answer.</p><p>Publisher’s answer</p><pre><code>x  y\n</code></pre>');
+    assert(literal.text.includes('建立文件 is part of this answer.'), 'Literal action wording was deleted');
+    assert(!api.compareTranscripts([{ role: 'assistant', text: "建立文件 is part of this answer.\n\nPublisher's answer\n\n```\nx  y\n```" }], [literal]).match, 'Real punctuation difference was hidden');
+    for (const html of [
+        '<p>Answer</p><p>Sources:</p><ul><li>Important unlinked text</li></ul>',
+        '<p>Answer</p><p>Sources:</p><ul><li><a href="https://example.test">Source</a> with explanation</li></ul>',
+        '<p>Answer</p><p>Sources:</p><ul><li><a href="https://example.test">Source</a></li></ul><p>More answer</p>'
+    ]) assert(api.prepareComparisonMessage(capture(html), 'dom').body.includes('Sources:'), 'Unproven reference block was removed from comparison');
+    const code = capture('<p>Use <code>x  y</code>.</p><pre><code>x  y\n\nz \n</code></pre>');
+    assert(api.compareTranscripts([{ role: 'assistant', text: 'Use `x  y`.\n\n```\nx  y\n\nz \n```' }], [code]).match, 'Code whitespace did not round-trip');
+    assert(!api.compareTranscripts([{ role: 'assistant', text: 'Use `x y`.\n\n```\nx y\n\nz \n```' }], [code]).match, 'Code whitespace difference was hidden');
+    document.getElementById('result').textContent = 'PASS: Claude controls, reference metadata, original export, real punctuation, unproven blocks, code whitespace';
+    document.documentElement.dataset.result = 'pass';
+})().catch(error => {
+    document.getElementById('result').textContent = 'FAIL: ' + error.message;
+    document.documentElement.dataset.result = 'fail';
+});
+</script>

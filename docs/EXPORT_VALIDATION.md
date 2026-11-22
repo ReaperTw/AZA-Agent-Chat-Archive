@@ -60,6 +60,8 @@ Gemini 1.4.14：離散作業即時樣本重現兩筆差異，1.4.8 比較器對�
 
 Gemini 1.4.21：以本機已存綜合檔及報告中的三組 API／DOM 差異文字重播（訊息索引 1／2／16），衝突由 3 降至 0，重播綜合正文不含 `ElicitationsGroup` 原始標記；私人文字僅在記憶體處理，未另存。兩組 Model 文字在移除舊回答未顯示的已識別介面元件後即相符；User 另有行緣空白差異。此為舊檔雙版本重播，不是重新取得 18 則完整 API／正常匯出／獨立 DOM，也未重新確認即時歷史、分支及 metadata。DOM 合成 fixture 在隔離無頭 Brave 驗證粗體、清單、DOM-only 匯出、程式碼空白與可見追問標籤；未完成登入頁面三來源驗收。
 
+Claude 1.4.14：使用本機下載的雙版本匯出與比對報告診斷。正文在排除已識別的引用清單與操作按鈕後相符；3 個直／彎撇號差異全部位於來源標籤，不改動正文標點的比較規則。API 僅將末尾 `Sources:` 加純連結清單另列引用；DOM 依標題、清單、逐項連結與尾端無其他正文的結構證據分離，來源文字及連結仍保留，無法證明的區塊不排除。DOM 不匯出助理訊息內的按鈕／button-role 操作文字，正文中的同名文字保留。Claude parser／整合回歸與隔離 Brave 的 `tests/check-claude-dom.html` 通過，涵蓋引用 metadata、真實標點差異、未識別區塊與程式碼空白。報告正文及 16 個來源連結在重建 DOM 重播後衝突由 1 降至 0，原 API 匯出文字完整保留；此為重播與合成 DOM 驗證，不是獨立完整 DOM 或即時三來源驗收。relay 無法連線，隔離登入頁停在 Cloudflare 驗證。
+
 ## 回歸與瀏覽器驗證
 
 在專案根目錄執行對應回歸：`node tests/check-chatgpt-api.js`、`node tests/check-integrated-export.js`、`node tests/check-gemini-api.js`、`node tests/check-claude-export.js`、`node tests/check-claude-combined.js`、`node tests/check-grok-api.js`、`node tests/check-grok-combined.js`。這些合成資料檢查不證明真實頁面完整。
