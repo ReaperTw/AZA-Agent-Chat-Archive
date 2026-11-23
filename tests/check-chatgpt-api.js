@@ -139,6 +139,25 @@ assert.equal(imageOnly.warning, null);
 assert(imageOnly.messages[0].text);
 assert(imageOnly.notice);
 
+// A message that only uploads a file has empty parts; its file lives in metadata.attachments.
+const fileOnly = parseApiConversation(apiChain([
+    ['file-msg', message('user', '', { metadata: { attachments: [{ id: 'file-1', name: 'notes.md', mime_type: 'text/markdown' }] } })],
+    ['answer', message('assistant', 'Read it.', { channel: 'final' })]
+]));
+assert.deepEqual(fileOnly.messages.map(m => m.sourceIds[0]), ['file-msg', 'answer']);
+assert(fileOnly.messages[0].text.includes('notes.md'));
+assert.equal(fileOnly.incomplete, false);
+assert(fileOnly.notice);
+const fileWithText = parseApiConversation(apiChain([
+    ['u', message('user', 'see file', { metadata: { attachments: [{ name: 'a.txt', mime_type: 'text/plain' }] } })]
+]));
+assert(/see file[\s\S]*a\.txt/.test(fileWithText.messages[0].text));
+const uploadedImage = parseApiConversation(apiChain([
+    ['u', { ...message('user', ''), content: { content_type: 'multimodal_text', parts: [attachmentPart] },
+        metadata: { attachments: [{ name: 'shot.png', mime_type: 'image/png' }] } }]
+]));
+assert(!uploadedImage.messages[0].text.includes('shot.png'), 'image uploads are already marked by their part');
+
 const unknownPart = parseApiConversation(apiChain([
     ['user', { ...message('user', ''), content: { content_type: 'multimodal_text', parts: [{ content_type: 'future_part', payload: 'unknown' }] } }]
 ]));
