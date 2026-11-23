@@ -77,6 +77,8 @@ Claude 1.4.14：使用本機下載的雙版本匯出與比對報告診斷。正�
 
 Claude 1.4.15：Haiku 新下載報告的正文在分離來源清單後，兩側均為 2,147 字元，唯一差異是字內 `'`（U+0027）與 `’`（U+2019）。修正 API Markdown 一般文字 token 的頁面排版投影，只轉換兩側為字母的直撇號；不對 DOM 或整份字串做標點折疊，程式碼、跳脫 token、使用者文字及非字內撇號維持字面語義，原 API 匯出文字不改寫。新增縮寫、所有格、粗體／連結、真實文字差異、使用者文字及行內／圍欄程式碼回歸；Claude parser／整合檢查與隔離 Brave DOM fixture 通過。Haiku 下載報告的 2 則訊息與 5 個來源連結在重建 DOM 重播後衝突由 1 降至 0；沒有重新取得即時 API／正常匯出／獨立完整 DOM，不宣稱即時三來源驗收完成。
 
+Claude 1.4.17：即時登入樣本只有 User #1 誤報：API 保留 Markdown 編號和段落縮排，Claude 頁面將其渲染成 `<ol>`，`innerText` 不包含 CSS 產生的編號。綜合比較改在雙側均辨識到純文字數字清單時核對實際編號和文字，保留 API Markdown；編號、文字、字間空白及未知可見內容的差異仍照常回報。真實樣本 API／正常／獨立 DOM 各 8 則，衝突由 1 降至 0；獨立 DOM 掃到兩端且回合識別與目前分支相符，`check-export-parity.js` exit 0。最終版另通過 Claude Node 回歸、隔離 Brave DOM fixture，以及擷取正文與頁面結構的本機重播。引用和進度未獨立驗證；未更新登入瀏覽器裡已安裝的腳本。
+
 ## 回歸與瀏覽器驗證
 
 在專案根目錄執行對應回歸：`node tests/check-chatgpt-api.js`、`node tests/check-integrated-export.js`、`node tests/check-gemini-api.js`、`node tests/check-claude-export.js`、`node tests/check-claude-combined.js`、`node tests/check-grok-api.js`、`node tests/check-grok-combined.js`。這些合成資料檢查不證明真實頁面完整。

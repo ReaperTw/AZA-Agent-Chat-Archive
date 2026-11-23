@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GYC - Claude
 // @namespace    https://github.com/ReaperTw/AZA-Agent-Chat-Archive
-// @version      1.4.16
+// @version      1.4.17
 // @description  Grab Your Chat - Claude 端對話匯出器；最後更新於 20261122
 // @updateURL    https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-claude.user.js
 // @downloadURL  https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-claude.user.js
@@ -588,10 +588,40 @@
         container.append(style);
     }
 
+    // Only project plain user Markdown when the page confirms a rendered decimal list.
+    function orderedUserMarkdown(text) {
+        if (!/^ {0,3}\d{1,9}[.)][ \t]/m.test(text)) return null;
+        const parts = [];
+        const add = (token, number, indent) => {
+            if (!['paragraph', 'text'].includes(token.type) || !token.tokens?.every(part => part.type === 'text')) return false;
+            parts.push([number, indent ? token.text.replace(/^ {1,3}/, '') : token.text]);
+            return true;
+        };
+        let sawList = false;
+        for (const token of markdown.lexer(text)) {
+            if (token.type === 'space') continue;
+            if (token.type === 'list' && token.ordered) {
+                sawList = true;
+                for (const [index, item] of token.items.entries()) {
+                    const blocks = item.tokens.filter(block => block.type !== 'space');
+                    if (item.task || !blocks.length ||
+                        !blocks.every((block, pos) => add(block, pos === 0 ? token.start + index : null, false))) return null;
+                }
+            } else if (!add(token, null, true)) return null;
+        }
+        return sawList ? JSON.stringify(parts) : null;
+    }
+
     function compareTranscripts(apiMessages, domMessages) {
-        const api = apiMessages.map(message => ({ role: message.role, text: prepareComparisonMessage(message, 'api').body }));
-        const dom = domMessages.map(message => ({ role: message.role, text: prepareComparisonMessage(message, 'dom').body }));
-        const equal = (a, b) => a.role === b.role && a.text === b.text;
+        const hasOrderedUserList = domMessages.some(message => message.orderedUserList != null);
+        const api = apiMessages.map(message => {
+            const text = prepareComparisonMessage(message, 'api').body;
+            return { role: message.role, text,
+                list: hasOrderedUserList && message.role === 'user' ? orderedUserMarkdown(text) : null };
+        });
+        const dom = domMessages.map(message => ({ role: message.role, text: prepareComparisonMessage(message, 'dom').body,
+            list: message.orderedUserList ?? null }));
+        const equal = (a, b) => a.role === b.role && (b.list === null ? a.text === b.text : a.list === b.list);
         const differences = [];
         const progress = [];
         let i = 0;
@@ -1417,6 +1447,39 @@
             ? { top: -size, bottom: 0 } : { top: 0, bottom: size };
     }
 
+    function orderedUserDom(node, comparisonBody) {
+        const body = node.querySelector('[data-testid="user-message"]') || node;
+        if (!body.querySelector('ol') || (body !== node && cleanContent(body.innerText) !== comparisonBody)) return null;
+        const parts = [];
+        let sawList = false;
+        const hasLiteralText = element => [...element.childNodes].some(child => child.nodeType === 3 && child.textContent.trim());
+        const add = (element, number = null) => {
+            if (element.children.length || !element.getClientRects().length) return false;
+            parts.push([number, element.textContent.replace(/\u00a0/g, ' ')]);
+            return true;
+        };
+        const visit = container => [...container.childNodes].every(child => {
+            if (child.nodeType === 3) return !child.textContent.trim();
+            if (child.nodeType === 8) return true;
+            if (child.tagName === 'P') return add(child);
+            if (child.matches?.('div.contents')) return visit(child);
+            if (child.tagName !== 'OL' || child.reversed || !child.children.length || hasLiteralText(child)) return false;
+            sawList = true;
+            let number = child.start;
+            return [...child.children].every(item => {
+                if (item.tagName !== 'LI') return false;
+                const style = root.getComputedStyle(item);
+                if (style.display !== 'list-item' || style.listStyleType !== 'decimal') return false;
+                if (item.hasAttribute('value')) number = item.value;
+                const marker = number++;
+                if (!item.children.length) return add(item, marker);
+                if (hasLiteralText(item)) return false;
+                return [...item.children].every((part, pos) => part.tagName === 'P' && add(part, pos ? null : marker));
+            });
+        });
+        return visit(body) && sawList ? JSON.stringify(parts) : null;
+    }
+
     function domSnapshot(scroller) {
         const nodes = [...scroller.querySelectorAll(MESSAGE_SELECTOR)]
             .filter(node => !node.parentElement?.closest(MESSAGE_SELECTOR) &&
@@ -1437,6 +1500,7 @@
             node.parentElement.appendChild(clone);
             let text;
             let comparisonBody;
+            let orderedUserList = null;
             let prefix = 'GYC_DOM_CODE_';
             while ((node.textContent || '').includes(prefix)) prefix += '_';
             const values = [];
@@ -1478,12 +1542,13 @@
                     }
                 }
                 comparisonBody = cleanContent(clone.innerText);
+                if (role === 'user') orderedUserList = orderedUserDom(clone, comparisonBody);
             } finally { clone.remove(); }
             const attachments = [...node.querySelectorAll('img, [data-testid*="attachment"], a[download]')]
                 .map(item => ({ type: item.tagName === 'IMG' ? 'image' : 'file',
                     name: item.getAttribute('alt') || item.getAttribute('download') || item.getAttribute('aria-label') || '' }));
             if (!text && attachments.length) text = '> [附件]';
-            return { role, text, comparisonBody, comparisonCode: { prefix, values }, process,
+            return { role, text, comparisonBody, comparisonCode: { prefix, values }, process, orderedUserList,
                 createdAt: node.querySelector('[data-cds="MessageActions"] time[datetime]')?.getAttribute('datetime') || '',
                 key: id ? `id:${id}` : index !== null ? `index:${index}:${role}` : '',
                 index: index !== null && /^\d+$/.test(index) ? Number(index) : null,
@@ -1789,7 +1854,7 @@
 
         const fab = root.document.createElement('button');
         fab.textContent = '✳';
-        fab.title = "AZA-Agent-Chat-Archive - Claude 1.4.16";
+        fab.title = "AZA-Agent-Chat-Archive - Claude 1.4.17";
         fab.setAttribute('aria-label', fab.title);
         Object.assign(fab.style, {
             width: '56px',

@@ -12,8 +12,11 @@
     win.eval(source.replace(/const observer = new MutationObserver\([^\n]+\);/,
         'globalThis.fixture = {domSnapshot, compareTranscripts, buildIntegratedMarkdown, prepareComparisonMessage}; return;'));
     const api = win.fixture;
-    const capture = html => {
-        doc.body.innerHTML = `<main><div data-testid="assistant-message">${html}</div></main>`;
+    const capture = (html, role = 'assistant', after = '') => {
+        const message = `<div data-testid="${role}-message">${html}</div>`;
+        doc.body.innerHTML = `<main>${role === 'user'
+            ? `<div class="group/message-row items-end"><div><div data-testid="file-thumbnail">Attachment</div></div><div>${message}</div>${after}</div>`
+            : message}</main>`;
         return api.domSnapshot(doc.querySelector('main'))[0];
     };
     const markdown = "Answer\n\nSources:\n- [Publisher's title](https://example.test/source)";
@@ -44,7 +47,23 @@
     const code = capture('<p>Use <code>x  y</code>.</p><pre><code>x  y\n\nz \n</code></pre>');
     assert(api.compareTranscripts([{ role: 'assistant', text: 'Use `x  y`.\n\n```\nx  y\n\nz \n```' }], [code]).match, 'Code whitespace did not round-trip');
     assert(!api.compareTranscripts([{ role: 'assistant', text: 'Use `x y`.\n\n```\nx y\n\nz \n```' }], [code]).match, 'Code whitespace difference was hidden');
-    document.getElementById('result').textContent = 'PASS: Claude controls, references, original export, prose typography, real wording, unproven blocks, literal code';
+    // A lightly indented API list renders as <ol>, with the continuation inside the last <li>.
+    const prompt = { role: 'user', text: 'Opening\n\n 1. First item\n 2. Second item\n\n Continuation\n\nClosing' };
+    const listPage = '<div class="contents"><p>Opening</p><ol><li>First item</li><li><p>Second item</p><p>Continuation</p></li></ol><p>Closing</p></div>';
+    const stored = api.buildIntegratedMarkdown([prompt], [capture(listPage, 'user')]);
+    assert(stored.counts.conflicts === 0 && stored.content.includes(prompt.text), 'A rendered user list conflicted with its original Markdown');
+    for (const altered of [
+        listPage.replace('<ol>', '<ol start="2">'),
+        listPage.replace('Second item', 'Second revised item'),
+        listPage.replace('<ol>', '<ol>Additional visible text'),
+        listPage.replace('Continuation', 'Continu  ation'),
+        listPage.replace('<ol><li>First item</li><li><p>Second item</p><p>Continuation</p></li></ol>', '<p>First item</p><p>Second item</p><p>Continuation</p>'),
+    ]) assert(!api.compareTranscripts([prompt], [capture(altered, 'user')]).match, 'A real user list change was hidden');
+    assert(!api.compareTranscripts([{ ...prompt, text: 'Opening\n\nFirst item\nSecond item\n\nContinuation\n\nClosing' }],
+        [capture(listPage, 'user')]).match, 'A list was matched to plain text without numbering');
+    assert(!api.compareTranscripts([prompt], [capture(listPage, 'user', '<p>Additional visible text</p>')]).match,
+        'Visible text outside the numbered prompt was ignored');
+    document.getElementById('result').textContent = 'PASS: Claude controls, references, original export, prose typography, literal code, rendered user lists and real changes';
     document.documentElement.dataset.result = 'pass';
 })().catch(error => {
     document.getElementById('result').textContent = 'FAIL: ' + error.message;
