@@ -28,7 +28,7 @@ async function check(reverse, neverSettles = false) {
         }
     };
     const context = vm.createContext({
-        scroller, Event: class {},
+        scroller, Event: class {}, WheelEvent: class {},
         getScrollBounds: () => ({ oldest: oldest(), newest: reverse ? 0 : (generation + 1) * 1000 }),
         getViewportSignature: () => String(generation),
         delay: async ms => {
@@ -51,9 +51,39 @@ async function check(reverse, neverSettles = false) {
     }
 }
 
+// ChatGPT pulls programmatic scrolls back to the bottom unless a user wheel gesture precedes them.
+async function checkStickToBottom() {
+    const newest = 6000;
+    let top = newest;
+    let wheelIntent = false;
+    class WheelEvent { constructor(type, init) { this.type = type; this.deltaY = init.deltaY; } }
+    const scroller = {
+        clientHeight: 700,
+        get scrollTop() { return top; },
+        set scrollTop(value) {
+            top = wheelIntent ? value : newest;
+            wheelIntent = false;
+        },
+        dispatchEvent(event) {
+            if (event instanceof WheelEvent && event.deltaY < 0) wheelIntent = true;
+        },
+        querySelector: () => null
+    };
+    const context = vm.createContext({
+        scroller, Event: class {}, WheelEvent,
+        getScrollBounds: () => ({ oldest: 0, newest }),
+        getViewportSignature: () => 'static',
+        delay: async () => {}
+    });
+    const reached = await vm.runInContext(`${constants}\n${navigation}\nmoveToTop(scroller, FAST_UPWARD_WAIT, {})`, context);
+    assert.equal(reached, true, 'upward scrolling must not be pulled back to the bottom');
+    assert.equal(top, 0);
+}
+
 (async () => {
     await check(false);
     await check(true);
     await check(false, true);
-    console.log('PASS ChatGPT delayed history, normal/reversed scrolling, loading timeout');
+    await checkStickToBottom();
+    console.log('PASS ChatGPT delayed history, normal/reversed scrolling, loading timeout, stick-to-bottom');
 })().catch(error => { console.error(error); process.exitCode = 1; });
