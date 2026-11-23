@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GYC - Gemini
 // @namespace    https://github.com/ReaperTw/AZA-Agent-Chat-Archive
-// @version      1.4.21
+// @version      1.4.22
 // @description  Grab Your Chat - Gemini 端對話匯出器；最後更新於 20261122
 // @updateURL    https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-gemini.user.js
 // @downloadURL  https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-gemini.user.js
@@ -1200,6 +1200,56 @@ if (typeof document !== 'undefined') {
             }
         }
 
+        const delay = async ms => {
+            await new Promise(resolve => setTimeout(resolve, ms));
+            throwIfStopped();
+        };
+
+        // --- manual stop ---
+        const MANUAL_STOP_MESSAGE = '已手動停止，未產生檔案';
+        const manualStop = { depth: 0, requested: false, button: null };
+
+        function isManualStop(error) {
+            return error?.manualStop === true;
+        }
+
+        function throwIfStopped() {
+            if (!manualStop.requested) return;
+            const error = new Error(MANUAL_STOP_MESSAGE);
+            error.manualStop = true;
+            throw error;
+        }
+
+        function beginManualStop() {
+            if (manualStop.depth++ > 0) return;
+            manualStop.requested = false;
+            const button = document.createElement('button');
+            button.textContent = '⏹ 停止';
+            button.title = '停止目前的捲動與收集，不產生檔案';
+            Object.assign(button.style, {
+                position: 'fixed', right: '30px', bottom: '100px', zIndex: '2147483647',
+                padding: '8px 14px', border: 'none', borderRadius: '18px',
+                background: '#d93025', color: '#fff', font: '600 13px system-ui, sans-serif',
+                cursor: 'pointer', boxShadow: '0 4px 12px rgba(0,0,0,.3)'
+            });
+            button.addEventListener('click', () => {
+                manualStop.requested = true;
+                button.disabled = true;
+                button.textContent = '停止中…';
+            });
+            document.body.appendChild(button);
+            manualStop.button = button;
+        }
+
+        function endManualStop() {
+            manualStop.depth = Math.max(0, manualStop.depth - 1);
+            if (manualStop.depth) return;
+            manualStop.button?.remove();
+            manualStop.button = null;
+            manualStop.requested = false;
+        }
+        // --- end manual stop ---
+
         async function loadHistoryTop(scroller, btn, wait, checkScope, minimumTurns = 0) {
             let previous = '';
             let stable = 0;
@@ -1210,7 +1260,7 @@ if (typeof document !== 'undefined') {
                 // Gemini's history loader listens for upward wheel intent at the
                 // boundary; assigning scrollTop alone does not request older turns.
                 scroller.dispatchEvent(new WheelEvent('wheel', { deltaY: -800, bubbles: true, cancelable: true }));
-                await new Promise(resolve => setTimeout(resolve, wait));
+                await delay(wait);
                 checkScope?.();
                 const turns = [...scroller.querySelectorAll('.conversation-container')];
                 const signature = JSON.stringify([scroller.scrollHeight, turns.map(turn => turn.id)]);
@@ -1227,6 +1277,7 @@ if (typeof document !== 'undefined') {
         async function scrollToTop(btn) {
             if (!btn) return;
             btn.disabled = true;
+            beginManualStop();
             const originalText = btn.innerText;
             try {
                 btn.innerText = '⬆️ 狂奔至頂端中...';
@@ -1234,8 +1285,10 @@ if (typeof document !== 'undefined') {
                 await loadHistoryTop(scroller, btn, FAST_UPWARD_WAIT);
                 btn.innerText = '✅ 已達最頂端';
             } catch (error) {
-                showNotification(`❌ ${error.message}`, true);
+                if (isManualStop(error)) showNotification('⏹ 已停止捲動');
+                else showNotification(`❌ ${error.message}`, true);
             } finally {
+                endManualStop();
                 setTimeout(() => {
                     btn.disabled = false;
                     btn.innerText = originalText;
@@ -1259,6 +1312,7 @@ if (typeof document !== 'undefined') {
         async function processAndExport(config, btn, captureOnly = false) {
             if (!btn) return;
             btn.disabled = true;
+            beginManualStop();
             const originalText = btn.innerText;
             const warnings = [];
             try {
@@ -1282,7 +1336,7 @@ if (typeof document !== 'undefined') {
                     // Structural capture already reads off-screen bodies. Only virtualized
                     // or incomplete DOM needs viewport-by-viewport discovery.
                     scroller.scrollTop = allBodiesMounted ? maxTop : Math.min(maxTop, before + step);
-                    await new Promise(r => setTimeout(r, config.baseWait));
+                    await delay(config.baseWait);
                     collectTurns(scroller, timeline, warnings);
                     const atBottom = scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop <= 5;
                     if (atBottom && Math.abs(scroller.scrollTop - before) < 5) bottomStable++;
@@ -1310,9 +1364,14 @@ if (typeof document !== 'undefined') {
                 }, finalTitle => performDownload(finalTitle, out));
             } catch (error) {
                 if (captureOnly) throw error;
-                console.error('[Gemini Exporter] 匯出失敗', error);
-                showNotification(`❌ 匯出失敗：${error.message}`, true);
+                if (isManualStop(error)) {
+                    showNotification(`⏹ ${MANUAL_STOP_MESSAGE}`);
+                } else {
+                    console.error('[Gemini Exporter] 匯出失敗', error);
+                    showNotification(`❌ 匯出失敗：${error.message}`, true);
+                }
             } finally {
+                endManualStop();
                 if (!captureOnly) {
                     btn.disabled = false;
                     btn.innerText = originalText;
@@ -1412,18 +1471,28 @@ if (typeof document !== 'undefined') {
             let api = null, dom = null;
             const errors = {};
             btn.disabled = true;
+            beginManualStop();
             try {
                 try {
                     api = await exportViaApi(btn, true);
                     checkScope();
                 } catch (error) { api = null; errors.api = error.message || String(error); }
+                throwIfStopped();
                 try {
                     checkScope();
                     dom = await processAndExport({ upWait: FAST_UPWARD_WAIT, step: FAST_SCROLL_STEP, baseWait: FAST_BASE_WAIT, checkScope, minimumTurns: api?.turns.filter(turn => turn.type === 'user').length || 0 }, btn, true);
                     checkScope();
-                } catch (error) { dom = null; errors.dom = error.message || String(error); }
+                } catch (error) {
+                    if (isManualStop(error)) throw error;
+                    dom = null;
+                    errors.dom = error.message || String(error);
+                }
                 showCombinedResults(title, api, dom, errors);
+            } catch (error) {
+                if (!isManualStop(error)) throw error;
+                showNotification(`⏹ ${MANUAL_STOP_MESSAGE}`);
             } finally {
+                endManualStop();
                 clearInterval(monitor);
                 btn.disabled = false;
                 btn.innerText = originalText;
@@ -1541,7 +1610,7 @@ if (typeof document !== 'undefined') {
 
             const fab = document.createElement('button');
             fab.textContent = '✦';
-            fab.title = 'AZA-Agent-Chat-Archive - Gemini 1.4.21';
+            fab.title = 'AZA-Agent-Chat-Archive - Gemini 1.4.22';
             fab.setAttribute('aria-label', fab.title);
             Object.assign(fab.style, {
                 width: '56px',

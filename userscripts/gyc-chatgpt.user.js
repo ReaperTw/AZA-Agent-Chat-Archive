@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GYC - ChatGPT
 // @namespace    https://github.com/ReaperTw/AZA-Agent-Chat-Archive
-// @version      1.4.22
+// @version      1.4.23
 // @description  AZA-Agent-Chat-Archive - ChatGPT 端對話匯出器；最後更新於 20261122
 // @updateURL    https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-chatgpt.user.js
 // @downloadURL  https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-chatgpt.user.js
@@ -13,14 +13,63 @@
 
 (function () {
     'use strict';
-    const MAX_UPWARD_LOOPS = 40;
+    const MAX_UPWARD_LOOPS = 5000;      // 安全上限；正常由穩定判定或手動停止結束
+    const MAX_IDLE_UPWARD_LOOPS = 10;   // 未到頂端、位置與內容卻連續不變的次數
     const RETRY_EMPTY_MAX = 3;
     const RETRY_EMPTY_WAIT = 350;
     const FAST_UPWARD_WAIT = 500;
     const FAST_SCROLL_STEP = 2000;
     const FAST_BASE_WAIT = 250;
 
-    const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+    const delay = async ms => {
+        await new Promise(resolve => setTimeout(resolve, ms));
+        throwIfStopped();
+    };
+
+    // --- manual stop ---
+    const MANUAL_STOP_MESSAGE = '已手動停止，未產生檔案';
+    const manualStop = { depth: 0, requested: false, button: null };
+
+    function isManualStop(error) {
+        return error?.manualStop === true;
+    }
+
+    function throwIfStopped() {
+        if (!manualStop.requested) return;
+        const error = new Error(MANUAL_STOP_MESSAGE);
+        error.manualStop = true;
+        throw error;
+    }
+
+    function beginManualStop() {
+        if (manualStop.depth++ > 0) return;
+        manualStop.requested = false;
+        const button = document.createElement('button');
+        button.textContent = '⏹ 停止';
+        button.title = '停止目前的捲動與收集，不產生檔案';
+        Object.assign(button.style, {
+            position: 'fixed', right: '30px', bottom: '100px', zIndex: '2147483647',
+            padding: '8px 14px', border: 'none', borderRadius: '18px',
+            background: '#d93025', color: '#fff', font: '600 13px system-ui, sans-serif',
+            cursor: 'pointer', boxShadow: '0 4px 12px rgba(0,0,0,.3)'
+        });
+        button.addEventListener('click', () => {
+            manualStop.requested = true;
+            button.disabled = true;
+            button.textContent = '停止中…';
+        });
+        document.body.appendChild(button);
+        manualStop.button = button;
+    }
+
+    function endManualStop() {
+        manualStop.depth = Math.max(0, manualStop.depth - 1);
+        if (manualStop.depth) return;
+        manualStop.button?.remove();
+        manualStop.button = null;
+        manualStop.requested = false;
+    }
+    // --- end manual stop ---
 
     function sanitizeFileName(str) {
         if (!str) return '';
@@ -1407,9 +1456,11 @@
 
     async function moveToTop(scroller, waitMs, button) {
         let stable = 0;
+        let idle = 0;
         let previousSignature = '';
         const step = Math.max(1, Math.floor((scroller.clientHeight || 800) / 2));
         for (let index = 0; index < MAX_UPWARD_LOOPS; index++) {
+            const beforeTop = scroller.scrollTop;
             setScrollPosition(scroller, Math.max(getScrollBounds(scroller).oldest, scroller.scrollTop - step));
             scroller.dispatchEvent(new Event('scroll', { bubbles: true }));
             await delay(waitMs);
@@ -1420,9 +1471,12 @@
             const atOldest = Math.abs(scroller.scrollTop - getScrollBounds(scroller).oldest) <= 3;
             if (!loadingOlder && atOldest && signature === previousSignature) stable++;
             else stable = 0;
+            const unchanged = Math.abs(scroller.scrollTop - beforeTop) < 1 && signature === previousSignature;
+            idle = !loadingOlder && !atOldest && unchanged ? idle + 1 : 0;
             previousSignature = signature;
-            button.textContent = `${loadingOlder ? '載入較早訊息' : '定位起點'}… ${index + 1}/${MAX_UPWARD_LOOPS}`;
+            button.textContent = `${loadingOlder ? '載入較早訊息' : '定位起點'}… ${index + 1}`;
             if (stable >= 2) return true;
+            if (idle >= MAX_IDLE_UPWARD_LOOPS) return false;
         }
         return false;
     }
@@ -1443,6 +1497,7 @@
         if (!button || button.disabled) return;
         const originalText = button.textContent;
         button.disabled = true;
+        beginManualStop();
         try {
             const scroller = findScrollContainer();
             const reached = await moveToTop(scroller, FAST_UPWARD_WAIT, button);
@@ -1451,9 +1506,14 @@
                 !reached
             );
         } catch (error) {
-            console.error('[ChatGPT Exporter] 直達頂端失敗', error);
-            showNotification(`❌ 直達頂端失敗：${error.message}`, true);
+            if (isManualStop(error)) {
+                showNotification('⏹ 已停止捲動');
+            } else {
+                console.error('[ChatGPT Exporter] 直達頂端失敗', error);
+                showNotification(`❌ 直達頂端失敗：${error.message}`, true);
+            }
         } finally {
+            endManualStop();
             button.disabled = false;
             button.textContent = originalText;
         }
@@ -1463,6 +1523,7 @@
         if (!button || (button.disabled && !collectOnly)) return;
         const originalText = button.textContent;
         button.disabled = true;
+        beginManualStop();
 
         try {
             const scroller = findScrollContainer();
@@ -1651,9 +1712,14 @@
             });
         } catch (error) {
             if (collectOnly) throw error;
-            console.error('[ChatGPT Exporter] 匯出失敗', error);
-            showNotification(`❌ 匯出失敗：${error.message}`, true, 6000);
+            if (isManualStop(error)) {
+                showNotification(`⏹ ${MANUAL_STOP_MESSAGE}`);
+            } else {
+                console.error('[ChatGPT Exporter] 匯出失敗', error);
+                showNotification(`❌ 匯出失敗：${error.message}`, true, 6000);
+            }
         } finally {
+            endManualStop();
             if (!collectOnly) {
                 button.disabled = false;
                 button.textContent = originalText;
@@ -1773,6 +1839,7 @@
         let dom = null;
         const errors = {};
         button.disabled = true;
+        beginManualStop();
         try {
             try {
                 const id = getConversationIdFromUrl(new URL(scope).pathname);
@@ -1788,6 +1855,7 @@
             } catch (error) {
                 errors.api = error.message || String(error);
             }
+            throwIfStopped();
             try {
                 checkScope();
                 dom = await processAndExport({
@@ -1795,13 +1863,16 @@
                 }, button, true);
                 checkScope();
             } catch (error) {
+                if (isManualStop(error)) throw error;
                 dom = null;
                 errors.dom = error.message || String(error);
             }
             showCombinedResults(title, api, dom, errors);
         } catch (error) {
-            showNotification(`綜合匯出失敗：${error.message || String(error)}`, true, 6000);
+            if (isManualStop(error)) showNotification(`⏹ ${MANUAL_STOP_MESSAGE}`);
+            else showNotification(`綜合匯出失敗：${error.message || String(error)}`, true, 6000);
         } finally {
+            endManualStop();
             clearInterval(monitor);
             button.disabled = false;
             button.textContent = originalText;
@@ -1922,7 +1993,7 @@
                 <path fill="currentColor"
                     d="M22.2819 9.8211a5.9847 5.9847 0 0 0-.5157-4.9108 6.0462 6.0462 0 0 0-6.5098-2.9A6.0651 6.0651 0 0 0 4.9807 4.1818a5.9847 5.9847 0 0 0-3.9977 2.9 6.0462 6.0462 0 0 0 .7427 7.0966 5.98 5.98 0 0 0 .511 4.9107 6.051 6.051 0 0 0 6.5146 2.9001A5.9847 5.9847 0 0 0 13.2599 24a6.0557 6.0557 0 0 0 5.7718-4.2058 5.9894 5.9894 0 0 0 3.9977-2.9001 6.0557 6.0557 0 0 0-.7475-7.0729zm-9.022 12.6081a4.4755 4.4755 0 0 1-2.8764-1.0408l.1419-.0804 4.7783-2.7582a.7948.7948 0 0 0 .3927-.6813v-6.7369l2.02 1.1686a.071.071 0 0 1 .038.052v5.5826a4.504 4.504 0 0 1-4.4945 4.4944zm-9.6607-4.1254a4.4708 4.4708 0 0 1-.5346-3.0137l.142.0852 4.783 2.7582a.7712.7712 0 0 0 .7806 0l5.8428-3.3685v2.3324a.0804.0804 0 0 1-.0332.0615L9.74 19.9502a4.4992 4.4992 0 0 1-6.1408-1.6464zM2.3408 7.8956a4.485 4.485 0 0 1 2.3655-1.9728V11.6a.7664.7664 0 0 0 .3879.6765l5.8144 3.3543-2.0201 1.1685a.0757.0757 0 0 1-.071 0l-4.8303-2.7865A4.504 4.504 0 0 1 2.3408 7.872zm16.5963 3.8558L13.1038 8.364 15.1192 7.2a.0757.0757 0 0 1 .071 0l4.8303 2.7913a4.4944 4.4944 0 0 1-.6765 8.1042v-5.6772a.79.79 0 0 0-.407-.667zm2.0107-3.0231l-.142-.0852-4.7735-2.7818a.7759.7759 0 0 0-.7854 0L9.409 9.2297V6.8974a.0662.0662 0 0 1 .0284-.0615l4.8303-2.7866a4.4992 4.4992 0 0 1 6.6802 4.66zM8.3065 12.863l-2.02-1.1638a.0804.0804 0 0 1-.038-.0567V6.0742a4.4992 4.4992 0 0 1 7.3757-3.4537l-.142.0805L8.704 5.459a.7948.7948 0 0 0-.3927.6813zm1.0976-2.3654 2.602-1.4998 2.6069 1.4998v2.9994l-2.5974 1.4997-2.6067-1.4997Z"/>
             </svg>`;
-        fab.title = "AZA-Agent-Chat-Archive - ChatGPT 1.4.22";
+        fab.title = "AZA-Agent-Chat-Archive - ChatGPT 1.4.23";
         fab.setAttribute('aria-label', fab.title);
         Object.assign(fab.style, {
             width: '56px',

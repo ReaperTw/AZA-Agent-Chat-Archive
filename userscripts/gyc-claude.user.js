@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GYC - Claude
 // @namespace    https://github.com/ReaperTw/AZA-Agent-Chat-Archive
-// @version      1.4.15
+// @version      1.4.16
 // @description  Grab Your Chat - Claude 端對話匯出器；最後更新於 20261122
 // @updateURL    https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-claude.user.js
 // @downloadURL  https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-claude.user.js
@@ -1299,12 +1299,18 @@
         if (!button || button.disabled) return;
         const originalText = button.textContent;
         button.disabled = true;
+        beginManualStop();
         try {
             await fn(button);
         } catch (error) {
-            console.error('[Claude Exporter] 失敗', error);
-            showNotification(`❌ ${error.message}`, true, 6000);
+            if (isManualStop(error)) {
+                showNotification(`⏹ ${MANUAL_STOP_MESSAGE}`);
+            } else {
+                console.error('[Claude Exporter] 失敗', error);
+                showNotification(`❌ ${error.message}`, true, 6000);
+            }
         } finally {
+            endManualStop();
             button.disabled = false;
             button.textContent = originalText;
         }
@@ -1339,7 +1345,55 @@
     const USER_SELECTOR = '[data-testid="user-message"], [data-testid="user-human-turn"], [class~="group/message-row"].items-end';
     const ASSISTANT_SELECTOR = '.font-claude-response, .font-claude-message, [data-testid="assistant-message"]';
     const MESSAGE_SELECTOR = `${USER_SELECTOR}, ${ASSISTANT_SELECTOR}`;
-    const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+    const delay = async ms => {
+        await new Promise(resolve => setTimeout(resolve, ms));
+        throwIfStopped();
+    };
+
+    // --- manual stop ---
+    const MANUAL_STOP_MESSAGE = '已手動停止，未產生檔案';
+    const manualStop = { depth: 0, requested: false, button: null };
+
+    function isManualStop(error) {
+        return error?.manualStop === true;
+    }
+
+    function throwIfStopped() {
+        if (!manualStop.requested) return;
+        const error = new Error(MANUAL_STOP_MESSAGE);
+        error.manualStop = true;
+        throw error;
+    }
+
+    function beginManualStop() {
+        if (manualStop.depth++ > 0) return;
+        manualStop.requested = false;
+        const button = root.document.createElement('button');
+        button.textContent = '⏹ 停止';
+        button.title = '停止目前的捲動與收集，不產生檔案';
+        Object.assign(button.style, {
+            position: 'fixed', right: '30px', bottom: '100px', zIndex: '2147483647',
+            padding: '8px 14px', border: 'none', borderRadius: '18px',
+            background: '#d93025', color: '#fff', font: '600 13px system-ui, sans-serif',
+            cursor: 'pointer', boxShadow: '0 4px 12px rgba(0,0,0,.3)'
+        });
+        button.addEventListener('click', () => {
+            manualStop.requested = true;
+            button.disabled = true;
+            button.textContent = '停止中…';
+        });
+        root.document.body.appendChild(button);
+        manualStop.button = button;
+    }
+
+    function endManualStop() {
+        manualStop.depth = Math.max(0, manualStop.depth - 1);
+        if (manualStop.depth) return;
+        manualStop.button?.remove();
+        manualStop.button = null;
+        manualStop.requested = false;
+    }
+    // --- end manual stop ---
 
     function findConversationScroller() {
         const nodes = [...root.document.querySelectorAll(MESSAGE_SELECTOR)];
@@ -1621,11 +1675,16 @@
                         throw new Error('API 沒有可匯出的可見訊息');
                     }
                 } catch (error) { errors.api = error.message || String(error); }
+                throwIfStopped();
                 try {
                     checkScope();
                     domResult = await scanDom(btn, checkScope);
                     checkScope();
-                } catch (error) { domResult = null; errors.dom = error.message || String(error); }
+                } catch (error) {
+                    if (isManualStop(error)) throw error;
+                    domResult = null;
+                    errors.dom = error.message || String(error);
+                }
                 if (changed || root.location.href !== scope) {
                     domResult = null;
                     errors.dom = '收集期間對話網址已變更，無法比對不同對話';
@@ -1730,7 +1789,7 @@
 
         const fab = root.document.createElement('button');
         fab.textContent = '✳';
-        fab.title = "AZA-Agent-Chat-Archive - Claude 1.4.15";
+        fab.title = "AZA-Agent-Chat-Archive - Claude 1.4.16";
         fab.setAttribute('aria-label', fab.title);
         Object.assign(fab.style, {
             width: '56px',

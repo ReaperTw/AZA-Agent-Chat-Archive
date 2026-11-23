@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        GYC - Grok
 // @namespace   https://github.com/ReaperTw/AZA-Agent-Chat-Archive
-// @version      1.4.15
+// @version      1.4.16
 // @description Grab Your Chat - Grok 端對話匯出器；最後更新於 20261101
 // @updateURL   https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-grok.user.js
 // @downloadURL https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-grok.user.js
@@ -987,11 +987,62 @@
         return { merged: master, hasGap: true };
     }
 
+    const delay = async ms => {
+        await new Promise(resolve => setTimeout(resolve, ms));
+        throwIfStopped();
+    };
+
+    // --- manual stop ---
+    const MANUAL_STOP_MESSAGE = '已手動停止，未產生檔案';
+    const manualStop = { depth: 0, requested: false, button: null };
+
+    function isManualStop(error) {
+        return error?.manualStop === true;
+    }
+
+    function throwIfStopped() {
+        if (!manualStop.requested) return;
+        const error = new Error(MANUAL_STOP_MESSAGE);
+        error.manualStop = true;
+        throw error;
+    }
+
+    function beginManualStop() {
+        if (manualStop.depth++ > 0) return;
+        manualStop.requested = false;
+        const button = document.createElement('button');
+        button.textContent = '⏹ 停止';
+        button.title = '停止目前的捲動與收集，不產生檔案';
+        Object.assign(button.style, {
+            position: 'fixed', right: '30px', bottom: '100px', zIndex: '2147483647',
+            padding: '8px 14px', border: 'none', borderRadius: '18px',
+            background: '#d93025', color: '#fff', font: '600 13px system-ui, sans-serif',
+            cursor: 'pointer', boxShadow: '0 4px 12px rgba(0,0,0,.3)'
+        });
+        button.addEventListener('click', () => {
+            manualStop.requested = true;
+            button.disabled = true;
+            button.textContent = '停止中…';
+        });
+        document.body.appendChild(button);
+        manualStop.button = button;
+    }
+
+    function endManualStop() {
+        manualStop.depth = Math.max(0, manualStop.depth - 1);
+        if (manualStop.depth) return;
+        manualStop.button?.remove();
+        manualStop.button = null;
+        manualStop.requested = false;
+    }
+    // --- end manual stop ---
+
     // --- 主流程 ---
     async function moveToTop(btn) {
         if (!btn || btn.disabled) return;
         const originalText = btn.innerText;
         btn.disabled = true;
+        beginManualStop();
 
         try {
             const scroller = findScrollContainer();
@@ -1003,7 +1054,7 @@
                 if (isWindow) window.scrollTo({ top: 0, behavior: 'auto' });
                 else scroller.scrollTo({ top: 0, behavior: 'auto' });
 
-                await new Promise(r => setTimeout(r, CONFIG.FAST_UPWARD_WAIT));
+                await delay(CONFIG.FAST_UPWARD_WAIT);
                 const currentScroll = isWindow ? window.scrollY : scroller.scrollTop;
                 const currentHeight = isWindow
                     ? document.documentElement.scrollHeight
@@ -1019,9 +1070,14 @@
             }
             showNotification('✅ 已到頂端', false, 3500);
         } catch (error) {
-            console.error('[Grok Exporter] 到頂端失敗', error);
-            showNotification(`❌ 到頂端失敗：${error.message}`, true, 6000);
+            if (isManualStop(error)) {
+                showNotification('⏹ 已停止捲動', false, 3500);
+            } else {
+                console.error('[Grok Exporter] 到頂端失敗', error);
+                showNotification(`❌ 到頂端失敗：${error.message}`, true, 6000);
+            }
         } finally {
+            endManualStop();
             btn.disabled = false;
             btn.innerText = originalText;
         }
@@ -1055,6 +1111,7 @@
         const scan = NORMAL_SCAN;
         const originalText = btn.innerText;
         btn.disabled = true;
+        beginManualStop();
         try {
             const scroller = findScrollContainer();
             if (!scroller.querySelector(CONFIG.CONTENT_NODES)) {
@@ -1087,7 +1144,7 @@
                 while (document.hidden) {
                     checkScope();
                     btn.innerText = `⏸️ 暫停｜已存 ${globalTimeline.length} 則`;
-                    await new Promise(resolve => setTimeout(resolve, 1000));
+                    await delay(1000);
                 }
             }
 
@@ -1101,9 +1158,7 @@
                 ) {
                     await waitIfHidden();
                     setScrollTop(0);
-                    await new Promise(resolve =>
-                        setTimeout(resolve, scan.upwardWait)
-                    );
+                    await delay(scan.upwardWait);
 
                     const currentHeight = getScrollHeight();
                     stable = getScrollTop() <= 1 && currentHeight === lastHeight
@@ -1117,9 +1172,7 @@
                     throw new Error('無法穩定回到對話最頂端');
                 }
                 setScrollTop(0);
-                await new Promise(resolve =>
-                    setTimeout(resolve, Math.max(scan.upwardWait, 1000))
-                );
+                await delay(Math.max(scan.upwardWait, 1000));
             }
 
             globalTimeline = getVisibleTimeline(scroller);
@@ -1159,7 +1212,7 @@
                     btn.innerText =
                         `等待內容 ${contentWaitTimer}s` +
                         `｜已存 ${globalTimeline.length} 則`;
-                    await new Promise(resolve => setTimeout(resolve, 1000));
+                    await delay(1000);
                 }
                 if (!isLastMessageLoaded(scroller)) {
                     const warning = '部分訊息節點持續為空，可能有內容未載入';
@@ -1169,9 +1222,7 @@
                 if (!globalTimeline.length) globalTimeline = beforeFragment;
 
                 setScrollTop(Math.min(maxTop, beforeTop + effectiveStep));
-                await new Promise(resolve =>
-                    setTimeout(resolve, scan.baseWait)
-                );
+                await delay(scan.baseWait);
                 await waitIfHidden();
 
                 const fragment = getVisibleTimeline(scroller);
@@ -1190,10 +1241,7 @@
                             0,
                             getScrollTop() - effectiveStep * 0.5
                         ));
-                        await new Promise(resolve => setTimeout(
-                            resolve,
-                            Math.max(1000, scan.baseWait * 2)
-                        ));
+                        await delay(Math.max(1000, scan.baseWait * 2));
                         continue;
                     }
 
@@ -1255,9 +1303,14 @@
             });
         } catch (error) {
             if (captureOnly) throw error;
-            console.error('[Grok Exporter] 匯出失敗', error);
-            showNotification(`❌ 匯出失敗：${error.message}`, true, 6000);
+            if (isManualStop(error)) {
+                showNotification(`⏹ ${MANUAL_STOP_MESSAGE}`, false, 3500);
+            } else {
+                console.error('[Grok Exporter] 匯出失敗', error);
+                showNotification(`❌ 匯出失敗：${error.message}`, true, 6000);
+            }
         } finally {
+            endManualStop();
             if (!captureOnly) {
                 btn.disabled = false;
                 btn.innerText = originalText;
@@ -1328,6 +1381,7 @@
         let api = null, dom = null;
         const errors = {};
         button.disabled = true;
+        beginManualStop();
         try {
             try {
                 const id = conversationIdFromPath(location.pathname, location.search);
@@ -1344,16 +1398,23 @@
                     out: buildTimelineMarkdown(branch.timeline, warnings).content
                 };
             } catch (error) { errors.api = error.message || String(error); }
+            throwIfStopped();
             checkScope();
             try {
                 dom = await processAndExport(button, true, checkScope);
                 checkScope();
-            } catch (error) { dom = null; errors.dom = error.message || String(error); }
+            } catch (error) {
+                if (isManualStop(error)) throw error;
+                dom = null;
+                errors.dom = error.message || String(error);
+            }
             checkScope();
             showCombinedResults(title, api, dom, errors);
         } catch (error) {
-            showNotification(`綜合匯出失敗：${error.message || String(error)}`, true, 6000);
+            if (isManualStop(error)) showNotification(`⏹ ${MANUAL_STOP_MESSAGE}`, false, 3500);
+            else showNotification(`綜合匯出失敗：${error.message || String(error)}`, true, 6000);
         } finally {
+            endManualStop();
             clearInterval(monitor);
             button.disabled = false;
             button.innerText = originalText;
@@ -1465,7 +1526,7 @@
 
         const fab = document.createElement('button');
         fab.innerText = '𝕏';
-        fab.title = 'AZA-Agent-Chat-Archive - Grok 1.4.15';
+        fab.title = 'AZA-Agent-Chat-Archive - Grok 1.4.16';
         fab.setAttribute('aria-label', fab.title);
         Object.assign(fab.style, {
             width: '56px',

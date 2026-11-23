@@ -80,10 +80,32 @@ async function checkStickToBottom() {
     assert.equal(top, 0);
 }
 
+// Without a fixed pass count, a scroller that cannot move must still give up after idle rounds.
+async function checkIdleGivesUp() {
+    let waits = 0;
+    const scroller = {
+        clientHeight: 700,
+        get scrollTop() { return 3000; },
+        set scrollTop(value) {},
+        dispatchEvent() {},
+        querySelector: () => null
+    };
+    const context = vm.createContext({
+        scroller, Event: class {}, WheelEvent: class {},
+        getScrollBounds: () => ({ oldest: 0, newest: 3000 }),
+        getViewportSignature: () => 'static',
+        delay: async () => { waits++; }
+    });
+    const reached = await vm.runInContext(`${constants}\n${navigation}\nmoveToTop(scroller, FAST_UPWARD_WAIT, {})`, context);
+    assert.equal(reached, false, 'a stuck scroller must not report the top');
+    assert(waits <= 12, `stuck scroller must give up after idle rounds, waited ${waits}`);
+}
+
 (async () => {
     await check(false);
     await check(true);
     await check(false, true);
     await checkStickToBottom();
-    console.log('PASS ChatGPT delayed history, normal/reversed scrolling, loading timeout, stick-to-bottom');
+    await checkIdleGivesUp();
+    console.log('PASS ChatGPT delayed history, normal/reversed scrolling, loading timeout, stick-to-bottom, idle give-up');
 })().catch(error => { console.error(error); process.exitCode = 1; });
