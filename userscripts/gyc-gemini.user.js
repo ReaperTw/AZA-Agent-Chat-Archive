@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         GYC - Gemini
 // @namespace    https://github.com/ReaperTw/AZA-Agent-Chat-Archive
-// @version      1.4.22
-// @description  Grab Your Chat - Gemini 端對話匯出器；最後更新於 20261122
+// @version      1.4.23
+// @description  Grab Your Chat - Gemini 端對話匯出器；最後更新於 20261124
 // @updateURL    https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-gemini.user.js
 // @downloadURL  https://raw.githubusercontent.com/ReaperTw/AZA-Agent-Chat-Archive/main/userscripts/gyc-gemini.user.js
 // @match        https://gemini.google.com/*
@@ -276,6 +276,20 @@ function readGeminiQueryLine(line) {
     if (nodes.length > 2 && nodes[0].nodeType === 3 && nodes[0].textContent === ' ' &&
         nodes.at(-1).nodeType === 3 && nodes.at(-1).textContent === ' ') text = text.slice(1, -1);
     return line.classList.contains('query-bullet-item') ? '- ' + text : text;
+}
+
+function readGeminiQuery(node) {
+    const lines = node.querySelectorAll('.query-text-line, .query-bullet-item, ol.query-numbered-list > li.query-numbered-item');
+    if (!lines.length) return cleanContent(node.querySelector('.query-text')?.textContent);
+    const nextNumberByList = new Map();
+    return cleanContent(Array.from(lines, line => {
+        const text = readGeminiQueryLine(line);
+        if (!line.classList.contains('query-numbered-item')) return text;
+        const list = line.parentElement;
+        const number = nextNumberByList.get(list) ?? list.start;
+        nextNumberByList.set(list, number + 1);
+        return `${number}. ${text}`;
+    }).join('\n'));
 }
 
 // Grouped suggestions are latest-answer-only; single FollowUp labels remain
@@ -1183,10 +1197,8 @@ if (typeof document !== 'undefined') {
                     timeline.set(key, cached.turn);
                     continue;
                 }
-                const lines = user ? [...node.querySelectorAll('.query-text-line, .query-bullet-item')] : [];
-                const body = user ? node.querySelector('.query-text') : node.querySelector('message-content .markdown, .markdown');
-                let result = user
-                    ? { text: cleanContent(lines.length ? lines.map(readGeminiQueryLine).join('\n') : body?.textContent || '') }
+                const body = user ? null : node.querySelector('message-content .markdown, .markdown');
+                let result = user ? { text: readGeminiQuery(node) }
                     : body ? readDomBody(body) : { text: '', comparisonBody: '' };
                 for (const warning of result.warnings || []) if (!warnings.includes(warning)) warnings.push(warning);
                 if (!result.text) {
@@ -1610,7 +1622,7 @@ if (typeof document !== 'undefined') {
 
             const fab = document.createElement('button');
             fab.textContent = '✦';
-            fab.title = 'AZA-Agent-Chat-Archive - Gemini 1.4.22';
+            fab.title = 'AZA-Agent-Chat-Archive - Gemini 1.4.23';
             fab.setAttribute('aria-label', fab.title);
             Object.assign(fab.style, {
                 width: '56px',

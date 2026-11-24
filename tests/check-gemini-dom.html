@@ -5,7 +5,7 @@
 <script>window.module = { exports: {} };</script>
 <script src="../userscripts/gyc-gemini.user.js"></script>
 <script>
-(() => {
+(async () => {
     const cases = [
         ['<span>  </span>', '', '  '],
         ['<span>  indented text  </span>', '', '  indented text  '],
@@ -46,7 +46,51 @@
         body.innerHTML = '<p>Latest</p><elicitations><p>Explore Live</p><button class="elicitation-item" data-query="Hidden action"><span class="elicitation-label">Try Live</span></button></elicitations>';
         const controls = module.exports.readDomBody(body);
         if (!controls.text.includes('Try Live') || controls.text.includes('Hidden action')) throw new Error('DOM controls must export only visible labels');
-        document.getElementById('result').textContent = `PASS: ${cases.length} query cases; Model Markdown, DOM-only export, literal code whitespace, nested lists, visible control labels`;
+        const chat = document.createElement('infinite-scroller');
+        chat.className = 'chat-history';
+        chat.innerHTML = `<div class="conversation-container" id="turn_fixture">
+            <user-query><div class="query-text">
+                <p class="query-text-line"><span>Steps:</span></p>
+                <ol class="query-numbered-list">
+                    <li class="query-numbered-item"><span>Prepare</span></li>
+                    <li class="query-numbered-item"><span>Check</span></li>
+                </ol>
+                <ul><li class="query-bullet-item"><span>Reference</span></li></ul>
+                <ol class="query-numbered-list" start="4">
+                    <li class="query-numbered-item"><span>Submit</span></li>
+                </ol>
+            </div></user-query>
+            <model-response><message-content><div class="markdown"><p>Done.</p></div></message-content></model-response>
+        </div>`;
+        document.body.append(chat);
+        const menu = document.getElementById('gemini-export-fab-container');
+        menu.lastElementChild.click();
+        [...menu.querySelectorAll('button')].find(button => button.textContent === '正常匯出').click();
+        const save = await new Promise((resolve, reject) => {
+            const observer = new MutationObserver(() => {
+                const button = [...document.querySelectorAll('#gemini-export-modal button')].find(node => node.textContent === '儲存 .md');
+                if (!button) return;
+                observer.disconnect();
+                clearTimeout(timeout);
+                resolve(button);
+            });
+            const timeout = setTimeout(() => { observer.disconnect(); reject(Error('Normal export did not reach save')); }, 15000);
+            observer.observe(document.body, { subtree: true, childList: true });
+        });
+        let download;
+        document.addEventListener('click', event => {
+            if (event.target.matches('a[download]')) { event.preventDefault(); download = event.target.href; }
+        });
+        save.click();
+        const exported = await (await fetch(download)).text();
+        const userText = exported.split('# User 1\n\n')[1]?.split('\n\n# Model 1')[0];
+        const expected = 'Steps:\n1. Prepare\n2. Check\n- Reference\n4. Submit';
+        if (userText !== expected) throw new Error(`Normal export lost ordered list text: ${JSON.stringify(userText)}`);
+        const mergeUser = text => module.exports.buildIntegratedMarkdown([{ role: 'user', text }], [{ role: 'user', text: userText }]);
+        if (mergeUser(expected).counts.conflicts !== 0 || mergeUser(expected.replace('4. Submit', '5. Submit')).counts.conflicts !== 1) {
+            throw new Error('Identical ordered lists should match, but changed numbers must still conflict');
+        }
+        document.getElementById('result').textContent = `PASS: ${cases.length} query cases; Model Markdown; literal code whitespace; normal export preserves User numbering and detects changed ordinals`;
     } catch (error) {
         document.getElementById('result').textContent = 'FAIL: ' + error.message;
         throw error;
