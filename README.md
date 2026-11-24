@@ -82,6 +82,8 @@ Skill 只匯出可見對話，不保存隱藏推理、工具活動或引用檔�
 
 ## 開發與驗收
 
+每次更新先用[變更與回歸檢查清單](docs/CHANGE_CHECKLIST.md)圈出影響範圍，交付前依同一份清單記錄驗證結果。
+
 四站共用的輸出格式見[輸出規範](docs/OUTPUT_SPEC.md)。解析契約、三來源核對方式及已知驗證範圍，請見[匯出驗收規格](docs/EXPORT_VALIDATION.md)；修改本專案前先讀 [AGENTS.md](AGENTS.md)。
 
 共用渲染與整合對話框的來源是 `userscripts/shared/export-renderer.js`。修改來源後執行 `node scripts/build-userscripts.js`，將標記區段內嵌回四個單檔 userscript；不要手改產物的共用區段。`node scripts/build-userscripts.js --check` 檢查產物是否同步。
