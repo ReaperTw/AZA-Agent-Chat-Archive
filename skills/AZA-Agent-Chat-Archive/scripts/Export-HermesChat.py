@@ -174,16 +174,33 @@ def find_existing(root: Path, session_id: str) -> Path | None:
     return None
 
 
-def save_markdown(data: dict, config: dict, requested_title: str | None) -> tuple[Path, int]:
+def archive_destination(root: Path, project_folder: str, existing: Path | None, important: bool) -> Path:
+    # An existing archive stays where it is; --important moves it into _important
+    # unless it already lives somewhere under _important.
+    important_root = (root / "_important").resolve()
+    if existing:
+        container = existing.parent.resolve()
+        if not important or container.is_relative_to(important_root):
+            return container
+    if important:
+        return important_root
+    return root / project_folder
+
+
+def save_markdown(data: dict, config: dict, requested_title: str | None, important: bool = False) -> tuple[Path, int]:
     settings = config["harnesses"]["Hermes"]
     source = safe_part(str(data.get("source") or "Hermes"), "Hermes", 94)
-    title = safe_part(requested_title or str(data.get("title") or f"{source}-Chat"))
     started = parse_time(data.get("started_at"))
     root = Path(config["outputRoot"]).expanduser()
-    destination = root / f"{settings['folderPrefix']}{source}"
-    desired = destination / f"{settings['filePrefix']}{title}_{started:%Y%m%d_%H%M%S}.md"
     existing = find_existing(root, str(data["id"]))
-    path = desired if requested_title or not existing else existing
+    destination = archive_destination(root, f"{settings['folderPrefix']}{source}", existing, important)
+    if existing and not requested_title:
+        stem = existing.stem
+    else:
+        title = safe_part(requested_title or str(data.get("title") or f"{source}-Chat"))
+        stem = f"{settings['filePrefix']}{title}_{started:%Y%m%d_%H%M%S}"
+    desired = destination / f"{stem}.md"
+    path = existing if existing and desired.resolve() == existing.resolve() else desired
     if path.exists() and path != existing:
         index = 2
         while path.exists():
@@ -207,7 +224,7 @@ def inferred_profile() -> str | None:
     return None
 
 
-def export_one(session_id: str, config: dict, title: str | None, profile: str | None) -> None:
+def export_one(session_id: str, config: dict, title: str | None, profile: str | None, important: bool = False) -> None:
     with tempfile.TemporaryDirectory() as temp_root:
         temporary = Path(temp_root) / "session.jsonl"
         command = [sys.executable, "-m", "hermes_cli.main"]
@@ -221,7 +238,7 @@ def export_one(session_id: str, config: dict, title: str | None, profile: str | 
         if result.returncode or not temporary.is_file():
             detail = (result.stderr or result.stdout).strip()
             raise SystemExit(f"Hermes official session export failed: {detail or f'exit {result.returncode}'}")
-        path, visible_count = save_markdown(read_export(temporary), config, title)
+        path, visible_count = save_markdown(read_export(temporary), config, title, important)
     print(f"EXPORTED|{path}|messages={visible_count}|warnings=0")
     print(f"SUMMARY|harness=Hermes|exported=1|skipped=0|root={config['outputRoot']}")
 
@@ -262,13 +279,21 @@ def self_test() -> None:
         path.replace(moved)
         again, _ = save_markdown(data, config, None)
         assert again == moved.resolve()
-    print("HERMES_SELF_TEST_OK checks=8")
+        starred, _ = save_markdown(data, config, None, True)
+        assert starred == (root_path / "out" / "_important" / "kept.md").resolve() and not moved.exists()
+        nested = root_path / "out" / "_important" / "core" / "kept.md"
+        nested.parent.mkdir()
+        starred.replace(nested)
+        renamed, _ = save_markdown(data, config, "Renamed", True)
+        assert renamed.parent == nested.parent.resolve() and not nested.exists()
+    print("HERMES_SELF_TEST_OK checks=10")
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--session-id")
     parser.add_argument("--title")
+    parser.add_argument("--important", action="store_true", help="save under <outputRoot>/_important")
     parser.add_argument("--profile", help="Hermes profile name; inferred when installed inside a profile")
     parser.add_argument("--config-path")
     parser.add_argument("--show-config", action="store_true")
@@ -294,7 +319,7 @@ def main() -> None:
     session_id = args.session_id or os.environ.get("HERMES_SESSION_ID")
     if not session_id:
         raise SystemExit("No current Hermes session id is available. Pass --session-id.")
-    export_one(session_id, config, args.title, args.profile or inferred_profile())
+    export_one(session_id, config, args.title, args.profile or inferred_profile(), args.important)
 
 
 if __name__ == "__main__":

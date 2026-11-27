@@ -27,6 +27,7 @@ param(
     [switch]$IncludeArchived,
     [string]$WorkingDirectory,
     [string]$Title,
+    [switch]$Important,
 
     [ValidateRange(1, 1000)]
     [int]$Limit = 20,
@@ -560,25 +561,174 @@ function Find-ExistingExport {
     return $null
 }
 
+# An existing archive stays where it is, so folders the user arranges by hand
+# survive re-export and renames. -Important moves it into _important unless it
+# already lives somewhere under _important.
+function Get-ArchiveDestination {
+    param($Config, [string]$ProjectFolder, [string]$ExistingContainer)
+
+    $importantRoot = [IO.Path]::GetFullPath((Join-Path $Config.outputRoot '_important'))
+    if ($ExistingContainer) {
+        $container = [IO.Path]::GetFullPath($ExistingContainer).TrimEnd('\', '/')
+        $underImportant = ($container + '\').StartsWith($importantRoot + '\', [StringComparison]::OrdinalIgnoreCase)
+        if (-not $Important -or $underImportant) { return $container }
+    }
+    if ($Important) { return $importantRoot }
+    return Join-Path $Config.outputRoot $ProjectFolder
+}
+
+# Writes a task bundle: conversation.md (main transcript plus a subagent index),
+# subagents/<id>.md and manifest.json. Each child is
+# @{ Id; ParentId; Name; Type; Model; Record; Problems }, Record holding the child's visible
+# messages or $null when its source was unreadable. Returns $null when there are no children
+# and no earlier bundle, so the caller writes the usual single Markdown file. An earlier
+# single-file export of the same session migrates into the bundle.
+function Export-SubagentBundle {
+    param($Record, [string]$RequestedTitle, $Config, [object[]]$Children)
+
+    $existing = Find-ExistingExport $Config.outputRoot $Record
+    $oldBundle = $null
+    $oldFlat = $null
+    if ($existing) {
+        if ([IO.Path]::GetFileName($existing) -eq 'conversation.md' -and (Test-Path -LiteralPath (Join-Path (Split-Path $existing) 'manifest.json'))) {
+            $oldBundle = Split-Path $existing
+        } else { $oldFlat = $existing }
+    }
+    if (@($Children).Count -eq 0 -and -not $oldBundle) { return $null }
+    if ($Record.Messages.Count -eq 0) {
+        return [pscustomobject]@{ Status = 'SKIPPED'; Path = ''; Reason = 'no-visible-messages' }
+    }
+
+    $settings = $Config.harnesses.($Record.Harness)
+    $container = if ($oldBundle) { Split-Path -Parent $oldBundle } elseif ($oldFlat) { Split-Path -Parent $oldFlat } else { '' }
+    $destination = Get-ArchiveDestination $Config (Get-ProjectFolder $Record $settings) $container
+    [IO.Directory]::CreateDirectory($destination) | Out-Null
+    if ($oldBundle -and -not $RequestedTitle) {
+        $base = Split-Path -Leaf $oldBundle
+    } elseif ($oldFlat -and -not $RequestedTitle) {
+        $base = [IO.Path]::GetFileNameWithoutExtension($oldFlat)
+    } else {
+        $title = if ($RequestedTitle) { Get-SafeFilePart $RequestedTitle } else { Get-DerivedTitle $Record }
+        $base = ([string]$settings.filePrefix) + $title + '_' + $Record.Started.ToString('yyyyMMdd_HHmmss')
+    }
+    if ($oldBundle -and [IO.Path]::GetFullPath((Join-Path $destination $base)).Equals([IO.Path]::GetFullPath($oldBundle), [StringComparison]::OrdinalIgnoreCase)) {
+        $bundle = $oldBundle
+    } else {
+        $bundle = Join-Path $destination $base
+        $suffix = 2
+        while (Test-Path -LiteralPath $bundle) {
+            $bundle = Join-Path $destination ("${base}_$suffix")
+            $suffix++
+        }
+        if ($oldBundle) { Move-Item -LiteralPath $oldBundle -Destination $bundle }
+    }
+    $attachmentDir = Join-Path $bundle 'subagents'
+    [IO.Directory]::CreateDirectory($attachmentDir) | Out-Null
+    $manifestPath = Join-Path $bundle 'manifest.json'
+    $warnings = New-Object System.Collections.Generic.List[string]
+    $previous = @()
+    if (Test-Path -LiteralPath $manifestPath) {
+        try {
+            $oldManifest = Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
+            if (Test-Property $oldManifest 'subagents') { $previous = @($oldManifest.subagents) }
+        } catch { $warnings.Add('Previous manifest could not be read; existing attachments were retained.') }
+    }
+
+    $entries = New-Object System.Collections.Generic.List[object]
+    foreach ($child in @($Children)) {
+        $problems = New-Object System.Collections.Generic.List[string]
+        foreach ($problem in @($child.Problems)) { if ($problem) { $problems.Add([string]$problem) } }
+        if ($child.Record -and $child.Record.Messages.Count -eq 0) { $problems.Add('Subagent has no visible messages.') }
+        $relative = 'subagents/' + (Get-SafeFilePart ([string]$child.Id) 'agent' 120) + '.md'
+        $path = Join-Path $bundle ($relative.Replace('/', [IO.Path]::DirectorySeparatorChar))
+        $prior = @($previous | Where-Object id -eq $child.Id | Select-Object -First 1)
+        $count = 0
+        if ($child.Record -and $child.Record.Messages.Count -gt 0) {
+            try {
+                $header = New-Object Text.StringBuilder
+                [void]$header.AppendLine(("> **Subagent**: ``$($child.Type)`` $($child.Name)").TrimEnd())
+                [void]$header.AppendLine('>')
+                if ($child.Model) {
+                    [void]$header.AppendLine("> **Model**: ``$($child.Model)``")
+                    [void]$header.AppendLine('>')
+                }
+                [void]$header.AppendLine("> **Agent ID**: ``$($child.Id)``; **Parent**: ``$($child.ParentId)``")
+                [void]$header.AppendLine()
+                Write-AtomicText $path ($header.ToString() + (ConvertTo-ArchiveMarkdown $child.Record)) $true
+                $count = $child.Record.Messages.Count
+            } catch { $problems.Add('Subagent attachment could not be saved.') }
+        } elseif ($prior.Count -gt 0 -and $prior[0].path -and (Test-Path -LiteralPath $path)) {
+            $count = $prior[0].messages
+        } else { $relative = $null }
+
+        $status = if ($problems.Count) { 'partial' } else { 'complete' }
+        $label = if ($child.Name) { [string]$child.Name } else { [string]$child.Id }
+        foreach ($problem in $problems) { $warnings.Add("Subagent '$label': $problem") }
+        $entries.Add([pscustomobject]@{ id = [string]$child.Id; parentId = [string]$child.ParentId; name = $label; type = [string]$child.Type; model = [string]$child.Model; path = $relative; status = $status; messages = $count; warnings = @($problems.ToArray()) })
+    }
+    foreach ($old in $previous) {
+        if (@($entries | Where-Object id -eq $old.id).Count) { continue }
+        $problem = "Previously archived subagent '$($old.name)' was not discovered."
+        $warnings.Add($problem)
+        $entries.Add([pscustomobject]@{ id = $old.id; parentId = $old.parentId; name = $old.name; type = $old.type; model = $old.model; path = $old.path; status = 'partial'; messages = $old.messages; warnings = @($problem) })
+    }
+    if ($Record.WarningCount) { $warnings.Add('Root source contains malformed or attachment-only records.') }
+    $status = if ($warnings.Count) { 'partial' } else { 'complete' }
+
+    $index = New-Object Text.StringBuilder
+    [void]$index.AppendLine('## Subagents')
+    [void]$index.AppendLine()
+    [void]$index.AppendLine("Export completeness: **$status**. [Manifest](manifest.json)")
+    [void]$index.AppendLine()
+    foreach ($entry in $entries) {
+        $label = ([string]$entry.name).Replace('\', '\\').Replace('[', '\[').Replace(']', '\]')
+        $link = if ($entry.path) { "[$label](<$($entry.path)>)" } else { $label }
+        [void]$index.AppendLine("- ${link}: $($entry.status); type ``$($entry.type)``; parent ``$($entry.parentId)``; messages=$($entry.messages)")
+    }
+    if ($warnings.Count) {
+        [void]$index.AppendLine()
+        [void]$index.AppendLine('### Unresolved items')
+        foreach ($warning in $warnings) { [void]$index.AppendLine("- $warning") }
+    }
+    $conversation = Join-Path $bundle 'conversation.md'
+    Write-AtomicText $conversation ((ConvertTo-ArchiveMarkdown $Record) + "`r`n" + $index.ToString()) $true
+    $manifest = [ordered]@{ sessionId = $Record.Id; status = $status; messages = $Record.Messages.Count; warnings = @($warnings.ToArray()); subagents = @($entries.ToArray()) }
+    Write-AtomicText $manifestPath (($manifest | ConvertTo-Json -Depth 20) + "`r`n") $true
+    if ($oldFlat -and (Test-Path -LiteralPath $oldFlat)) { Remove-Item -LiteralPath $oldFlat }
+
+    $files = New-Object System.Collections.Generic.List[string]
+    $files.Add($conversation); $files.Add($manifestPath)
+    foreach ($attachment in @(Get-ChildItem -LiteralPath $attachmentDir -File -Filter '*.md')) { $files.Add($attachment.FullName) }
+    return [pscustomobject]@{ Status = 'EXPORTED'; Path = $conversation; Reason = ''; Messages = $Record.Messages.Count; Warnings = $warnings.Count; Completeness = $status; Files = @($files.ToArray()) }
+}
+
 function Export-SessionRecord {
     param($Record, [string]$RequestedTitle, $Config)
     if ($Record.Harness -eq 'Omp') { return Export-OmpBundle $Record $RequestedTitle $Config }
+    if ($Record.Harness -in @('Claude', 'Antigravity')) {
+        $bundleResult = Export-SubagentBundle $Record $RequestedTitle $Config @(Get-SubagentChildren $Record)
+        if ($bundleResult) { return $bundleResult }
+    }
 
     if ($Record.Messages.Count -eq 0) {
         return [pscustomobject]@{ Status = 'SKIPPED'; Path = ''; Reason = 'no-visible-messages' }
     }
     $settings = $Config.harnesses.($Record.Harness)
     $projectFolder = Get-ProjectFolder $Record $settings
-    $destination = Join-Path $Config.outputRoot $projectFolder
-
-    $chosenTitle = if ($RequestedTitle) { Get-SafeFilePart $RequestedTitle } else { Get-DerivedTitle $Record }
-    $stamp = $Record.Started.ToString('yyyyMMdd_HHmmss')
     $existingPath = Find-ExistingExport $Config.outputRoot $Record
-    $baseName = ([string]$settings.filePrefix) + $chosenTitle + '_' + $stamp
+    $existingContainer = if ($existingPath) { Split-Path -Parent $existingPath } else { '' }
+    $destination = Get-ArchiveDestination $Config $projectFolder $existingContainer
+
+    if ($existingPath -and -not $RequestedTitle) {
+        $baseName = [IO.Path]::GetFileNameWithoutExtension($existingPath)
+    } else {
+        $chosenTitle = if ($RequestedTitle) { Get-SafeFilePart $RequestedTitle } else { Get-DerivedTitle $Record }
+        $baseName = ([string]$settings.filePrefix) + $chosenTitle + '_' + $Record.Started.ToString('yyyyMMdd_HHmmss')
+    }
     $desiredPath = Join-Path $destination ($baseName + '.md')
     $previousPath = $null
 
-    if ($existingPath -and -not $RequestedTitle) {
+    if ($existingPath -and [IO.Path]::GetFullPath($desiredPath).Equals([IO.Path]::GetFullPath($existingPath), [StringComparison]::OrdinalIgnoreCase)) {
         $path = $existingPath
     } else {
         [IO.Directory]::CreateDirectory($destination) | Out-Null
@@ -712,8 +862,17 @@ if ($PSCmdlet.ParameterSetName -eq 'SessionId') {
 }
 
 $records = New-Object System.Collections.Generic.List[object]
+$unreadable = New-Object System.Collections.Generic.List[string]
 foreach ($file in ($candidateFiles | Sort-Object LastWriteTime -Descending)) {
-    $record = Get-AgentChatSessionRecord $file
+    # Browsing many sessions skips one that cannot be read; a named session still fails.
+    if ($PSCmdlet.ParameterSetName -in @('List', 'All')) {
+        try { $record = Get-AgentChatSessionRecord $file } catch {
+            $unreadable.Add("SKIPPED|$($file.FullName)|unreadable: $($_.Exception.Message)")
+            continue
+        }
+    } else {
+        $record = Get-AgentChatSessionRecord $file
+    }
     if (-not $record.IsInternal -and (Test-CwdMatch $record.Cwd $WorkingDirectory)) {
         $records.Add($record)
         if ($PSCmdlet.ParameterSetName -eq 'List' -and $records.Count -ge $Limit) { break }
@@ -722,6 +881,7 @@ foreach ($file in ($candidateFiles | Sort-Object LastWriteTime -Descending)) {
 }
 
 if ($PSCmdlet.ParameterSetName -eq 'List') {
+    foreach ($note in $unreadable) { Write-Warning $note }
     $index = 1
     foreach ($record in ($records | Select-Object -First $Limit)) {
         [pscustomobject]@{
@@ -771,13 +931,14 @@ if ($Title -and $records.Count -gt 1) {
 
 $config = Get-ArchiveConfig
 $exported = 0
-$skipped = 0
+$skipped = $unreadable.Count
+foreach ($note in $unreadable) { $note }
 $partial = 0
 foreach ($record in $records) {
     $result = Export-SessionRecord $record $Title $config
     if ($result.Status -eq 'EXPORTED') {
         $exported++
-        if ($harnessName -eq 'Omp') {
+        if ($result.PSObject.Properties['Completeness']) {
             if ($result.Completeness -eq 'partial') { $partial++ }
             "EXPORTED|$($result.Path)|messages=$($result.Messages)|warnings=$($result.Warnings)|completeness=$($result.Completeness)"
             foreach ($file in $result.Files) { "FILE|$file" }
@@ -789,7 +950,7 @@ foreach ($record in $records) {
         "SKIPPED|$($record.File.FullName)|$($result.Reason)"
     }
 }
-if ($harnessName -eq 'Omp') {
+if ($harnessName -in @('Omp', 'Claude')) {
     "SUMMARY|harness=$harnessName|exported=$exported|skipped=$skipped|partial=$partial|root=$($config.outputRoot)"
 } else {
     "SUMMARY|harness=$harnessName|exported=$exported|skipped=$skipped|root=$($config.outputRoot)"

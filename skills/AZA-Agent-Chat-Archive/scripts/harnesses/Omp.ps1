@@ -113,10 +113,6 @@ function Export-OmpBundle {
         return [pscustomobject]@{ Status = 'SKIPPED'; Path = ''; Reason = 'no-visible-messages' }
     }
     $settings = $Config.harnesses.Omp
-    $destination = Join-Path $Config.outputRoot (Get-ProjectFolder $Record $settings)
-    [IO.Directory]::CreateDirectory($destination) | Out-Null
-    $title = if ($RequestedTitle) { Get-SafeFilePart $RequestedTitle } else { Get-DerivedTitle $Record }
-    $base = ([string]$settings.filePrefix) + $title + '_' + $Record.Started.ToString('yyyyMMdd_HHmmss')
     $existing = Find-ExistingExport $Config.outputRoot $Record
     $oldBundle = $null
     $oldFlat = $null
@@ -125,7 +121,16 @@ function Export-OmpBundle {
             $oldBundle = Split-Path $existing
         } else { $oldFlat = $existing }
     }
+    $container = if ($oldBundle) { Split-Path -Parent $oldBundle } elseif ($oldFlat) { Split-Path -Parent $oldFlat } else { '' }
+    $destination = Get-ArchiveDestination $Config (Get-ProjectFolder $Record $settings) $container
+    [IO.Directory]::CreateDirectory($destination) | Out-Null
     if ($oldBundle -and -not $RequestedTitle) {
+        $base = Split-Path -Leaf $oldBundle
+    } else {
+        $title = if ($RequestedTitle) { Get-SafeFilePart $RequestedTitle } else { Get-DerivedTitle $Record }
+        $base = ([string]$settings.filePrefix) + $title + '_' + $Record.Started.ToString('yyyyMMdd_HHmmss')
+    }
+    if ($oldBundle -and [IO.Path]::GetFullPath((Join-Path $destination $base)).Equals([IO.Path]::GetFullPath($oldBundle), [StringComparison]::OrdinalIgnoreCase)) {
         $bundle = $oldBundle
     } else {
         $bundle = Join-Path $destination $base

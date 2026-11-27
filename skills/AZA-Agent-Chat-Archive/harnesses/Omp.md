@@ -22,7 +22,7 @@ Re-export matches session and agent IDs. A requested title renames the bundle; a
 
 ## Completion gate
 
-Report every saved absolute path and the exporter's message, skipped, warning, and completeness counts. A written main transcript alone does not establish a complete task archive.
+Report the bundle directory and its name. A written main transcript alone does not establish a complete task archive.
 
 Only report a complete export when the exporter confirms all identified descendants were saved and discovery has no unresolved gaps. Missing, unreadable, malformed, or unfinished descendants require a partial report naming the unresolved items. Treat unknown completeness as unverified, even when visible messages were saved.
 

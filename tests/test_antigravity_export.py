@@ -5,9 +5,11 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import sqlite3
 import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -38,6 +40,16 @@ def step(kind, message):
     return field(1, kind) + field(19 if kind == 14 else 20, message)
 
 
+def invoke_subagent(child_id):
+    return 132, field(1, 132) + field(132, f'invoke_subagent {{"conversationId":  "{child_id}"}}')
+
+
+def agent_message(sender, recipient, body, source_step):
+    origin = field(12, field(1, field(2, source_step)))
+    envelope = field(2, recipient) + field(3, sender) + field(4, body) + origin
+    return 101, field(1, 101) + field(114, field(3, "agent_message") + field(4, envelope))
+
+
 class AntigravityExportTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix="aza-antigravity-")
@@ -48,7 +60,7 @@ class AntigravityExportTests(unittest.TestCase):
         self.session_id = "11111111-1111-4111-8111-111111111111"
         self.path = self.make_session(self.session_id)
 
-    def make_session(self, session_id):
+    def make_session(self, session_id, steps=None, *, parent_id="", role=""):
         path = self.home / "conversations" / (session_id + ".db")
         with closing(sqlite3.connect(path)) as connection, connection:
             connection.executescript("""
@@ -60,17 +72,28 @@ class AntigravityExportTests(unittest.TestCase):
             """)
             connection.execute("INSERT INTO trajectory_meta VALUES (?, ?)", (session_id, session_id))
             metadata = field(2, field(1, 1793232000)) + field(7, self.root.as_uri())
+            if parent_id:
+                metadata += field(5, parent_id) + field(8, field(1, "self") + field(2, role) + field(3, "secret spawn config"))
             connection.execute("INSERT INTO trajectory_metadata_blob VALUES ('main', ?)", (metadata,))
-            connection.executemany("INSERT INTO steps (idx,step_type,step_payload) VALUES (?,?,?)", [
-                (0, 14, step(14, field(2, "使用 @example\nkeep <literal> text") + field(3, field(1, "secret expanded instructions")))),
-                (1, 15, step(15, field(1, "old answer") + field(8, "Visible answer 中文\n```\n  code\n```") + field(3, "secret thinking") + field(7, "secret tool arguments"))),
-                (2, 132, field(1, 132) + field(132, "secret tool output")),
-                (3, 15, step(15, field(3, "secret thinking only"))),
-            ])
+            if steps is None:
+                steps = [
+                    (14, step(14, field(2, "使用 @example\nkeep <literal> text") + field(3, field(1, "secret expanded instructions")))),
+                    (15, step(15, field(1, "old answer") + field(8, "Visible answer 中文\n```\n  code\n```") + field(3, "secret thinking") + field(7, "secret tool arguments"))),
+                    (132, field(1, 132) + field(132, "secret tool output")),
+                    (15, step(15, field(3, "secret thinking only"))),
+                ]
+            self.insert_steps(connection, steps)
         return path
 
+    @staticmethod
+    def insert_steps(connection, steps, start=0):
+        connection.executemany("INSERT INTO steps (idx,step_type,step_payload) VALUES (?,?,?)",
+                               ((idx, kind, payload) for idx, (kind, payload) in enumerate(steps, start)))
+
     def test_display_text_and_privacy(self):
-        record = reader.read_session(self.path)
+        result = subprocess.run([sys.executable, SCRIPTS / "Read-AntigravityChat.py", self.path],
+                                check=True, capture_output=True)
+        record = json.loads(result.stdout)
         self.assertEqual(record["messages"], [
             {"role": "user", "text": "使用 @example\nkeep <literal> text"},
             {"role": "assistant", "text": "Visible answer 中文\n```\n  code\n```"},
@@ -182,6 +205,126 @@ class AntigravityExportTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("Multiple Antigravity sessions", result.stderr)
         self.assertEqual(renamed[0].read_bytes(), saved)
+
+    def configure_bundle_export(self):
+        config = self.root / "config.json"
+        output = self.root / "out"
+        result = self.run_exporter("-Configure", "-ConfigPath", config, "-OutputRoot", output)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return output, ("-Harness", "Antigravity", "-AntigravityHome", self.home, "-ConfigPath", config)
+
+    def export_bundle(self, common, output, status):
+        result = self.run_exporter(*common, "-SessionId", self.session_id)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        exported, = [line for line in result.stdout.splitlines() if line.startswith("EXPORTED|")]
+        self.assertTrue(exported.endswith(f"|completeness={status}"), exported)
+        # Windows PowerShell can encode the Unicode output path in a legacy code page.
+        conversation, = output.rglob("conversation.md")
+        manifest = json.loads(conversation.with_name("manifest.json").read_text(encoding="utf-8-sig"))
+        self.assertEqual(manifest["sessionId"], self.session_id)
+        self.assertEqual(manifest["status"], status)
+        return conversation, manifest
+
+    def test_exports_nested_agents_and_merges_reports_at_sender_step(self):
+        child = "22222222-2222-4222-8222-222222222222"
+        grandchild = "33333333-3333-4333-8333-333333333333"
+        with closing(sqlite3.connect(self.path)) as connection, connection:
+            self.insert_steps(connection, [
+                invoke_subagent(child),
+                agent_message(child, self.session_id, "Child report", 1),
+            ], start=4)
+        self.make_session(child, [
+            agent_message(self.session_id, child, "Task for child", 4),
+            (15, step(15, field(8, "Child answer"))),
+            invoke_subagent(grandchild),
+            (15, step(15, field(8, "Child follow-up"))),
+            agent_message(grandchild, child, "Grandchild report", 1),
+        ], parent_id=self.session_id, role="Researcher")
+        self.make_session(grandchild, [
+            agent_message(child, grandchild, "Task for grandchild", 2),
+            (15, step(15, field(8, "Grandchild answer"))),
+        ], parent_id=child, role="Verifier")
+
+        output, common = self.configure_bundle_export()
+        listing = self.run_exporter(*common, "-List")
+        self.assertEqual(listing.returncode, 0, listing.stderr)
+        self.assertIn(self.session_id, listing.stdout)
+        self.assertNotIn(child, listing.stdout)
+        self.assertNotIn(grandchild, listing.stdout)
+        self.assertFalse(output.exists())
+
+        conversation, manifest = self.export_bundle(common, output, "complete")
+        self.assertEqual(manifest["messages"], 2)
+        self.assertEqual(manifest["warnings"], [])
+        self.assertCountEqual([entry["id"] for entry in manifest["subagents"]], [child, grandchild])
+        entries = {entry["id"]: entry for entry in manifest["subagents"]}
+        main = conversation.read_text(encoding="utf-8-sig")
+        self.assertIn("使用 @example", main)
+        self.assertIn("Visible answer 中文", main)
+        self.assertNotIn("secret", main)
+        expected = [
+            (child, self.session_id, "Researcher", [
+                ("User 1", "Task for child"), ("Model 1", "Child answer"),
+                ("Model 2", "Child report"), ("Model 3", "Child follow-up"),
+            ]),
+            (grandchild, child, "Verifier", [
+                ("User 1", "Task for grandchild"), ("Model 1", "Grandchild answer"),
+                ("Model 2", "Grandchild report"),
+            ]),
+        ]
+        for agent_id, parent_id, role, turns in expected:
+            with self.subTest(role=role):
+                entry = entries[agent_id]
+                path = f"subagents/{agent_id}.md"
+                self.assertEqual(
+                    (entry["parentId"], entry["name"], entry["type"], entry["path"],
+                     entry["status"], entry["messages"], entry["warnings"]),
+                    (parent_id, role, "self", path, "complete", len(turns), []),
+                )
+                self.assertIn(f"[{role}](<{path}>)", main)
+                markdown = (conversation.parent / path).read_text(encoding="utf-8-sig")
+                self.assertEqual(re.findall(r"^# ((?:User|Model) \d+)\n\n([^\n]+)", markdown, re.M), turns)
+                self.assertNotIn("secret", markdown)
+                for _, body in turns:
+                    self.assertNotIn(f"\n{body}\n", main)
+
+    def test_partial_bundle_keeps_available_transcript_and_last_good_attachment(self):
+        pending = "44444444-4444-4444-8444-444444444444"
+        missing = "55555555-5555-4555-8555-555555555555"
+        with closing(sqlite3.connect(self.path)) as connection, connection:
+            self.insert_steps(connection, [invoke_subagent(pending), invoke_subagent(missing)], start=4)
+        pending_db = self.make_session(pending, [
+            agent_message(self.session_id, pending, "Task still in progress", 4),
+        ], parent_id=self.session_id, role="Pending")
+
+        output, common = self.configure_bundle_export()
+        conversation, manifest = self.export_bundle(common, output, "partial")
+        entries = {entry["id"]: entry for entry in manifest["subagents"]}
+        self.assertEqual(entries.keys(), {pending, missing})
+        self.assertEqual(entries[pending]["status"], "partial")
+        self.assertEqual(entries[pending]["warnings"], ["Subagent has not reported back."])
+        self.assertEqual(entries[missing]["status"], "partial")
+        self.assertEqual(entries[missing]["warnings"], ["Subagent source could not be read."])
+        self.assertIsNone(entries[missing]["path"])
+        self.assertFalse((conversation.parent / f"subagents/{missing}.md").exists())
+        attachment = conversation.parent / f"subagents/{pending}.md"
+        self.assertEqual(entries[pending]["path"], f"subagents/{pending}.md")
+        self.assertIn("# User 1\n\nTask still in progress", attachment.read_text(encoding="utf-8-sig"))
+        main = conversation.read_text(encoding="utf-8-sig")
+        self.assertIn("### Unresolved items", main)
+        for entry in entries.values():
+            self.assertIn(entry["warnings"][0], main)
+        saved = attachment.read_bytes()
+
+        pending_db.unlink()
+        reexported, manifest = self.export_bundle(common, output, "partial")
+        self.assertEqual(reexported, conversation)
+        entry = next(entry for entry in manifest["subagents"] if entry["id"] == pending)
+        self.assertEqual(entry["status"], "partial")
+        self.assertEqual(entry["warnings"], ["Subagent source could not be read."])
+        self.assertEqual(entry["path"], f"subagents/{pending}.md")
+        self.assertEqual(entry["messages"], 1)
+        self.assertEqual(attachment.read_bytes(), saved)
 
 
 if __name__ == "__main__":

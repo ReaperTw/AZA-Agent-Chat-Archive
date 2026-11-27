@@ -28,6 +28,12 @@ Keeps the stored original user display text (`user_response`, legacy `query`) an
 
 Title comes from the local conversation summaries database when available; workspace and start time come from trajectory metadata. Re-export updates the existing Markdown and `-Title` renames it under the shared exporter contract. Existing configuration gains the `Antigravity-` / `AGY_` naming pair in memory without rewriting user preferences.
 
-Unknown step types/formats, missing step indices, malformed visible payloads, external/pruned parent histories, and legacy `.pb` files are rejected rather than presented as complete archives. Same-conversation FORK references are supported when the selected prefix is already copied into the contiguous local steps; abandoned branches are not merged. This is a visible-text archive of one local conversation, not a task/subagent bundle or a restorable Antigravity session. No UI/history equivalence claim is made from storage parsing alone.
+Unknown step types/formats, missing step indices, malformed visible payloads, external/pruned parent histories, and legacy `.pb` files are rejected rather than presented as complete archives. Same-conversation FORK references are supported when the selected prefix is already copied into the contiguous local steps; abandoned branches are not merged. This is a visible-text archive, not a restorable Antigravity session.
+
+## Subagents
+
+A subagent is its own conversation `.db`: trajectory metadata field 5 names the parent and field 8 holds its type and role. The parent spawns it with an `invoke_subagent` tool step, and the two exchange `agent_message` system steps. A conversation that spawned subagents saves a bundle with the layout in `harnesses/Omp.md` **Task bundle**. Each `subagents/<id>.md` holds the parent's task and follow-ups as User turns, plus the subagent's replies and its reports to the parent as Model turns. A report is placed at the step that sent it. Nested subagents are included and keep their parent in `manifest.json`. A subagent that never reported back, or whose `.db` is missing, makes the bundle partial.
+
+A subagent is left out of `-List`, `-All` and `-Latest` while its parent `.db` is on this machine. When the parent is gone, it is listed as a conversation of its own so its work stays reachable. No UI/history equivalence claim is made from storage parsing alone.
 
 Done when the exporter reports the saved absolute path, message/skipped/warning counts, or a specific unsupported-source error without replacing an existing archive.

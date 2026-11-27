@@ -30,15 +30,26 @@ function Get-ClaudeMessageKey {
 }
 
 function Get-ClaudeVisibleText {
-    param($Event)
+    param($Event, [switch]$Sidechain)
 
     if ((Test-Property $Event 'isMeta') -and $Event.isMeta) { return '' }
-    if ((Test-Property $Event 'isSidechain') -and $Event.isSidechain) { return '' }
+    if (-not $Sidechain -and (Test-Property $Event 'isSidechain') -and $Event.isSidechain) { return '' }
     if (-not (Test-Property $Event 'message') -or -not $Event.message) { return '' }
     $role = if (Test-Property $Event.message 'role') { [string]$Event.message.role } else { '' }
     if ($role -notin @('user', 'assistant')) { return '' }
 
     $raw = Get-ContentText $Event.message.content
+    # A subagent delivers its final report through SubagentHandback; that report is what the
+    # caller sees, so it counts as the subagent's visible answer.
+    if ($Sidechain -and $role -eq 'assistant' -and $Event.message.content -isnot [string]) {
+        foreach ($block in @($Event.message.content)) {
+            if ($block -and (Test-Property $block 'type') -and $block.type -eq 'tool_use' -and
+                (Test-Property $block 'name') -and $block.name -eq 'SubagentHandback' -and
+                (Test-Property $block 'input') -and $block.input -and (Test-Property $block.input 'message') -and $block.input.message) {
+                $raw = (($raw, [string]$block.input.message) | Where-Object { $_ }) -join "`r`n`r`n"
+            }
+        }
+    }
     if (-not $raw) { return '' }
     # A slash-command entry stores the command plus the injected skill body. Keep the command only.
     if ($role -eq 'user' -and $raw -match '(?is)<command-name(?:\s[^>]*)?>(?<name>.*?)</command-name\s*>') {
@@ -54,7 +65,7 @@ function Get-ClaudeVisibleText {
 }
 
 function Get-AgentChatSessionRecord {
-    param([IO.FileInfo]$File)
+    param([IO.FileInfo]$File, [switch]$Sidechain)
 
     $record = New-SessionRecord 'Claude' $File
     $nodes = @{}
@@ -69,7 +80,10 @@ function Get-AgentChatSessionRecord {
             $record.WarningCount++
             return
         }
-        if ((Test-Property $event 'sessionId') -and $event.sessionId -and -not $record.Id) {
+        if ($Sidechain -and (Test-Property $event 'agentId') -and $event.agentId -and -not $record.Id) {
+            $record.Id = [string]$event.agentId
+        }
+        if (-not $Sidechain -and (Test-Property $event 'sessionId') -and $event.sessionId -and -not $record.Id) {
             $record.Id = [string]$event.sessionId
         }
         if ((Test-Property $event 'cwd') -and $event.cwd -and -not $record.Cwd) {
@@ -90,7 +104,7 @@ function Get-AgentChatSessionRecord {
             $record.Title = [string]$event.summary
             return
         }
-        if ((Test-Property $event 'isSidechain') -and $event.isSidechain) { return }
+        if (-not $Sidechain -and (Test-Property $event 'isSidechain') -and $event.isSidechain) { return }
         $isMessage = $event.type -in @('user', 'assistant')
         if (-not (Test-Property $event 'uuid') -or -not $event.uuid) {
             if ($isMessage) { $record.WarningCount++ }
@@ -102,7 +116,7 @@ function Get-AgentChatSessionRecord {
         if ($isMessage) { $state.LastMessageId = $id }
     }
 
-    if (-not $record.Id) { $record.Id = $File.BaseName }
+    if (-not $record.Id) { $record.Id = if ($Sidechain) { $File.BaseName -replace '^agent-', '' } else { $File.BaseName } }
 
     $branch = New-Object System.Collections.Generic.List[object]
     $seen = @{}
@@ -143,7 +157,7 @@ function Get-AgentChatSessionRecord {
         if ($event.type -notin @('user', 'assistant')) { continue }
         $key = Get-ClaudeMessageKey $event
         if ($key -and $snapshotKeys.ContainsKey($key) -and $lastIndex[$key] -ne $i) { continue }
-        $text = Get-ClaudeVisibleText $event
+        $text = Get-ClaudeVisibleText $event -Sidechain:$Sidechain
         if (-not $text) { continue }
         if ($key) {
             $textKey = "$key`n$text"
@@ -166,4 +180,58 @@ function Get-AgentChatSessionRecord {
         $record.Messages.Add($last)
     }
     return [pscustomobject]$record
+}
+
+function Get-ClaudeSubagentFiles {
+    param($Record)
+
+    $dir = Join-Path (Join-Path $Record.File.DirectoryName $Record.File.BaseName) 'subagents'
+    if (-not (Test-Path -LiteralPath $dir -PathType Container)) { return @() }
+    return @(Get-ChildItem -LiteralPath $dir -File -Filter 'agent-*.jsonl' | Sort-Object Name)
+}
+
+# Subagents of a Claude Code session, for Export-SubagentBundle.
+function Get-SubagentChildren {
+    param($Record)
+
+    $agentFiles = @(Get-ClaudeSubagentFiles $Record)
+    foreach ($file in $agentFiles) {
+        $id = $file.BaseName -replace '^agent-', ''
+        $problems = New-Object System.Collections.Generic.List[string]
+        $meta = $null
+        $metaPath = $file.FullName -replace '\.jsonl$', '.meta.json'
+        if (Test-Path -LiteralPath $metaPath) {
+            try { $meta = Get-Content -LiteralPath $metaPath -Raw -Encoding UTF8 | ConvertFrom-Json } catch { $problems.Add('Subagent metadata is unreadable.') }
+        }
+        if (-not $meta -or -not (Test-Property $meta 'finished')) { $problems.Add('Subagent completion is unknown.') }
+        elseif (-not $meta.finished) { $problems.Add('Subagent is unfinished.') }
+
+        # A nested subagent's spawning tool call sits in its parent's transcript.
+        $parentId = $Record.Id
+        if ($meta -and (Test-Property $meta 'toolUseId') -and $meta.toolUseId) {
+            foreach ($other in $agentFiles) {
+                if ($other.FullName -eq $file.FullName) { continue }
+                if (Select-String -LiteralPath $other.FullName -SimpleMatch ('"id":"' + $meta.toolUseId + '"') -Quiet) {
+                    $parentId = $other.BaseName -replace '^agent-', ''
+                    break
+                }
+            }
+        }
+
+        $child = $null
+        try {
+            $child = Get-AgentChatSessionRecord $file -Sidechain
+            if ($child.WarningCount) { $problems.Add('Subagent source contains malformed records.') }
+        } catch { $problems.Add('Subagent source could not be read.') }
+
+        [pscustomobject]@{
+            Id = $id
+            ParentId = $parentId
+            Name = if ($meta -and (Test-Property $meta 'description')) { [string]$meta.description } else { '' }
+            Type = if ($meta -and (Test-Property $meta 'agentType')) { [string]$meta.agentType } else { '' }
+            Model = if ($meta -and (Test-Property $meta 'model')) { [string]$meta.model } else { '' }
+            Record = $child
+            Problems = @($problems.ToArray())
+        }
+    }
 }

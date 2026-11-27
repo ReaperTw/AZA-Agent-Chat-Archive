@@ -301,6 +301,194 @@ try {
     $legacyResult = @(& $exporter -Harness Claude -SessionPath $claudePath -ConfigPath $legacyPath)
     Assert-True ([bool](@($legacyResult) -match '^EXPORTED\|')) 'legacy config missing Claude settings was rejected'
 
+    $claudeAgentDir = Join-Path $claudeDir "$claudeId\subagents"
+    Write-JsonLines (Join-Path $claudeAgentDir 'agent-aaa111.jsonl') @(
+        [ordered]@{ type = 'user'; uuid = 's1'; parentUuid = $null; isSidechain = $true; agentId = 'aaa111'; sessionId = $claudeId; cwd = 'C:\Work\ClaudeRepo'; timestamp = '2026-08-13T05:01:00Z'; message = [ordered]@{ role = 'user'; content = 'Sub task prompt' } },
+        [ordered]@{ type = 'user'; uuid = 's2'; parentUuid = 's1'; isSidechain = $true; isMeta = $true; agentId = 'aaa111'; sessionId = $claudeId; message = [ordered]@{ role = 'user'; content = 'sub meta secret' } },
+        [ordered]@{ type = 'assistant'; uuid = 's3'; parentUuid = 's2'; isSidechain = $true; agentId = 'aaa111'; sessionId = $claudeId; message = [ordered]@{ id = 'm1'; role = 'assistant'; content = @([ordered]@{ type = 'thinking'; thinking = 'sub thinking secret' }, [ordered]@{ type = 'tool_use'; id = 'toolu_nested'; name = 'Agent'; input = [ordered]@{ prompt = 'sub tool secret' } }) } },
+        [ordered]@{ type = 'user'; uuid = 's4'; parentUuid = 's3'; isSidechain = $true; agentId = 'aaa111'; sessionId = $claudeId; message = [ordered]@{ role = 'user'; content = @([ordered]@{ type = 'tool_result'; content = 'sub result secret' }) } },
+        [ordered]@{ type = 'assistant'; uuid = 's5'; parentUuid = 's4'; isSidechain = $true; agentId = 'aaa111'; sessionId = $claudeId; message = [ordered]@{ id = 'm2'; role = 'assistant'; content = @([ordered]@{ type = 'tool_use'; id = 'toolu_back'; name = 'SubagentHandback'; input = [ordered]@{ message = 'Sub final report' } }) } }
+    )
+    [IO.File]::WriteAllText((Join-Path $claudeAgentDir 'agent-aaa111.meta.json'), '{"agentType":"Explore","description":"Look around","toolUseId":"toolu_root","model":"claude-haiku-5-5","finished":true}', (New-Object Text.UTF8Encoding($false)))
+    Write-JsonLines (Join-Path $claudeAgentDir 'agent-bbb222.jsonl') @(
+        [ordered]@{ type = 'user'; uuid = 'n1'; parentUuid = $null; isSidechain = $true; agentId = 'bbb222'; sessionId = $claudeId; message = [ordered]@{ role = 'user'; content = 'Nested prompt' } },
+        [ordered]@{ type = 'assistant'; uuid = 'n2'; parentUuid = 'n1'; isSidechain = $true; agentId = 'bbb222'; sessionId = $claudeId; message = [ordered]@{ id = 'm3'; role = 'assistant'; content = @([ordered]@{ type = 'text'; text = 'Nested answer' }) } }
+    )
+    [IO.File]::WriteAllText((Join-Path $claudeAgentDir 'agent-bbb222.meta.json'), '{"agentType":"general-purpose","description":"Nested job","toolUseId":"toolu_nested","finished":false}', (New-Object Text.UTF8Encoding($false)))
+    $bundleResult = @(& $exporter -Harness Claude -SessionPath $claudePath -ConfigPath $configPath)
+    $bundleExport = ($bundleResult | Where-Object { $_ -like 'EXPORTED|*' }) -replace '^EXPORTED\|([^|]+)\|.*$', '$1'
+    $bundleDir = Split-Path -Parent $bundleExport
+    Assert-True ($bundleExport -like '*\Claude-ClaudeRepo\Claude_Claude-Test_*\conversation.md' -and -not (Test-Path -LiteralPath $claudeExport)) 'Claude subagents did not migrate the flat export into a bundle'
+    Assert-True ([bool](@($bundleResult) -match 'completeness=partial')) 'Claude unfinished subagent not reported as partial'
+    $subText = Get-Content -LiteralPath (Join-Path $bundleDir 'subagents\aaa111.md') -Raw -Encoding UTF8
+    Assert-True ($subText -match 'Sub task prompt' -and $subText -match 'Sub final report' -and $subText -match 'Explore') 'Claude subagent prompt, handback report or type missing'
+    Assert-True ($subText -notmatch 'secret') 'Claude subagent internal content leaked'
+    $bundleManifest = Get-Content -LiteralPath (Join-Path $bundleDir 'manifest.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+    $nestedEntry = @($bundleManifest.subagents | Where-Object id -eq 'bbb222')
+    Assert-True ($nestedEntry.Count -eq 1 -and $nestedEntry[0].parentId -eq 'aaa111' -and $nestedEntry[0].status -eq 'partial') 'Claude nested subagent parent or status wrong'
+    Assert-True ((Get-Content -LiteralPath $bundleExport -Raw -Encoding UTF8) -match 'Claude final') 'Claude bundle lost the main transcript'
+    $bundleAgain = @(& $exporter -Harness Claude -SessionPath $claudePath -ConfigPath $configPath)
+    Assert-True ([bool](@($bundleAgain) -match [regex]::Escape("EXPORTED|$bundleExport|"))) 'Claude bundle re-export changed path'
+
+    $agyHome = Join-Path $testRoot 'antigravity'
+    $agyParent = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+    $agyChild = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
+    $agyGrandchild = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
+    $agyMissing = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
+    $agyGenerator = Join-Path $testRoot 'make-antigravity-fixture.py'
+    @'
+from contextlib import closing
+from pathlib import Path
+import sqlite3
+import sys
+
+def varint(value):
+    result = bytearray()
+    while value >= 128:
+        result.append((value & 127) | 128)
+        value >>= 7
+    return bytes(result + bytes([value]))
+
+def field(number, value):
+    if isinstance(value, int):
+        return varint(number << 3) + varint(value)
+    if isinstance(value, str):
+        value = value.encode("utf-8")
+    return varint(number << 3 | 2) + varint(len(value)) + value
+
+def step(kind, number, body):
+    return kind, field(1, kind) + field(number, body)
+
+def answer(text):
+    return step(15, 20, field(8, text) + field(3, "secret reasoning"))
+
+def invoke(child):
+    return step(132, 132, f'invoke_subagent {{"conversationId":  "{child}"}}')
+
+def message(sender, recipient, text, source_idx):
+    origin = field(12, field(1, field(2, source_idx)))
+    envelope = field(2, recipient) + field(3, sender) + field(4, text) + origin
+    return step(101, 114, field(3, "agent_message") + field(4, envelope))
+
+def insert_steps(db, steps, start=0):
+    db.executemany("INSERT INTO steps VALUES (?, ?, ?, 0)",
+                   ((idx, kind, payload) for idx, (kind, payload) in enumerate(steps, start)))
+
+def create(session, steps, parent=None, role=None):
+    with closing(sqlite3.connect(directory / f"{session}.db")) as db, db:
+        db.executescript("""
+            CREATE TABLE trajectory_meta (trajectory_id TEXT, cascade_id TEXT);
+            CREATE TABLE steps (idx INTEGER PRIMARY KEY, step_type INTEGER,
+                                step_payload BLOB, step_format INTEGER);
+            CREATE TABLE parent_references (idx INTEGER, data BLOB);
+            CREATE TABLE trajectory_metadata_blob (id TEXT, data BLOB);
+        """)
+        db.execute("INSERT INTO trajectory_meta VALUES (?, ?)", (session, session))
+        metadata = field(2, field(1, 1793232000)) + field(7, "file:///c%3A/Work/AgyRepo")
+        if parent:
+            metadata += field(5, parent) + field(8, field(1, "self") + field(2, role) + field(3, "secret spawn config"))
+        db.execute("INSERT INTO trajectory_metadata_blob VALUES ('main', ?)", (metadata,))
+        insert_steps(db, steps)
+
+home, parent, child, grandchild, missing, phase = sys.argv[1:]
+directory = Path(home) / "conversations"
+parent_db = directory / f"{parent}.db"
+if phase == "flat":
+    directory.mkdir(parents=True)
+    create(parent, [
+        step(14, 19, field(2, "Antigravity visible prompt")),
+        answer("Antigravity visible reply"),
+        step(101, 114, field(3, "secret system message")),
+        step(132, 132, "secret tool output"),
+    ])
+elif phase == "complete":
+    create(child, [
+        message(parent, child, "Child task", 4),
+        answer("Child answer"),
+        invoke(grandchild),
+        message(grandchild, child, "Nested report", 1),
+        answer("Child continuation"),
+    ], parent, "Researcher")
+    create(grandchild, [
+        message(child, grandchild, "Nested task", 2),
+        answer("Nested answer"),
+    ], child, "Verifier")
+    with closing(sqlite3.connect(parent_db)) as db, db:
+        insert_steps(db, [invoke(child), message(child, parent, "Child report", 1)], start=4)
+elif phase == "partial":
+    with closing(sqlite3.connect(parent_db)) as db, db:
+        db.execute("DELETE FROM steps WHERE idx=5")
+        insert_steps(db, [invoke(missing)], start=5)
+'@ | Set-Content -LiteralPath $agyGenerator -Encoding ASCII
+    $agyPython = Get-Command python, python3, py -ErrorAction SilentlyContinue | Select-Object -First 1
+    $agyPythonArgs = @()
+    if ($agyPython.Name -in @('py', 'py.exe')) { $agyPythonArgs += '-3' }
+    $agyPythonArgs += @($agyGenerator, $agyHome, $agyParent, $agyChild, $agyGrandchild, $agyMissing)
+    $agyExportArgs = @{ Harness = 'Antigravity'; AntigravityHome = $agyHome; ConfigPath = $configPath }
+
+    & $agyPython.Source @agyPythonArgs flat
+    Assert-True ($LASTEXITCODE -eq 0) 'Antigravity flat fixture generation failed'
+    $agyFlatResult = @(& $exporter @agyExportArgs -SessionId $agyParent)
+    $agyFlatPath = ($agyFlatResult | Where-Object { $_ -like 'EXPORTED|*' }) -replace '^EXPORTED\|([^|]+)\|.*$', '$1'
+    $agyProject = Split-Path -Parent $agyFlatPath
+    Assert-True ($agyFlatPath -like '*.md' -and (Split-Path -Leaf $agyFlatPath) -ne 'conversation.md' -and
+        @(Get-ChildItem -LiteralPath $agyProject -Recurse -File).Count -eq 1) 'Antigravity session without subagents did not produce one flat Markdown file'
+    $agyFlatText = Get-Content -LiteralPath $agyFlatPath -Raw -Encoding UTF8
+    Assert-True ($agyFlatText -match '# User 1\s+Antigravity visible prompt' -and
+        $agyFlatText -match '# Model 1\s+Antigravity visible reply') 'Antigravity flat transcript lost visible user or assistant text'
+    Assert-True ($agyFlatText -notmatch 'secret') 'Antigravity flat transcript leaked private text'
+
+    & $agyPython.Source @agyPythonArgs complete
+    Assert-True ($LASTEXITCODE -eq 0) 'Antigravity complete fixture generation failed'
+    $agyListed = @(& $exporter @agyExportArgs -List | Select-Object -ExpandProperty SessionId)
+    Assert-True ($agyListed -contains $agyParent -and $agyListed -notcontains $agyChild) 'Antigravity list did not hide the child while its parent existed'
+    $agyBundleResult = @(& $exporter @agyExportArgs -SessionId $agyParent)
+    $agyConversation = ($agyBundleResult | Where-Object { $_ -like 'EXPORTED|*' }) -replace '^EXPORTED\|([^|]+)\|.*$', '$1'
+    $agyBundle = Join-Path $agyProject ([IO.Path]::GetFileNameWithoutExtension($agyFlatPath))
+    Assert-True ($agyConversation -eq (Join-Path $agyBundle 'conversation.md') -and
+        -not (Test-Path -LiteralPath $agyFlatPath)) 'Antigravity did not migrate the flat export to a bundle and remove the old file'
+    $agyMain = Get-Content -LiteralPath $agyConversation -Raw -Encoding UTF8
+    Assert-True ($agyMain.Contains('Antigravity visible prompt') -and $agyMain.Contains('Antigravity visible reply') -and
+        $agyMain -notmatch 'Child (task|report)|Nested (task|report)') 'Antigravity bundle lost root text or mixed subagent turns into it'
+    $agyChildText = Get-Content -LiteralPath (Join-Path $agyBundle "subagents/$agyChild.md") -Raw -Encoding UTF8
+    Assert-True ($agyChildText -match '# User 1\s+Child task\s+# Model 1\s+Child answer\s+# Model 2\s+Child report\s+# Model 3\s+Child continuation') 'Antigravity child roles or report placement at the sender step are wrong'
+    $agyManifestPath = Join-Path $agyBundle 'manifest.json'
+    $agyManifest = Get-Content -LiteralPath $agyManifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    $agyChildEntry = @($agyManifest.subagents | Where-Object id -eq $agyChild)
+    Assert-True ($agyManifest.status -eq 'complete' -and $agyChildEntry.Count -eq 1 -and
+        $agyChildEntry[0].parentId -eq $agyParent -and $agyChildEntry[0].type -eq 'self' -and
+        $agyChildEntry[0].name -eq 'Researcher' -and $agyChildEntry[0].status -eq 'complete') 'Antigravity complete manifest has incorrect child identity, role or status'
+    $agyNested = @($agyManifest.subagents | Where-Object id -eq $agyGrandchild)
+    Assert-True ($agyNested.Count -eq 1 -and $agyNested[0].parentId -eq $agyChild) 'Antigravity nested manifest entry did not retain its immediate parent'
+    Assert-True (-not (Get-ChildItem -LiteralPath $agyBundle -Recurse -File | Select-String -SimpleMatch 'secret')) 'Antigravity complete bundle leaked private text'
+
+    & $agyPython.Source @agyPythonArgs partial
+    Assert-True ($LASTEXITCODE -eq 0) 'Antigravity partial fixture generation failed'
+    $agyPartialResult = @(& $exporter @agyExportArgs -SessionId $agyParent)
+    Assert-True ([bool]($agyPartialResult -match '^EXPORTED\|.*\|completeness=partial$')) 'Antigravity missing source interrupted export or did not report partial'
+    $agyPartial = Get-Content -LiteralPath $agyManifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    $agyPending = @($agyPartial.subagents | Where-Object id -eq $agyChild)
+    Assert-True ($agyPartial.status -eq 'partial' -and $agyPending.Count -eq 1 -and
+        $agyPending[0].status -eq 'partial' -and $agyPending[0].warnings -contains 'Subagent has not reported back.') 'Antigravity child without a report was not marked partial'
+    $agyUnavailable = @($agyPartial.subagents | Where-Object id -eq $agyMissing)
+    Assert-True ($agyUnavailable.Count -eq 1 -and $agyUnavailable[0].status -eq 'partial' -and
+        -not $agyUnavailable[0].path -and $agyUnavailable[0].warnings -contains 'Subagent source could not be read.') 'Antigravity missing child was not recorded as partial with no attachment'
+    Assert-True (-not (Get-ChildItem -LiteralPath $agyBundle -Recurse -File | Select-String -SimpleMatch 'secret')) 'Antigravity partial bundle leaked private text'
+
+    Move-Item -LiteralPath (Join-Path $agyHome "conversations/$agyParent.db") -Destination $testRoot
+    $agyOrphanList = @(& $exporter @agyExportArgs -List | Select-Object -ExpandProperty SessionId)
+    Assert-True ($agyOrphanList -contains $agyChild) 'Antigravity list did not show the child after its parent was moved'
+
+    $agyBroken = Join-Path $agyHome 'conversations/99999999-9999-4999-8999-999999999999.db'
+    [IO.File]::WriteAllBytes($agyBroken, [byte[]](1..64))
+    $agyListWarnings = $null
+    $agyBrokenList = @(& $exporter @agyExportArgs -List -WarningVariable agyListWarnings -WarningAction SilentlyContinue 2>$null | Select-Object -ExpandProperty SessionId)
+    Assert-True ($agyBrokenList -contains $agyChild -and @($agyListWarnings | Where-Object { "$_" -like '*99999999-9999*' }).Count -eq 1) 'Antigravity list stopped at an unreadable conversation or did not warn about it'
+    $agyNamed = $false
+    try { & $exporter @agyExportArgs -SessionPath $agyBroken 2>$null | Out-Null } catch { $agyNamed = $true }
+    Assert-True $agyNamed 'Antigravity export of a named unreadable conversation did not fail'
+    Remove-Item -LiteralPath $agyBroken
+
     $customConfig = Join-Path $testRoot 'custom-config.json'
     & $exporter -Configure -ConfigPath $customConfig -OutputRoot (Join-Path $testRoot 'custom-output') `
         -CodexFolderPrefix '' -CodexFilePrefix '' -GrokFolderPrefix '' -GrokFilePrefix '' `
@@ -357,6 +545,26 @@ try {
     $again = @(& $exporter -Harness Codex -SessionPath $codexPath -ConfigPath $configPath)
     $againPath = ($again | Where-Object { $_ -like 'EXPORTED|*' }) -replace '^EXPORTED\|([^|]+)\|.*$', '$1'
     Assert-True ($againPath -eq $movedFile) 're-export did not update the file outside the project folder'
+    $movedRename = @(& $exporter -Harness Codex -SessionPath $codexPath -ConfigPath $configPath -Title 'Moved Rename')
+    $movedRenamePath = ($movedRename | Where-Object { $_ -like 'EXPORTED|*' }) -replace '^EXPORTED\|([^|]+)\|.*$', '$1'
+    Assert-True ((Split-Path -Parent $movedRenamePath) -eq $movedDir -and -not (Test-Path -LiteralPath $movedFile)) 'title rename moved the archive out of its folder'
+
+    $importantDir = Join-Path $outputRoot '_important'
+    $starred = @(& $exporter -Harness Codex -SessionPath $codexPath -ConfigPath $configPath -Important)
+    $starredPath = ($starred | Where-Object { $_ -like 'EXPORTED|*' }) -replace '^EXPORTED\|([^|]+)\|.*$', '$1'
+    Assert-True ($starredPath -eq (Join-Path $importantDir (Split-Path -Leaf $movedRenamePath)) -and -not (Test-Path -LiteralPath $movedRenamePath)) '-Important did not move the archive flat into _important'
+    $userDir = Join-Path $importantDir 'core'
+    [IO.Directory]::CreateDirectory($userDir) | Out-Null
+    $userFile = Join-Path $userDir 'kept.md'
+    Move-Item -LiteralPath $starredPath -Destination $userFile
+    $kept = @(& $exporter -Harness Codex -SessionPath $codexPath -ConfigPath $configPath -Important -Title 'Still Important')
+    $keptPath = ($kept | Where-Object { $_ -like 'EXPORTED|*' }) -replace '^EXPORTED\|([^|]+)\|.*$', '$1'
+    Assert-True ((Split-Path -Parent $keptPath) -eq $userDir) '-Important moved an archive out of a user folder under _important'
+
+    $ompStarred = @(& $exporter -Harness Omp -SessionPath $ompPath -ConfigPath $configPath -Important)
+    $ompStarredPath = ($ompStarred | Where-Object { $_ -like 'EXPORTED|*' }) -replace '^EXPORTED\|([^|]+)\|.*$', '$1'
+    Assert-True ((Split-Path -Parent (Split-Path -Parent $ompStarredPath)) -eq $importantDir -and (Split-Path -Leaf (Split-Path -Parent $ompStarredPath)) -like 'OMP_Renamed-OMP_*') '-Important did not move the OMP bundle into _important'
+    Assert-True ((Get-ChildItem -LiteralPath (Split-Path -Parent $ompStarredPath) -Recurse -File -Filter '*.md').Count -ge 2) '-Important lost OMP attachments'
     Assert-True (-not (Get-ChildItem -LiteralPath $outputRoot -Recurse -Force -Filter '.*.tmp')) 'atomic write left a temp file'
 
 
